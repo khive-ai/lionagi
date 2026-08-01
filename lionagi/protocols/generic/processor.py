@@ -37,6 +37,8 @@ class Processor(Observer):
             raise ValueError("Queue capacity must be greater than 0.")
         if capacity_refresh_time <= 0:
             raise ValueError("Capacity refresh time must be larger than 0.")
+        if max_queue_size < 0:
+            raise ValueError("Queue size must be non-negative.")
 
         self.queue_capacity = queue_capacity
         self.capacity_refresh_time = capacity_refresh_time
@@ -101,11 +103,8 @@ class Processor(Observer):
         return cls(**kwargs)
 
     async def process(self) -> None:
-        """Dequeue and process events up to available capacity.
-
-        Denied events are either terminal (SKIPPED) or deferred (re-enqueued).
-        Cycle stops when all queued events have been deferred to avoid busy-spin.
-        """
+        """Dequeue and process events up to available capacity; stops once all
+        queued events have been deferred, to avoid busy-spin."""
         events_processed = 0
         deferred = 0
 
@@ -115,6 +114,7 @@ class Processor(Observer):
 
                 if not await self.request_permission(**next_event.request):
                     if await self.handle_denied(next_event):
+                        events_processed += 1
                         self._available_capacity -= 1
                     else:
                         # Deferred: re-enqueue for retry, don't consume capacity.

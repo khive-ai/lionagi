@@ -1,7 +1,9 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0025 session status vocabulary tests — six-value vocabulary, FSM transitions, admin transitions, and legacy CHECK-constraint rebuild path."""
+"""ADR-0057 session status vocabulary tests — seven-value vocabulary (adds
+completed_empty for the completion-trust gate), FSM transitions, admin
+transitions, and legacy CHECK-constraint rebuild path."""
 
 from __future__ import annotations
 
@@ -16,7 +18,6 @@ from lionagi.state.db import (
     SESSION_TERMINAL_STATUSES,
     VALID_SESSION_STATUSES,
     StateDB,
-    can_transition,
 )
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -49,9 +50,17 @@ async def _make_session(db: StateDB, *, status: str | None = None) -> dict:
 # ── Vocabulary ────────────────────────────────────────────────────────────────
 
 
-def test_vocabulary_has_six_values():
+def test_vocabulary_has_seven_values():
     assert VALID_SESSION_STATUSES == frozenset(
-        {"running", "completed", "failed", "timed_out", "aborted", "cancelled"}
+        {
+            "running",
+            "completed",
+            "completed_empty",
+            "failed",
+            "timed_out",
+            "aborted",
+            "cancelled",
+        }
     )
 
 
@@ -68,35 +77,10 @@ def test_admin_targets_exclude_completed_and_timed_out():
     assert ADMIN_TRANSITION_TARGETS == frozenset({"failed", "aborted", "cancelled"})
 
 
-# ── can_transition ────────────────────────────────────────────────────────────
-
-
-def test_can_transition_only_from_running():
-    for target in SESSION_TERMINAL_STATUSES:
-        assert can_transition("running", target)
-
-
-def test_can_transition_rejects_terminal_origin():
-    for current in SESSION_TERMINAL_STATUSES:
-        for target in SESSION_TERMINAL_STATUSES:
-            assert not can_transition(current, target), (
-                f"transition {current!r} → {target!r} should be rejected"
-            )
-
-
-def test_can_transition_rejects_unknown_target():
-    assert not can_transition("running", "in_progress")
-    assert not can_transition("running", "stale")  # stale = health, not status
-
-
-def test_can_transition_rejects_none_origin():
-    assert not can_transition(None, "completed")
-
-
 # ── DB-level validation ───────────────────────────────────────────────────────
 
 
-async def test_create_session_accepts_all_six_statuses(db: StateDB):
+async def test_create_session_accepts_all_seven_statuses(db: StateDB):
     for status in VALID_SESSION_STATUSES:
         s = await _make_session(db, status=status)
         retrieved = await db.get_session(s["id"])
@@ -117,7 +101,7 @@ async def test_update_session_accepts_cancelled(db: StateDB):
 
 async def test_update_session_rejects_unknown_status(db: StateDB):
     s = await _make_session(db, status="running")
-    with pytest.raises(ValueError, match="ADR-0025 vocabulary"):
+    with pytest.raises(ValueError, match="ADR-0057 vocabulary"):
         await db.update_session(s["id"], status="stale")
 
 
@@ -125,10 +109,10 @@ async def test_update_session_rejects_unknown_status(db: StateDB):
 
 
 async def test_drop_legacy_check_rebuilds_table(tmp_path: Path):
-    """An existing DB with the ADR-0017 4-value CHECK is migrated on open."""
+    """An existing DB with the legacy four-value CHECK is migrated on open."""
     path = tmp_path / "legacy.db"
 
-    # Hand-build the legacy schema: ADR-0017 4-value CHECK on sessions.status.
+    # Hand-build the legacy schema: the old 4-value CHECK on sessions.status.
     async with aiosqlite.connect(str(path)) as old:
         await old.execute(
             """
@@ -199,7 +183,7 @@ async def test_drop_legacy_check_is_idempotent(tmp_path: Path):
     await state1.update_session(s["id"], status="cancelled")
     await state1.close()
 
-    # Second open — _drop_legacy_session_status_check should find no
+    # Second open — _rebuild_legacy_sessions_table should find no
     # marker and return immediately.
     state2 = StateDB(path)
     await state2.open()
@@ -215,9 +199,12 @@ async def test_drop_legacy_check_is_idempotent(tmp_path: Path):
 def test_cli_exit_code_map_matches_adr0025():
     from lionagi.cli._util import EXIT_CODE_BY_STATUS as _EXIT_CODE_BY_TERMINAL_STATUS
 
-    # ADR-0025 spec table: 0 / 1 / 124 / 130 / 143.
+    # The table is 0 / 1 / 124 / 130 / 143. completed_empty (the
+    # completion-trust gate) shares exit code 1 with failed — both are
+    # non-zero so scripts/CI/schedule chaining treat them as a failure.
     assert _EXIT_CODE_BY_TERMINAL_STATUS == {
         "completed": 0,
+        "completed_empty": 1,
         "failed": 1,
         "timed_out": 124,
         "aborted": 130,

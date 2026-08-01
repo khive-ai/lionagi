@@ -38,24 +38,8 @@ class iModelManager(Manager):  # noqa: N801 — mirrors iModel naming
             raise TypeError("Input model is not an instance of iModel")
 
     async def shutdown(self, *, per_model_timeout: float = 10.0) -> None:
-        """Close every registered iModel.
-
-        Stops each iModel's RateLimitedAPIExecutor (and therefore its
-        background ``start_replenishing`` task). Without this, the
-        replenisher task stays scheduled on the event loop and prevents
-        ``anyio.run`` / ``asyncio.run`` from returning — the CLI hangs.
-
-        Closes models **concurrently** with a per-model timeout. The
-        CLI runs this inside an ``anyio.CancelScope(shield=True)`` so a
-        single wedged close can't propagate cancellation, and the
-        timeout prevents one stuck close from blocking the others.
-
-        Safe to call multiple times; ``iModel.close()`` is idempotent
-        on an already-stopped executor. Failures (including
-        ``CancelledError`` which is ``BaseException`` not ``Exception``)
-        are logged per model and swallowed so one broken endpoint
-        cannot leak the rest of the registry.
-        """
+        """Close every registered iModel concurrently, with a per-model timeout.
+        Idempotent; per-model failures are logged and swallowed. See docs/internals/runtime.md."""
         import asyncio
         import logging
 

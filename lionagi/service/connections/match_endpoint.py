@@ -10,11 +10,15 @@ __all__ = ("match_endpoint",)
 def match_endpoint(
     provider: str,
     endpoint: str,
+    *,
+    openai_compatible: bool = False,
     **kwargs,
 ) -> Endpoint:
-    """Match a provider + endpoint to an Endpoint class.
+    """Match a provider + endpoint to an Endpoint class via EndpointRegistry.
 
-    Delegates to EndpointRegistry which uses @register_endpoint
-    decorators for auto-discovery.
+    An unrecognized ``provider`` raises ``ProviderNotFoundError`` unless
+    ``openai_compatible=True`` explicitly authorizes routing it to the
+    generic OpenAI-compatible endpoint (or ``base_url=`` is given, which
+    authorizes the same fallback with a deprecation warning).
     """
-    return EndpointRegistry.match(provider, endpoint, **kwargs)
+    return EndpointRegistry.match(provider, endpoint, openai_compatible=openai_compatible, **kwargs)

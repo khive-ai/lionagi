@@ -19,15 +19,7 @@ F = TypeVar("F", bound=Callable)
 
 
 def _normalize_hook_key(key: HookEventTypes | str) -> HookEventTypes | str:
-    """Accept the documented string aliases for hook keys.
-
-    ``HookDict`` is typed with string keys ("pre_invoke", "post_invoke",
-    "pre_event_create"), but ``validate_hooks`` requires
-    :class:`HookEventTypes` members. Callers that construct the
-    registry from a plain dict were rejected at validation despite the
-    advertised contract; this helper coerces known strings before
-    validation runs.
-    """
+    """Coerce documented string hook-key aliases to `HookEventTypes` before validation."""
     if isinstance(key, HookEventTypes):
         return key
     if isinstance(key, str):
@@ -35,9 +27,7 @@ def _normalize_hook_key(key: HookEventTypes | str) -> HookEventTypes | str:
             "pre_invoke": HookEventTypes.PreInvocation,
             "post_invoke": HookEventTypes.PostInvocation,
             "pre_event_create": HookEventTypes.PreEventCreate,
-            # Legacy alias — decorator name on HookRegistry is
-            # `pre_event_create_hook`, so callers constructing via dict often
-            # use this string. Preserve both spellings for backward compat.
+            # Legacy alias matching the decorator name; kept for backward compat.
             "pre_event_create_hook": HookEventTypes.PreEventCreate,
         }
         if key in aliases:
@@ -137,18 +127,8 @@ class HookRegistry:
     async def pre_event_create(
         self, event_type: type[E], /, should_exit: bool = False, **kw
     ) -> tuple[E | Exception | None, bool, EventStatus]:
-        """Hook to be called before an event is created.
-
-        Typically used to modify or validate the event creation parameters.
-
-        The hook function takes an event type and any additional keyword arguments.
-        It can:
-            - return an instance of the event type
-            - return None if no event should be created during handling, event will be
-                created in corresponding default manner
-            - raise an exception if this event should be cancelled
-                (status: cancelled, reason: f"pre-event-create hook aborted this event: {e}")
-        """
+        """Called before an event is created; may return an event instance, return None
+        for the default creation path, or raise to cancel. See docs/internals/runtime.md."""
         # Pop legacy exit alias from kw so it doesn't collide with should_exit.
         _exit_compat = kw.pop("exit", False)
         _should_exit = should_exit or bool(_exit_compat)
@@ -171,14 +151,8 @@ class HookRegistry:
     async def pre_invocation(
         self, event: E, /, should_exit: bool = False, **kw
     ) -> tuple[Any, bool, EventStatus]:
-        """Hook to be called when an event is dequeued and right before it is invoked.
-
-        Typically used to check permissions.
-
-        The hook function takes the content of the event as a dictionary.
-        It can either raise an exception to abort the event invocation or pass to continue (status: cancelled).
-        It cannot modify the event itself, and won't be able to access the event instance.
-        """
+        """Called right before a dequeued event is invoked; can raise to abort
+        (status: cancelled), but cannot modify the event instance."""
         _exit_compat = kw.pop("exit", False)
         _should_exit = should_exit or bool(_exit_compat)
         kw["exit"] = _should_exit
@@ -199,10 +173,8 @@ class HookRegistry:
     async def post_invocation(
         self, event: E, /, should_exit: bool = False, **kw
     ) -> tuple[None | Exception, bool, EventStatus]:
-        """Hook to be called right after event finished its execution.
-        It can either raise an exception to abort the event invocation or pass to continue (status: aborted).
-        It cannot modify the event itself, and won't be able to access the event instance.
-        """
+        """Called right after an event finishes execution; can raise to abort
+        (status: aborted), but cannot modify the event instance."""
         _exit_compat = kw.pop("exit", False)
         _should_exit = should_exit or bool(_exit_compat)
         kw["exit"] = _should_exit
@@ -223,13 +195,8 @@ class HookRegistry:
     async def handle_streaming_chunk(
         self, chunk_type: str | type, chunk: Any, /, should_exit: bool = False, **kw
     ) -> tuple[Any, bool, EventStatus | None]:
-        """Hook to be called to consume streaming chunks.
-
-        Typically used for logging or stream event abortion.
-
-        The handler function signature should be: `async def handler(chunk: Any) -> None`
-        It can either raise an exception to mark the event invocation as "failed" or pass to continue (status: aborted).
-        """
+        """Called to consume streaming chunks; handler signature `async def handler(chunk) -> None`,
+        can raise to mark the invocation "failed" (status: aborted)."""
         _exit_compat = kw.pop("exit", False)
         _should_exit = should_exit or bool(_exit_compat)
         kw["exit"] = _should_exit
@@ -257,16 +224,8 @@ class HookRegistry:
         should_exit: bool = False,
         **kw,
     ):
-        """Call a hook or stream handler.
-
-        If method is provided, it will call the corresponding hook.
-        If chunk_type is provided, it will call the corresponding stream handler.
-        If both are provided, method will be used.
-
-        The legacy ``exit`` keyword may be passed in ``**kw`` for backward
-        compatibility.  Each internal dispatch method normalizes ``exit`` /
-        ``should_exit`` before forwarding to the actual hook function.
-        """
+        """Call a hook or stream handler; `hook_type` wins if both are given. Legacy
+        ``exit`` keyword in ``**kw`` is normalized to ``should_exit`` before dispatch."""
         if hook_type is None and chunk_type is None:
             raise ValueError("Either method or chunk_type must be provided")
         if hook_type:

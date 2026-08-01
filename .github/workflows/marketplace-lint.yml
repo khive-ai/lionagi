@@ -1,7 +1,11 @@
 name: marketplace-lint
 
 on:
+  # ready_for_review is not a default activity type, so without this a draft PR
+  # marked ready starts no run. Naming types replaces the defaults rather than
+  # extending them, so the three defaults are listed back.
   pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
     paths:
       - 'marketplace/**'
       - '.claude-plugin/**'
@@ -9,6 +13,12 @@ on:
       - 'README.md'
       - 'scripts/ci.sh'
       - 'tests/marketplace_lint.py'
+
+concurrency:
+  # A new push to a PR supersedes its own earlier run; pushes to a branch and
+  # manual runs are never cancelled, because those results are a record.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:

@@ -6,16 +6,60 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import sqlite3
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from lionagi._paths import LIONAGI_HOME
 
+_log = logging.getLogger(__name__)
+
 # sqlite busy_timeout (ms) applied to every connection. Tunable so tests that
 # deliberately hold a write lock fail fast instead of waiting the full default.
 _SQLITE_BUSY_TIMEOUT_MS = 5000
+
+
+def has_wal_reset_fix(version_info: tuple[int, ...]) -> bool:
+    """Whether a linked SQLite carries the fix for the WAL-reset corruption race.
+
+    SQLite documents a data race between a starting checkpoint and a commit that
+    resets the WAL file: the checkpoint misses the reset, mis-sets a WAL-index
+    header field, and a later checkpoint then skips part of the committed
+    transaction, corrupting the database. It reaches every WAL-mode release from
+    3.7.0 up to and including 3.51.2, and is fixed in 3.51.3, with backports on
+    the 3.44 and 3.50 branches. Exposure needs two connections writing or
+    checkpointing at the same instant, which is exactly what this store does.
+    """
+    v = tuple(version_info[:3])
+    if v >= (3, 51, 3):
+        return True
+    if v[:2] == (3, 44) and v >= (3, 44, 6):
+        return True
+    if v[:2] == (3, 50) and v >= (3, 50, 7):
+        return True
+    return v < (3, 7, 0)  # predates WAL entirely; journal_mode=WAL is not honoured
+
+
+_wal_reset_warning_emitted = False
+
+
+def _warn_if_wal_reset_unfixed() -> None:
+    """Warn once per process when WAL is about to be enabled on a library that
+    still carries the WAL-reset corruption race."""
+    global _wal_reset_warning_emitted
+    if _wal_reset_warning_emitted or has_wal_reset_fix(sqlite3.sqlite_version_info):
+        return
+    _wal_reset_warning_emitted = True
+    _log.warning(
+        "Linked SQLite %s predates the fix for the WAL-reset corruption race "
+        "(fixed in 3.51.3; backported to 3.44.6 and 3.50.7). WAL is still enabled "
+        "because concurrent readers and writers depend on it; upgrade the SQLite "
+        "library to remove the exposure.",
+        sqlite3.sqlite_version,
+    )
 
 
 def _json_serializer(obj):
@@ -25,7 +69,14 @@ def _json_serializer(obj):
 
 
 def _dumps_with_uuid(value):
-    return json.dumps(value, default=_json_serializer)
+    """Serializer for every JSON bind on every engine this module builds.
+
+    ``allow_nan=False`` makes the encoder raise on inf, -inf and nan instead of
+    writing the non-standard ``Infinity``/``NaN`` literals into durable storage,
+    where nothing downstream can read them back as JSON. It is a flag on the
+    encode pass that already runs, not an extra traversal of the payload.
+    """
+    return json.dumps(value, default=_json_serializer, allow_nan=False)
 
 
 def normalize_state_db_url(value: str | Path | None) -> str:
@@ -98,18 +149,15 @@ def dialect_of(url: str) -> str:
 
 
 def make_engine(url: str, **overrides):
-    """Create and return an AsyncEngine for *url*.
-
-    SQLite: registers a connect-event listener that applies the six pragmas
-    (busy_timeout first) on every new DBAPI connection.
-    PostgreSQL: pool_pre_ping=True; sslmode query param translated to asyncpg ssl arg.
-    """
+    """Create an AsyncEngine for *url*. SQLite gets a busy_timeout-first pragma
+    listener; PostgreSQL gets pool_pre_ping and sslmode→ssl arg translation."""
     from sqlalchemy.event import listen
     from sqlalchemy.ext.asyncio import create_async_engine
 
     dialect = dialect_of(url)
 
     if dialect == "sqlite":
+        _warn_if_wal_reset_unfixed()
         kwargs: dict = {"echo": False, "json_serializer": _dumps_with_uuid}
         kwargs.update(overrides)
         engine = create_async_engine(url, **kwargs)
@@ -153,3 +201,37 @@ def make_engine(url: str, **overrides):
         kwargs["connect_args"] = connect_args
     kwargs.update(overrides)
     return create_async_engine(url, **kwargs)
+
+
+_SQLITE_ASYNC_PREFIX = "sqlite+aiosqlite:///"
+
+
+def make_readonly_engine(url: str, **overrides):
+    """Read-only AsyncEngine over an existing SQLite file via URI `mode=ro`.
+    SQLite only — see docs/internals/runtime.md for the read-only contract."""
+    from sqlalchemy.event import listen
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    dialect = dialect_of(url)
+    if dialect != "sqlite":
+        raise ValueError(f"make_readonly_engine() only supports sqlite, got dialect={dialect!r}")
+    if not url.startswith(_SQLITE_ASYNC_PREFIX):
+        raise ValueError(f"unexpected sqlite URL shape for read-only open: {url!r}")
+
+    raw_path = url[len(_SQLITE_ASYNC_PREFIX) :]
+    if raw_path == ":memory:":
+        raise ValueError("make_readonly_engine() requires an on-disk database, not :memory:")
+
+    ro_url = f"{_SQLITE_ASYNC_PREFIX}file:{raw_path}?mode=ro&uri=true"
+    kwargs: dict = {"echo": False, "json_serializer": _dumps_with_uuid}
+    kwargs.update(overrides)
+    engine = create_async_engine(ro_url, **kwargs)
+
+    def _apply_readonly_pragmas(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
+        cursor.execute("PRAGMA query_only = 1")
+        cursor.close()
+
+    listen(engine.sync_engine, "connect", _apply_readonly_pragmas)
+    return engine

@@ -1,13 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""Mirror Claude Code session transcripts (~/.claude/projects/*.jsonl) into StateDB.
-
-A Claude Code session is just another writer to ``state.db``: each JSONL event
-maps to one or more lionagi messages, written under a session/branch/progression
-with deterministic ids so re-reading the same transcript never duplicates rows.
-The studio SSE reader polls the same tables, so mirrored sessions stream live in
-the dashboard and the VS Code extension with no studio-side change.
-"""
+"""Mirror Claude Code session transcripts (~/.claude/projects/*.jsonl) into StateDB,
+one lionagi message per JSONL event, under deterministic ids. See docs/internals/runtime.md."""
 
 from __future__ import annotations
 
@@ -33,9 +27,8 @@ _NS = uuid.UUID("5f1d6e2a-1c3b-4a5d-8e9f-0a1b2c3d4e5f")
 # Only conversation-bearing events become messages; the rest is editor metadata.
 _MESSAGE_TYPES = frozenset({"user", "assistant"})
 
-# Slash-command invocations and local-command output wrap their text in these
-# tags. They are editor machinery, not conversation — a real prompt never opens
-# with one — so they are dropped to keep the mirrored transcript readable.
+# Slash-command/local-command output wraps its text in these tags — editor
+# machinery, not conversation — so it is dropped from the mirrored transcript.
 _COMMAND_NOISE_PREFIXES = ("<command-", "<local-command-")
 
 
@@ -83,11 +76,8 @@ def messages_for_event(
     session_uid: str,
     tool_names: dict[str, str],
 ) -> list[RoledMessage]:
-    """Map one Claude JSONL event to ordered lionagi messages.
-
-    ``tool_names`` is read/written in place: tool_use blocks record their
-    function name so the matching tool_result can label its ActionResponse.
-    """
+    """Map one Claude JSONL event to ordered lionagi messages. ``tool_names`` is
+    read/written in place so a matching tool_result can label its ActionResponse."""
     etype = event.get("type")
     if etype not in _MESSAGE_TYPES or event.get("isMeta"):
         return []
@@ -218,13 +208,7 @@ async def mirror_session(
     status: str = "running",
 ) -> int:
     """Idempotently write a batch of Claude events for one session; returns msgs written.
-
-    Re-calling with already-seen events is a no-op: message ids are deterministic
-    (upsert), and progression appends dedupe. Creates the session/branch on first
-    call with a rich row (project, model, agent_name) so it groups correctly in
-    the runs explorer, with ``status`` as the initial status. Live/idle transitions
-    are owned by ``reconcile_session_status``, not this writer.
-    """
+    Live/idle transitions are owned by ``reconcile_session_status``, not this writer."""
     sid = session_db_id(session_uid)
     branch_id = _det(session_uid, "branch")
     bprog = _det(session_uid, "bprog")
@@ -242,17 +226,15 @@ async def mirror_session(
     last_ts = max((m.created_at for m in messages), default=None)
     created_at = (existing.get("created_at") if existing is not None else None) or first_ts
 
-    # Ensure the full scaffold (progressions -> session -> branch) exists on every
-    # call, in dependency order. Each write is INSERT OR IGNORE, so once present
-    # this is a no-op; if an earlier pass died mid-scaffold (e.g. the branch write
-    # raised after the session row committed) the next pass repairs the partial
-    # instead of skipping scaffolding just because the session row now exists.
+    # Scaffold (progressions -> session -> branch) is INSERT OR IGNORE and re-run
+    # every call, so a prior partial-scaffold failure self-repairs — see docs/internals/runtime.md.
     await db.create_progression(sprog)
     await db.create_progression(bprog)
     if existing is None:
         await db.create_session(
             {
                 "id": sid,
+                "cc_session_id": session_uid,
                 "created_at": created_at,
                 "progression_id": sprog,
                 "name": name or "Claude Code session",
@@ -267,12 +249,18 @@ async def mirror_session(
                 "updated_at": last_ts,
             }
         )
-    elif project and not existing.get("project"):
-        # Backfill attribution for a session first mirrored before its cwd could
-        # be attributed to a project. INSERT OR IGNORE never updates an existing
-        # row, so without this an already-seen "(no project)" session stays that
-        # way forever; this writes it without disturbing the liveness clock.
-        await db.set_session_provenance(sid, project=project, project_source=project_source)
+    else:
+        cc_session_id = session_uid if existing.get("cc_session_id") is None else None
+        provenance_project = project if project and not existing.get("project") else None
+        if cc_session_id is not None or provenance_project is not None:
+            # Backfill attribution for an already-seen session (INSERT OR IGNORE never
+            # updates); writes without disturbing the liveness clock.
+            await db.set_session_provenance(
+                sid,
+                cc_session_id=cc_session_id,
+                project=provenance_project,
+                project_source=project_source if provenance_project is not None else None,
+            )
     await db.create_branch(
         {
             "id": branch_id,
@@ -304,31 +292,16 @@ async def reconcile_session_status(
     now: float,
     live_window: float,
 ) -> None:
-    """Align a mirrored session's status with its live/idle state — both directions.
+    """Align a mirrored session's status with its live/idle state, both directions.
+    Liveness keys off ``last_message_at``, never ``updated_at`` — see docs/internals/runtime.md."""
+    from ._mirror_common import reconcile_status
 
-    A mirror session's ``completed`` means dormant, not terminal: when the
-    transcript resumes, the next reconcile brings it back to ``running``. Liveness
-    is judged by ``last_message_at`` — the timestamp of the newest mirrored
-    message — so an idle session converges to ``completed`` before the reaper can
-    mark it failed, and an active one shows ``running`` (a live spinner in studio
-    and the VS Code extension). It must NOT read ``updated_at``: the status write
-    below bumps ``updated_at``, so keying liveness off it would let a just-marked
-    ``completed`` session read as fresh again on the next pass and oscillate back
-    to ``running``.
-    """
-    from lionagi.state.reasons import RunReasons
-
-    existing = await db.get_session(session_db_id(session_uid))
-    if not existing:
-        return
-    live = (now - float(existing.get("last_message_at") or 0.0)) <= live_window
-    desired = "running" if live else "completed"
-    if existing.get("status") == desired:
-        return
-    await db.update_session(
+    await reconcile_status(
+        db,
         session_db_id(session_uid),
-        status=desired,
-        reason_code=RunReasons.STARTED_OK if desired == "running" else RunReasons.COMPLETED_OK,
+        now=now,
+        live_window=live_window,
+        actor="claude-mirror-reconcile",
     )
 
 
@@ -339,25 +312,14 @@ async def link_session_lineage(
     parent_uid: str,
     parent_event_uuid: str,
 ) -> None:
-    """Record that one Claude session continues another (conversation lineage).
+    """Record that one Claude session continues another (conversation lineage) via
+    a ``lineage`` entry on the child's node_metadata. Idempotent; see docs/internals/runtime.md."""
+    from ._mirror_common import link_lineage
 
-    A continued conversation (after compaction, ``--resume``, or a fresh window
-    that picks up an earlier thread) starts a new transcript whose first message
-    points, via ``parentUuid``, at the last message of the session it continues.
-    When the mirror resolves that pointer to a different session it calls this to
-    store a ``lineage`` link on the child's node_metadata, so studio and the VS
-    Code extension can show the provenance and walk the chain back. Written
-    without moving the liveness clock; idempotent (re-linking rewrites the same
-    value).
-    """
-    child_sid = session_db_id(child_uid)
-    existing = await db.get_session(child_sid)
-    if existing is None:
-        return
-    meta = dict(existing.get("node_metadata") or {})
-    meta["lineage"] = {
-        "parent_session_id": session_db_id(parent_uid),
-        "parent_session_uid": parent_uid,
-        "parent_event_uuid": parent_event_uuid,
-    }
-    await db.set_session_provenance(child_sid, node_metadata=meta)
+    await link_lineage(
+        db,
+        child_sid=session_db_id(child_uid),
+        parent_sid=session_db_id(parent_uid),
+        parent_uid=parent_uid,
+        parent_event_uuid=parent_event_uuid,
+    )

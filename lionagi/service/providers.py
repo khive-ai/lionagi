@@ -15,6 +15,7 @@ __all__ = (
     "PROVIDER_BYPASS_KWARGS",
     "PROVIDER_EFFORT_KWARG",
     "PROVIDER_FAST_KWARGS",
+    "PROVIDER_REPO_KWARG",
     "PROVIDER_TO_ALIAS",
     "PROVIDER_YOLO_KWARGS",
     "PROVIDERS_EFFORT_VIA_MODEL_NAME",
@@ -34,34 +35,54 @@ EFFORT_LEVELS = frozenset(
         "high",
         "xhigh",
         "max",
+        "ultra",
     }
 )
 
 
 def normalize_effort(effort: str | None) -> str | None:
-    """Case-fold a raw effort string to lionagi's lowercase vocabulary.
-
-    Every clamp table below (_CODEX_EFFORT_CLAMP, _clamp_claude_effort,
-    _GEMINI_EFFORT_CLAMP) is keyed on lowercase levels and falls back to a
-    default on a lookup miss, so an un-normalized value like "High" silently
-    misclamps rather than raising. Call this once at each boundary where a
-    raw effort string enters lionagi from outside (CLI flag, profile
-    frontmatter, orchestration spec) — accepted vocabulary is unchanged,
-    only case is folded.
-    """
+    """Case-fold a raw effort string to lionagi's lowercase vocabulary. Call once at
+    each entry boundary — clamp tables silently misclamp un-normalized values. See docs/internals/runtime.md."""
     return effort.lower() if isinstance(effort, str) else effort
 
 
-# Codex accepts none|minimal|low|medium|high|xhigh — NOT "max".
-# Profiles/orchestrators may emit "max"; clamp to "xhigh" for codex.
-_CODEX_EFFORT_CLAMP: dict[str, str] = {"max": "xhigh"}
+# Codex reasoning-effort ceilings are model-dependent (source: codex CLI's live model
+# list); unrecognized (future) models pass through unclamped. See docs/internals/runtime.md.
+_CODEX_ULTRA_MODELS = frozenset({"gpt-5.6-sol", "gpt-5.6-terra"})
+_CODEX_MAX_ONLY_MODELS = frozenset({"gpt-5.6-luna"})
+_CODEX_XHIGH_CEILING_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "codex-auto-review",
+    }
+)
+
+
+def _clamp_codex_effort(effort: str, model: str | None) -> str:
+    """Clamp max/ultra down to the target codex model's supported ceiling."""
+    if effort not in ("max", "ultra"):
+        return effort
+    model_part = (model or "").split("/", 1)[-1]
+    if model_part in _CODEX_XHIGH_CEILING_MODELS:
+        return "xhigh"
+    if effort == "ultra" and model_part in _CODEX_MAX_ONLY_MODELS:
+        return "max"
+    return effort
+
 
 # Claude: only opus-4-7 accepts xhigh. All other models clamp to high.
+# Claude has no ultra tier at all: ultra clamps to max for every model.
 _CLAUDE_XHIGH_MODELS = frozenset({"opus", "opus-4-7", "claude-opus-4-7"})
 
 
 def _clamp_claude_effort(effort: str, model: str) -> str:
-    """Clamp xhigh to high for non-opus-4-7 Claude models."""
+    """Clamp ultra to max, and xhigh to high for non-opus-4-7 Claude models."""
+    if effort == "ultra":
+        return "max"
     if effort != "xhigh":
         return effort
     model_part = model.split("/", 1)[-1] if "/" in model else model
@@ -70,10 +91,8 @@ def _clamp_claude_effort(effort: str, model: str) -> str:
     return "high"
 
 
-# agy (Antigravity CLI) has no effort flag or kwarg — effort is expressed only
-# as a Low/Medium/High suffix baked into the --model name, and Gemini 3.1 Pro
-# has no Medium tier. lionagi's 5-level none|minimal|low|medium|high|xhigh|max
-# collapses onto this 3-tier scale.
+# agy has no effort kwarg — effort is baked into the --model name as Low/Medium/High,
+# and Gemini 3.1 Pro has no Medium tier. See docs/internals/runtime.md.
 _GEMINI_EFFORT_CLAMP: dict[str, str] = {
     "none": "Low",
     "minimal": "Low",
@@ -82,11 +101,12 @@ _GEMINI_EFFORT_CLAMP: dict[str, str] = {
     "high": "High",
     "xhigh": "High",
     "max": "High",
+    "ultra": "High",
 }
 
 
 def _clamp_gemini_effort(effort: str, is_pro: bool) -> str:
-    """Map lionagi's 5-level effort onto agy's Low/Medium/High tiers; Pro has no Medium."""
+    """Map lionagi's effort vocabulary onto agy's Low/Medium/High tiers; Pro has no Medium."""
     tier = _GEMINI_EFFORT_CLAMP.get(effort, "Medium")
     if is_pro and tier == "Medium":
         return "High"
@@ -117,9 +137,15 @@ PROVIDER_EFFORT_KWARG: dict[str, str] = {
     "pi": "thinking",
 }
 
-# agy-backed aliases (see lionagi/providers/google/gemini_code.py) fold effort
-# into the resolved --model name via resolve_agy_model instead of a kwarg —
-# classified separately from PROVIDER_EFFORT_KWARG below.
+# Every CLI provider's request model runs its subprocess against a `repo`
+# field that defaults to the calling process's cwd (CodexCodeRequest,
+# ClaudeCodeRequest, GeminiCodeRequest, PiCodeRequest all declare
+# `repo: Path = Field(default_factory=Path.cwd, exclude=True)`), so an agent
+# assigned a workspace needs that value forwarded explicitly.
+PROVIDER_REPO_KWARG: dict[str, str] = {p: "repo" for p in CLI_PROVIDERS}
+
+# agy-backed aliases fold effort into the resolved --model name via resolve_agy_model
+# instead of a kwarg — classified separately from PROVIDER_EFFORT_KWARG below.
 PROVIDERS_EFFORT_VIA_MODEL_NAME: frozenset[str] = frozenset(
     {
         "gemini_code",
@@ -129,9 +155,8 @@ PROVIDERS_EFFORT_VIA_MODEL_NAME: frozenset[str] = frozenset(
     }
 )
 
-# Bare "gemini" is the direct Google API provider (see
-# providers/google/_config.py:GeminiChatConfigs) — distinct from the agy CLI
-# above — and has no effort concept at all.
+# Bare "gemini" is the direct Google API provider, distinct from the agy CLI
+# above, and has no effort concept at all.
 PROVIDERS_NO_EFFORT: frozenset[str] = frozenset(
     {
         "gemini",
@@ -154,22 +179,55 @@ del _overlap
 # ── Per-provider yolo kwargs ──────────────────────────────────────────────
 
 PROVIDER_YOLO_KWARGS: dict[str, dict] = {
+    "claude-code": {"permission_mode": "bypassPermissions"},
     "claude_code": {"permission_mode": "bypassPermissions"},
     "claude": {"permission_mode": "bypassPermissions"},
     "codex": {"full_auto": True, "skip_git_repo_check": True},
+    "gemini-cli": {"yolo": True},
+    "gemini_cli": {"yolo": True},
     "gemini_code": {"yolo": True},
     "gemini-code": {"yolo": True},
     "pi": {"no_tools": False},
 }
 
 PROVIDER_BYPASS_KWARGS: dict[str, dict] = {
+    "claude-code": {"permission_mode": "bypassPermissions"},
     "claude_code": {"permission_mode": "bypassPermissions"},
     "claude": {"permission_mode": "bypassPermissions"},
     "codex": {"bypass_approvals": True, "skip_git_repo_check": True},
+    "gemini-cli": {"yolo": True},
+    "gemini_cli": {"yolo": True},
     "gemini_code": {"yolo": True},
     "gemini-code": {"yolo": True},
     "pi": {"no_tools": False},
 }
+
+
+def _validate_provider_permission_tables(
+    cli_providers: set[str] | frozenset[str],
+    yolo_kwargs: dict[str, dict],
+    bypass_kwargs: dict[str, dict],
+) -> None:
+    """Raise when a CLI provider is absent from a permission capability table."""
+    missing = {
+        "PROVIDER_YOLO_KWARGS": sorted(cli_providers - yolo_kwargs.keys()),
+        "PROVIDER_BYPASS_KWARGS": sorted(cli_providers - bypass_kwargs.keys()),
+    }
+    missing = {table: providers for table, providers in missing.items() if providers}
+    if missing:
+        details = "; ".join(
+            f"{table} missing {providers!r}" for table, providers in missing.items()
+        )
+        raise RuntimeError(f"Provider permission table incomplete: {details}")
+
+
+# Missing entries silently downgrade execution permissions, so capability table
+# drift must fail at import rather than at the first tool call.
+_validate_provider_permission_tables(
+    CLI_PROVIDERS,
+    PROVIDER_YOLO_KWARGS,
+    PROVIDER_BYPASS_KWARGS,
+)
 
 # fast_mode: route codex via OpenAI priority tier (lower latency, same effort)
 # No-op for providers that don't support service_tier.
@@ -204,7 +262,8 @@ BACKENDS: dict[str, str] = {
 # ── Parsing ───────────────────────────────────────────────────────────────
 
 _EFFORT_SUFFIX_RE = re.compile(
-    r"^(.+?)-(" + "|".join(sorted(EFFORT_LEVELS, key=len, reverse=True)) + r")$"
+    r"^(.+?)-(" + "|".join(sorted(EFFORT_LEVELS, key=len, reverse=True)) + r")$",
+    re.IGNORECASE,
 )
 
 
@@ -261,7 +320,7 @@ def parse_model_spec(spec: str) -> ModelSpec:
     m = _EFFORT_SUFFIX_RE.match(spec)
     if m:
         model_clean = m.group(1)
-        effort = m.group(2)
+        effort = normalize_effort(m.group(2))
 
         if provider_raw in PROVIDERS_NO_EFFORT:
             raise ValueError(

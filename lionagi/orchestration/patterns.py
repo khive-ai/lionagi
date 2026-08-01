@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import itertools
+import json
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from lionagi import FieldModel
@@ -24,6 +27,7 @@ from .prompts import (
     DECOMPOSE_DAG_INSTRUCTION,
     DECOMPOSE_DISCIPLINE,
     DECOMPOSE_INSTRUCTION,
+    SPAWN_GUIDANCE,
     SYNTHESIS_INSTRUCTION,
 )
 
@@ -35,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = (
     "grant_spawn",
+    "normalize_dep_indices",
     "role_node_builder",
     "spawn_roles",
     "plan",
@@ -47,25 +52,70 @@ __all__ = (
 # Named "assignments" so a parsed operate() result exposes ``res.assignments``.
 _ASSIGNMENTS_FIELD = FieldModel(list[TaskAssignment], name="assignments")
 
+# Appended to the planning guidance when a worker cap is in effect, so the
+# orchestrator packs coverage into the cap instead of a downstream truncation
+# silently dropping assignments it was never told to avoid.
+_MAX_TASKS_CONSTRAINT = (
+    "HARD CAP: emit AT MOST {max_tasks} assignments total. If the work is "
+    "wider than that, consolidate steps onto shared roles rather than "
+    "dropping coverage — every assignment must still be packed within the cap."
+)
 
-def grant_spawn(branch: Branch, *, prompt: bool = True) -> None:
-    """Let an agent grow the live DAG by emitting a ``SpawnRequest``.
 
-    Grants the SpawnRequest capability (and, when *prompt*, injects the
-    capability instruction block so the model knows it may emit one).
-    """
-    branch.grant_capabilities(build_emission_operable((SpawnRequest,), name="spawn"), prompt=prompt)
+def grant_spawn(
+    branch: Branch,
+    *,
+    prompt: bool = True,
+    assignees: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> None:
+    """Grant ``SpawnRequest`` emission and render its routing contract."""
+    operable = build_emission_operable((SpawnRequest,), name="spawn")
+    branch.grant_capabilities(operable, prompt=prompt)
+    if not prompt:
+        return
+
+    from lionagi.session.capabilities import CAP_END
+
+    roster = sorted(set(assignees or ()))
+    roster_text = (
+        "Valid assignees: " + ", ".join(roster) + "."
+        if roster
+        else "Valid assignees: omit `assignee` to keep the work on your branch."
+    )
+    operations = ", ".join(sorted(SPAWN_ALLOWED_OPERATIONS))
+    example_request: dict[str, Any] = {
+        "instruction": "Verify the discovered edge case",
+        "independent": False,
+        "reason": "The edge case must be checked before completion",
+        "operation": "operate",
+    }
+    if roster:
+        example_request["assignee"] = roster[0]
+    specialized = (
+        f"## Spawn-request guidance\n\n{SPAWN_GUIDANCE}\n\n"
+        f"{roster_text}\n\nAllowed operations: {operations}.\n\n"
+        f"Example:\n```json\n{json.dumps({'spawn_request': example_request}, indent=2)}\n```"
+    )
+    current = branch._system_text()
+    enhanced = current.replace(CAP_END, f"\n\n{specialized}\n{CAP_END}", 1)
+    branch.msgs.set_system(branch.msgs.create_system(system=enhanced))
 
 
-def role_node_builder(roles: dict[str, Branch]):
-    """Return a node_builder closure that routes SpawnRequests to role branches."""
+def role_node_builder(
+    roles: dict[str, Branch],
+    *,
+    decorate_instruction: Callable[[SpawnRequest, str], str] | None = None,
+    start: int = 1,
+):
+    """Return a node_builder closure that routes SpawnRequests to role branches.
+    *decorate_instruction* customizes child instruction text (CLI artifact injection); *start* seeds spawn-id past prior-generation ordinals to avoid collisions on resume."""
+    # Closure-scoped monotonic sequence: the ONLY correct source of a spawned
+    # node's stable id — must be allocated here (construction time), not at completion (see batch report for the bug this fixes).
+    _next_spawn_seq = itertools.count(start)
 
     def build(req: SpawnRequest, emitter: Operation) -> Operation:
-        # Defense-in-depth: validate the operation at the routing boundary even
-        # though SpawnRequest.operation is already typed as a Literal. Custom
-        # operation names registered on a session branch must NOT be reachable
-        # via model-emitted spawn requests. Fail closed on anything outside the
-        # documented allowlist.
+        # Defense-in-depth: re-validate operation at the routing boundary — custom
+        # operation names must NOT be reachable via model-emitted spawn requests. Fail closed.
         op = req.operation or "operate"
         if op not in SPAWN_ALLOWED_OPERATIONS:
             logger.warning(
@@ -75,10 +125,8 @@ def role_node_builder(roles: dict[str, Branch]):
                 sorted(SPAWN_ALLOWED_OPERATIONS),
             )
             op = "operate"
-        node = create_operation(
-            op,
-            parameters={"instruction": req.instruction},
-        )
+
+        target = None
         if req.assignee:
             target = roles.get(req.assignee)
             if target is None:
@@ -86,11 +134,24 @@ def role_node_builder(roles: dict[str, Branch]):
                     f"SpawnRequest assignee {req.assignee!r} is not a "
                     f"recognized role (known: {sorted(roles)})"
                 )
+
+        # Allocate only after assignee validation succeeds — unknown assignees
+        # never consume a sequence number, keeping ids dense for real children.
+        spawn_id = f"spawn-{next(_next_spawn_seq)}"
+        instruction = req.instruction
+        if decorate_instruction is not None:
+            instruction = decorate_instruction(req, spawn_id)
+
+        node = create_operation(
+            op,
+            parameters={"instruction": instruction},
+        )
+        # Stamped so post-run callers can attribute a spawned node back to its
+        # role after branch_id gets overwritten; spawn_id is the stable correlation key (see batch report).
+        node.metadata["spawn_id"] = spawn_id
+        node.metadata["reference_id"] = spawn_id
+        if target is not None:
             node.branch_id = target.id
-            # Stamped so post-run callers (artifact contracts, DAG metadata) can
-            # attribute a reactively spawned node back to the role that ran it —
-            # the node otherwise carries no trace of its assignee once its
-            # branch_id is overwritten by the executor's per-spawn branch clone.
             node.metadata["assignee"] = req.assignee
         return node
 
@@ -113,7 +174,7 @@ async def spawn_roles(
         branch.name = name
         session.include_branches(branch)
         if name in spawn_set:
-            grant_spawn(branch)
+            grant_spawn(branch, assignees=set(specs))
         roles[name] = branch
     return roles
 
@@ -128,32 +189,63 @@ async def plan(
     max_tasks: int = 0,
     context: dict | None = None,
 ) -> list[TaskAssignment]:
-    """Have orchestrator decompose prompt into TaskAssignments; unknown assignees are dropped."""
+    """Have orchestrator decompose prompt into TaskAssignments; unknown assignees are dropped.
+
+    When *max_tasks* is set, the cap is stated in the planning guidance so a
+    compliant plan never needs truncation. If the orchestrator still returns
+    more assignments than the cap after being told it, this raises
+    ``ValueError`` rather than silently dropping the overflow — a warning
+    alone reads as "covered everything" to a caller that isn't watching logs.
+    """
     instruction = DECOMPOSE_DAG_INSTRUCTION if dag else DECOMPOSE_INSTRUCTION
+    full_guidance = f"{guidance} {DECOMPOSE_DISCIPLINE}".strip()
+    if max_tasks:
+        full_guidance = (
+            f"{full_guidance} {_MAX_TASKS_CONSTRAINT.format(max_tasks=max_tasks)}".strip()
+        )
     res = await orchestrator.operate(
         instruction=instruction,
         context={"task": prompt, **(context or {})},
-        guidance=f"{guidance} {DECOMPOSE_DISCIPLINE}".strip(),
+        guidance=full_guidance,
         field_models=[_ASSIGNMENTS_FIELD],
         reason=True,
     )
     raw = list(getattr(res, "assignments", None) or [])
     known = set(roles)
+    # '-' and '_' are interchangeable in a role name, so an assignment that
+    # spells the separator the other way still names a listed role. It is
+    # rewritten to the listed spelling, so everything downstream of the plan
+    # sees one name per role. An exact match always wins, and a spelling that
+    # would match more than one listed role is not resolved by guessing.
+    by_separator: dict[str, list[str]] = {}
+    for r in roles:
+        by_separator.setdefault(r.replace("-", "_"), []).append(r)
     valid: list[TaskAssignment] = []
     for ta in raw:
         if ta.assignee not in known:
-            logger.warning("plan: dropping assignment with unknown assignee %r", ta.assignee)
-            continue
+            matches = by_separator.get(ta.assignee.replace("-", "_"), [])
+            if len(matches) != 1:
+                logger.warning("plan: dropping assignment with unknown assignee %r", ta.assignee)
+                continue
+            ta = ta.model_copy(update={"assignee": matches[0]})
         valid.append(ta)
     if max_tasks and len(valid) > max_tasks:
-        logger.warning("plan: truncating %d assignments to max_tasks=%d", len(valid), max_tasks)
-        valid = valid[:max_tasks]
+        raise ValueError(
+            f"plan: orchestrator returned {len(valid)} assignments, exceeding "
+            f"max_tasks={max_tasks} even after the cap was stated in its guidance"
+        )
     return valid
 
 
-def _resolve_dep_indices(assignments: list[TaskAssignment]) -> dict[int, list[int]]:
-    """Map assignment index → 0-based predecessor indices; drops invalid/self refs."""
-    deps: dict[int, list[int]] = {}
+def normalize_dep_indices(assignments: list[TaskAssignment]) -> list[list[int]]:
+    """Normalize one-based dependency ordinals into earlier zero-based indices.
+
+    Forward references are dropped after the structurally valid reference graph
+    is checked for cycles. This matches incremental CLI construction, keeps the
+    planner's "earlier assignments" contract, and rejects cyclic input instead
+    of silently repairing it by discarding one of the cycle's forward edges.
+    """
+    candidates: list[list[int]] = []
     n = len(assignments)
     for i, ta in enumerate(assignments):
         preds: list[int] = []
@@ -161,16 +253,42 @@ def _resolve_dep_indices(assignments: list[TaskAssignment]) -> dict[int, list[in
             try:
                 j = int(str(ref).strip()) - 1
             except (TypeError, ValueError):
-                logger.warning("build_dag_graph: non-integer depends_on %r on step %d", ref, i + 1)
+                logger.warning("depends_on: non-integer ref %r on step %d; dropping", ref, i + 1)
                 continue
-            if j == i or not (0 <= j < n):
-                logger.warning(
-                    "build_dag_graph: dropping out-of-range dep %r on step %d", ref, i + 1
-                )
+            if j == i:
+                logger.warning("depends_on: self ref %r on step %d; dropping", ref, i + 1)
+                continue
+            if not (0 <= j < n):
+                logger.warning("depends_on: out-of-range ref %r on step %d; dropping", ref, i + 1)
                 continue
             preds.append(j)
-        deps[i] = preds
-    return deps
+        candidates.append(preds)
+
+    state = [0] * n
+
+    def visit(node: int) -> None:
+        if state[node] == 1:
+            raise ValueError(f"depends_on cycle detected at step {node + 1}")
+        if state[node] == 2:
+            return
+        state[node] = 1
+        for pred in candidates[node]:
+            visit(pred)
+        state[node] = 2
+
+    for node in range(n):
+        visit(node)
+
+    normalized: list[list[int]] = []
+    for i, preds in enumerate(candidates):
+        earlier: list[int] = []
+        for pred in preds:
+            if pred < i:
+                earlier.append(pred)
+            else:
+                logger.warning("depends_on: forward ref %d on step %d; dropping", pred + 1, i + 1)
+        normalized.append(earlier)
+    return normalized
 
 
 def build_fanout_graph(
@@ -231,7 +349,7 @@ def build_dag_graph(
 ) -> tuple[Graph, list[str | None]]:
     """Wire assignments into a dependency DAG honouring depends_on; pure, does not execute."""
     graph = Graph()
-    deps = _resolve_dep_indices(assignments)
+    deps = normalize_dep_indices(assignments)
     nodes: list[Operation | None] = []
 
     for ta in assignments:

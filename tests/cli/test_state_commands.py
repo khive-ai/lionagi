@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import os
 import time
 import uuid
 from pathlib import Path
@@ -293,17 +295,22 @@ async def test_prune_dry_run_does_not_delete(temp_db_path: Path):
 
     result = await _prune(keep_days=30, keep_n=1, dry_run=True)
     assert result["sessions"] >= 1
-    assert result["messages"] == 0  # dry-run never previews messages
 
     async with StateDB() as db:
         assert (await db.get_session(old_sid)) is not None
         assert (await db.get_session(new_sid)) is not None
+        # Nothing the dry run touched was kept: every row is still there.
+        for table in ("sessions", "branches", "messages", "progressions"):
+            row = await db.fetch_one(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608
+            assert row["n"] > 0, table
+        row = await db.fetch_one("SELECT COUNT(*) AS n FROM messages")
+        assert row["n"] == 3
 
 
 async def test_prune_deletes_old_sessions_and_cascades_branches(
     temp_db_path: Path,
 ):
-    """Prune deletes old sessions and cascade-drops branches; messages survive if their progression row is not FK-cascaded."""
+    """Prune deletes old sessions, cascade-drops branches, and frees the messages they held."""
     now = time.time()
     old_ts = now - (60 * 86400)
     async with StateDB() as db:
@@ -322,8 +329,7 @@ async def test_prune_deletes_old_sessions_and_cascades_branches(
     assert result["sessions"] == 1
     # branches were cascaded from the deleted session.
     assert result["branches"] == 1
-    # Current behavior: orphan progression keeps msgs alive, sweep no-ops.
-    assert result["messages"] == 0
+    assert result["messages"] == 3
 
     async with StateDB() as db:
         assert (await db.get_session(old_sid)) is None
@@ -373,6 +379,212 @@ async def test_prune_with_nothing_to_delete_returns_zero(temp_db_path: Path):
 
     async with StateDB() as db:
         assert (await db.get_session(sid)) is not None
+
+
+async def test_prune_frees_the_message_rows_the_deleted_session_held(
+    temp_db_path: Path,
+):
+    """Messages a pruned session held are removed along with the progressions that held them.
+
+    Progressions carry no foreign key back to their session, so nothing removes
+    them when their owner goes; the messages they list then stay reachable from
+    a row nothing points at. Both are gone here.
+    """
+    now = time.time()
+    async with StateDB() as db:
+        old_sid, old_msgs = await _seed_session_with_messages(
+            db,
+            n_messages=4,
+            updated_at=now - (60 * 86400),
+        )
+        new_sid, new_msgs = await _seed_session_with_messages(
+            db,
+            n_messages=2,
+            updated_at=now,
+        )
+
+    result = await _prune(keep_days=30, keep_n=1, dry_run=False)
+    assert result["messages"] == 4
+
+    async with StateDB() as db:
+        for mid in old_msgs:
+            row = await db.fetch_one("SELECT COUNT(*) AS n FROM messages WHERE id = ?", (mid,))
+            assert row["n"] == 0, f"message {mid} of the pruned session was left behind"
+        # The surviving session keeps everything it holds.
+        for mid in new_msgs:
+            row = await db.fetch_one("SELECT COUNT(*) AS n FROM messages WHERE id = ?", (mid,))
+            assert row["n"] == 1, f"message {mid} of a surviving session was deleted"
+        # No progression is left pointing at nothing.
+        row = await db.fetch_one(
+            "SELECT COUNT(*) AS n FROM progressions WHERE id NOT IN ("
+            "  SELECT progression_id FROM sessions"
+            "  UNION"
+            "  SELECT progression_id FROM branches"
+            ")"
+        )
+        assert row["n"] == 0
+
+
+async def test_prune_frees_direct_only_messages_of_deleted_session(temp_db_path: Path):
+    """Direct message references are prune candidates even outside progressions."""
+    now = time.time()
+    old = now - (60 * 86400)
+    async with StateDB() as db:
+        victim_sid, _ = await _seed_session_with_messages(
+            db,
+            n_messages=0,
+            updated_at=old,
+        )
+        keeper_sid, _ = await _seed_session_with_messages(
+            db,
+            n_messages=0,
+            updated_at=now,
+        )
+        victim_branch = await db.fetch_one(
+            "SELECT id FROM branches WHERE session_id = ?",
+            (victim_sid,),
+        )
+        message_ids = [str(uuid.uuid4()) for _ in range(3)]
+        for index, message_id in enumerate(message_ids):
+            await db.insert_message(
+                {
+                    "id": message_id,
+                    "created_at": now,
+                    "node_metadata": {},
+                    "content": {"text": f"direct-{index}"},
+                    "role": "user",
+                    "sender": "u",
+                    "recipient": "x",
+                    "channel": "test",
+                }
+            )
+        await db.execute(
+            "UPDATE sessions SET first_msg_id = ?, last_msg_id = ? WHERE id = ?",
+            (message_ids[0], message_ids[1], victim_sid),
+        )
+        await db.execute(
+            "UPDATE branches SET system_msg_id = ? WHERE id = ?",
+            (message_ids[2], victim_branch["id"]),
+        )
+
+    result = await _prune(keep_days=30, keep_n=1, dry_run=False)
+
+    assert result == {"sessions": 1, "branches": 1, "messages": 3}
+    async with StateDB() as db:
+        assert (await db.get_session(victim_sid)) is None
+        assert (await db.get_session(keeper_sid)) is not None
+        for message_id in message_ids:
+            row = await db.fetch_one(
+                "SELECT COUNT(*) AS n FROM messages WHERE id = ?",
+                (message_id,),
+            )
+            assert row["n"] == 0
+
+
+async def _seed_prune_fixture_with_shared_and_pinned_messages(db: StateDB) -> tuple[str, str, int]:
+    """Seed one prunable session whose messages are only partly reclaimable.
+
+    Of the victim's four messages, one is also listed in a surviving session's
+    progression and one is named by a surviving session's ``first_msg_id``. Two
+    are therefore freed. Every count that skips one of those two survivor
+    references lands on 3 or 4 instead, so the fixture separates the real answer
+    from the near misses.
+
+    Returns ``(victim_session_id, survivor_session_id, expected_messages_freed)``.
+    """
+    now = time.time()
+    victim_sid, victim_bid = str(uuid.uuid4()), str(uuid.uuid4())
+    victim_spid, victim_bpid = str(uuid.uuid4()), str(uuid.uuid4())
+    keeper_sid, keeper_bid = str(uuid.uuid4()), str(uuid.uuid4())
+    keeper_spid, keeper_bpid = str(uuid.uuid4()), str(uuid.uuid4())
+
+    for pid in (victim_spid, victim_bpid, keeper_spid, keeper_bpid):
+        await db.create_progression(pid)
+    for sid, pid in ((victim_sid, victim_spid), (keeper_sid, keeper_spid)):
+        await db.create_session(
+            {"id": sid, "progression_id": pid, "status": "completed", "started_at": now}
+        )
+    for bid, sid, pid in (
+        (victim_bid, victim_sid, victim_bpid),
+        (keeper_bid, keeper_sid, keeper_bpid),
+    ):
+        await db.create_branch({"id": bid, "session_id": sid, "progression_id": pid})
+
+    victim_msgs = []
+    for i in range(4):
+        mid = str(uuid.uuid4())
+        await db.insert_message(
+            {
+                "id": mid,
+                "created_at": now,
+                "node_metadata": {},
+                "content": {"text": f"victim-{i}"},
+                "role": "user",
+                "sender": "u",
+                "recipient": "x",
+                "channel": "test",
+            }
+        )
+        await db.append_to_progression(victim_bpid, mid)
+        await db.append_to_progression(victim_spid, mid)
+        victim_msgs.append(mid)
+
+    # One of the victim's messages is quoted into a surviving progression, and
+    # another is named directly by a surviving session.
+    await db.append_to_progression(keeper_bpid, victim_msgs[0])
+    await db.execute(
+        "UPDATE sessions SET first_msg_id = ? WHERE id = ?",
+        (victim_msgs[1], keeper_sid),
+    )
+
+    await db.execute(
+        "UPDATE sessions SET updated_at = ? WHERE id = ?",
+        (now - (60 * 86400), victim_sid),
+    )
+    await db.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, keeper_sid))
+    return victim_sid, keeper_sid, 2
+
+
+async def test_dry_run_message_count_is_the_count_the_real_prune_deletes(
+    temp_db_path: Path,
+):
+    """The preview's message count is the real prune's, measured on the same store.
+
+    The preview is the prune, rolled back, so the two cannot be derived
+    separately. This runs both against the same fixture and pins the answer to
+    the number of rows the store actually loses, which is what makes a
+    re-introduced separate estimate visible rather than merely suspicious.
+    """
+    async with StateDB() as db:
+        (
+            victim_sid,
+            keeper_sid,
+            expected,
+        ) = await _seed_prune_fixture_with_shared_and_pinned_messages(db)
+        row = await db.fetch_one("SELECT COUNT(*) AS n FROM messages")
+        before = row["n"]
+
+    preview = await _prune(keep_days=30, keep_n=1, dry_run=True)
+
+    async with StateDB() as db:
+        # The preview committed nothing, so the real prune below sees the same store.
+        row = await db.fetch_one("SELECT COUNT(*) AS n FROM messages")
+        assert row["n"] == before
+        assert (await db.get_session(victim_sid)) is not None
+
+    real = await _prune(keep_days=30, keep_n=1, dry_run=False)
+
+    async with StateDB() as db:
+        row = await db.fetch_one("SELECT COUNT(*) AS n FROM messages")
+        observed = before - row["n"]
+
+    assert preview["messages"] == real["messages"] == observed == expected
+    assert preview["sessions"] == real["sessions"]
+    assert preview["branches"] == real["branches"]
+
+    async with StateDB() as db:
+        assert (await db.get_session(victim_sid)) is None
+        assert (await db.get_session(keeper_sid)) is not None
 
 
 # ── _doctor (li state doctor) ────────────────────────────────────────────────
@@ -435,6 +647,51 @@ async def test_doctor_sweeps_stale_running_sessions_to_aborted(
     assert s_stale["status"] == "aborted"
     assert s_stale["ended_at"] is not None
     assert s_recent["status"] == "running"
+
+
+async def test_doctor_leaves_an_old_session_whose_process_is_still_running(
+    temp_db_path: Path,
+):
+    """Age answers how long since the session first started, which is how long
+    the process has been running only for a session that ran once. A branch
+    picked up again keeps its original start time while the process is new, so
+    the command asks the process before calling the session stuck."""
+    old = time.time() - (48 * 3600)
+    async with StateDB() as db:
+        alive = await _seed_session(db, status="running")
+        dead = await _seed_session(db, status="running")
+        for sid, pid in ((alive, os.getpid()), (dead, 999999)):
+            await db.execute(
+                "UPDATE sessions SET started_at = ?, node_metadata = ? WHERE id = ?",
+                (old, json.dumps({"pid": pid}), sid),
+            )
+
+    result = await _doctor(stale_hours=24, dry_run=False)
+    assert (result["swept"], result["skipped"]) == (1, 1)
+
+    async with StateDB() as db:
+        assert (await db.get_session(alive))["status"] == "running"
+        assert (await db.get_session(dead))["status"] == "aborted"
+
+
+async def test_doctor_sweeps_a_session_whose_pid_was_recycled(temp_db_path: Path):
+    """A live PID is not proof on its own. The OS hands a dead session's number
+    to an unrelated process eventually, and a sweep that stopped there would
+    protect a genuinely stuck row for as long as that process lived."""
+    old = time.time() - (48 * 3600)
+    async with StateDB() as db:
+        sid = await _seed_session(db, status="running")
+        await db.execute(
+            "UPDATE sessions SET started_at = ?, node_metadata = ? WHERE id = ?",
+            # This process is alive, but it started at a different moment than
+            # the session recorded, so the number belongs to someone else now.
+            (old, json.dumps({"pid": os.getpid(), "pid_create_time": 1.0}), sid),
+        )
+
+    assert (await _doctor(stale_hours=24, dry_run=False))["swept"] == 1
+
+    async with StateDB() as db:
+        assert (await db.get_session(sid))["status"] == "aborted"
 
 
 async def test_doctor_handles_null_started_at_as_stale(temp_db_path: Path):
@@ -517,6 +774,48 @@ async def test_doctor_does_not_overwrite_session_that_completed_post_select(
     assert s_racy["status"] == "completed"
     assert s_truly["status"] == "aborted"
     assert result["swept"] == 1
+
+
+async def test_doctor_status_and_ended_at_are_atomic(
+    temp_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A crash immediately after the status-transitioning write commits must
+    not leave a terminal-status row with ``ended_at`` still NULL — status and
+    ``ended_at`` must land in the same transaction, not two sequential ones.
+    """
+    from lionagi.state.db import StateDB as _SDB
+
+    now = time.time()
+    old = now - (48 * 3600)
+    async with StateDB() as db:
+        sid = await _seed_session(db, status="running")
+        await db.execute(
+            "UPDATE sessions SET started_at = ? WHERE id = ?",
+            (old, sid),
+        )
+
+    real_tx = _SDB._tx
+    calls = {"n": 0}
+
+    @contextlib.asynccontextmanager
+    async def crash_after_first_tx(self):
+        calls["n"] += 1
+        async with real_tx(self) as conn:
+            yield conn
+        if calls["n"] == 1:
+            raise RuntimeError("simulated crash right after the status write commits")
+
+    monkeypatch.setattr(_SDB, "_tx", crash_after_first_tx)
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        await _doctor(stale_hours=24, dry_run=False)
+
+    monkeypatch.setattr(_SDB, "_tx", real_tx)
+    async with StateDB() as db:
+        s = await db.get_session(sid)
+    assert s["status"] == "aborted"
+    assert s["ended_at"] is not None
 
 
 async def test_doctor_with_failed_new_status(temp_db_path: Path):

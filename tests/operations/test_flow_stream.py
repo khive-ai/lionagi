@@ -132,3 +132,96 @@ async def test_dependent_op_streams_after_predecessor():
 
     results = [ev.result async for ev in session.flow_stream(g)]
     assert results == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_non_mapping_response_context_reports_failed_progress():
+    async def bad_context(**kw):
+        return {"context": ["not", "a", "mapping"]}
+
+    session = _session(bad_context=bad_context)
+    graph = Graph()
+    node = create_operation("bad_context", parameters={})
+    graph.add_node(node)
+    progress: list[str] = []
+
+    result = await session.flow(
+        graph,
+        parallel=False,
+        on_progress=lambda _op_id, _name, status, _elapsed: progress.append(status),
+    )
+
+    assert progress == ["queued", "started", "failed"]
+    assert node.execution.status.value == "failed"
+    assert "must be a Mapping" in result["operation_results"][node.id]["error"]
+
+
+@pytest.mark.asyncio
+async def test_non_mapping_response_context_streams_failed_event():
+    async def bad_context(**kw):
+        return {"context": "not-a-mapping"}
+
+    session = _session(bad_context=bad_context)
+    graph = Graph()
+    node = create_operation("bad_context", parameters={})
+    graph.add_node(node)
+
+    events = [event async for event in session.flow_stream(graph)]
+
+    assert len(events) == 1
+    assert events[0].status == "failed"
+    assert not events[0].ok
+    assert "must be a Mapping" in events[0].result["error"]
+
+
+def test_execute_stream_yields_events_under_trio():
+    """The streaming driver must be scheduled by whatever anyio backend is
+    active. asyncio.ensure_future() silently no-ops under Trio, leaving the
+    stream waiting forever for an operation that already completed."""
+
+    async def quick(**kw):
+        return "done"
+
+    async def scenario():
+        session = _session(quick=quick)
+        graph = Graph()
+        graph.add_node(create_operation("quick", parameters={}))
+
+        events = []
+        with anyio.fail_after(2):
+            async for ev in session.flow_stream(graph):
+                events.append(ev)
+        return events
+
+    events = anyio.run(scenario, backend="trio")
+
+    assert len(events) == 1
+    assert events[0].result == "done"
+
+
+def test_execute_stream_early_break_cancels_driver_under_trio():
+    """An early consumer break must still cancel the still-running driver
+    task promptly, not hang until the slow operation finishes."""
+
+    async def quick(**kw):
+        return "quick-done"
+
+    async def slow(**kw):
+        await anyio.sleep(10)
+        return "never"
+
+    async def scenario():
+        session = _session(quick=quick, slow=slow)
+        graph = Graph()
+        graph.add_node(create_operation("quick", parameters={}))
+        graph.add_node(create_operation("slow", parameters={}))
+
+        seen = 0
+        with anyio.fail_after(2):
+            async for _ev in session.flow_stream(graph):
+                seen += 1
+                break
+        return seen
+
+    seen = anyio.run(scenario, backend="trio")
+    assert seen == 1

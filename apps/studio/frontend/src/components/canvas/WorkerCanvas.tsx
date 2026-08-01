@@ -8,20 +8,12 @@ import ReactFlow, {
   addEdge,
   useNodesState,
   useEdgesState,
-  MarkerType,
 } from "reactflow";
-import type {
-  Connection,
-  Edge,
-  Node,
-  OnSelectionChangeParams,
-  NodeMouseHandler,
-  EdgeMouseHandler,
-} from "reactflow";
+import type { Connection, Edge, Node, NodeMouseHandler, EdgeMouseHandler } from "reactflow";
 import "reactflow/dist/style.css";
 
 import StepNodeComponent from "./StepNode";
-import type { StepNodeData } from "./StepNode";
+import type { StepNodeData, NodeExecStatus } from "./StepNode";
 import ConditionEdgeComponent from "./ConditionEdge";
 import type { ConditionEdgeData } from "./ConditionEdge";
 import SidePanel from "./SidePanel";
@@ -50,14 +42,49 @@ interface WorkerCanvasProps {
     result?: Record<string, unknown>;
     timestamp?: number;
   }>;
+  /** Authored step id → live lifecycle status, correlated from Node* signals
+   * (never from op_id — see lib/operationGraph.ts buildNodeStatusesByName).
+   * Takes priority over execSteps/currentStep for node coloring when a node
+   * has a matching entry; nodes with no entry fall back to the legacy
+   * execSteps/currentStep-derived status. */
+  nodeStatuses?: Record<string, NodeExecStatus>;
   currentStep?: string | null;
   onChange?: (nodes: WorkerStepNode[], edges: WorkerLinkEdge[]) => void;
+  /** Read-only embed in a small container (e.g. RunDetail's 280px run-dag
+   * panel). Suppresses the MiniMap — at that size it reads as a floating
+   * cluster of gray nodes rather than a useful overview. */
+  compact?: boolean;
 }
 
 // ─── Conversion helpers ─────────────────────────────────
 
 const nodeTypes = { step: StepNodeComponent };
 const edgeTypes = { condition: ConditionEdgeComponent };
+
+// nodeStatuses only covers nodes it has live signal correlation for — a
+// legacy run (no matching signals, or none at all) still passes a truthy
+// object (RunDetail always builds one when a planned graph exists, `{}` in
+// the legacy case). An edge's source node absent from that map must fall
+// back to the legacy execSteps-derived completedMap rather than being
+// treated as "not completed" just because *some* nodeStatuses object exists.
+// A MiniMap only earns its keep once the canvas is large enough for an
+// overview to mean something. In a `compact` embed (RunDetail's 280px
+// run-dag panel) it instead reads as a floating cluster of gray micro-nodes
+// overlapping the real graph, so suppress it outright there regardless of
+// node count.
+export function shouldShowMiniMap(compact: boolean, nodeCount: number): boolean {
+  if (compact) return false;
+  return nodeCount > 10;
+}
+
+export function computeEdgeSourceCompleted(
+  source: string,
+  nodeStatuses: Record<string, NodeExecStatus> | undefined,
+  completedMap: Map<string, unknown>,
+): boolean {
+  const live = nodeStatuses?.[source];
+  return live !== undefined ? live === "completed" : completedMap.has(source);
+}
 
 function toFlowNodes(nodes: WorkerStepNode[]): Node<StepNodeData>[] {
   return nodes.map((n) => ({
@@ -127,8 +154,10 @@ export default function WorkerCanvas({
   agentProfiles = [],
   modelOverrides = {},
   execSteps = [],
+  nodeStatuses,
   currentStep = null,
   onChange,
+  compact = false,
 }: WorkerCanvasProps) {
   const initialised = useRef(false);
 
@@ -147,9 +176,11 @@ export default function WorkerCanvas({
     initialised.current = true;
   }, [initialFlowNodes, initialFlowEdges, setNodes, setEdges]);
 
-  // Apply execution status to nodes
+  // Apply execution status to nodes. nodeStatuses (live signal-derived, keyed
+  // by authored step id) takes priority per node; nodes it doesn't cover fall
+  // back to the legacy execSteps/currentStep derivation.
   useEffect(() => {
-    if (execSteps.length === 0 && !currentStep) return;
+    if (execSteps.length === 0 && !currentStep && !nodeStatuses) return;
 
     const completedMap = new Map(
       execSteps.filter((s) => s.status === "completed").map((s) => [s.step, s]),
@@ -158,7 +189,9 @@ export default function WorkerCanvas({
     setNodes((nds) =>
       nds.map((n) => {
         let status: StepNodeData["execStatus"] = "pending";
-        if (n.id === currentStep) status = "running";
+        const live = nodeStatuses?.[n.id];
+        if (live) status = live;
+        else if (n.id === currentStep) status = "running";
         else if (completedMap.has(n.id)) status = "completed";
 
         return {
@@ -171,10 +204,13 @@ export default function WorkerCanvas({
     setEdges((eds) =>
       eds.map((e) => ({
         ...e,
-        data: { ...e.data, sourceCompleted: completedMap.has(e.source) },
+        data: {
+          ...e.data,
+          sourceCompleted: computeEdgeSourceCompleted(e.source, nodeStatuses, completedMap),
+        },
       })),
     );
-  }, [execSteps, currentStep, setNodes, setEdges]);
+  }, [execSteps, currentStep, nodeStatuses, setNodes, setEdges]);
 
   // Emit changes to parent
   useEffect(() => {
@@ -331,8 +367,11 @@ export default function WorkerCanvas({
             showInteractive={false}
             className="!bg-surface-raised !border-edge !shadow-none [&>button]:!bg-surface-raised [&>button]:!border-edge [&>button]:!text-content-secondary [&>button:hover]:!bg-surface-overlay [&>button:hover]:!text-content-primary"
           />
-          {nodes.length > 10 ? (
+          {shouldShowMiniMap(compact, nodes.length) ? (
             <MiniMap
+              position="bottom-right"
+              pannable={false}
+              zoomable={false}
               nodeColor={() => "var(--edge-strong)"}
               maskColor="rgba(0, 0, 0, 0.5)"
               className="!bg-surface-raised !border-edge"
@@ -343,7 +382,7 @@ export default function WorkerCanvas({
           <svg>
             <defs>
               <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="var(--edge-strong)" />
+                <polygon points="0 0, 8 3, 0 6" fill="var(--dag-pending-border)" />
               </marker>
               <marker
                 id="arrow-active"

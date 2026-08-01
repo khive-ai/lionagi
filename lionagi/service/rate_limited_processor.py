@@ -46,13 +46,8 @@ class RateLimitedAPIProcessor(Processor):
         self._lock = Lock()
 
     async def start_replenishing(self):
-        """Start replenishing rate limit capacities at regular intervals.
-
-        The cancellation handler wraps ``await self.start()`` too so that a
-        cancel arriving before the main loop is reached is still caught
-        inside the task — otherwise the task ends with an uncaught
-        ``CancelledError`` and the awaiting ``stop()`` re-raises it.
-        """
+        """Start replenishing rate limit capacities at regular intervals. See
+        docs/internals/runtime.md for the cancellation-handling rationale."""
         try:
             await self.start()
             while not self.is_stopped():
@@ -65,12 +60,8 @@ class RateLimitedAPIProcessor(Processor):
                     if self.limit_tokens is not None:
                         self._available_tokens = self.limit_tokens
 
-                # Re-drive deferred work. process() re-enqueues rate-limited
-                # events (instead of dropping them); without re-driving here,
-                # nothing would retry them after the budget replenishes —
-                # forward() is one-shot — and they would sit PENDING until the
-                # caller's invoke() safety timeout. Draining on each refresh is
-                # what makes the deferral actually complete.
+                # Re-drive deferred work — forward() is one-shot, so without this drain
+                # rate-limited events would sit PENDING until invoke()'s safety timeout.
                 if not self.queue.empty():
                     await self.process()
 
@@ -81,14 +72,8 @@ class RateLimitedAPIProcessor(Processor):
 
     @override
     async def stop(self) -> None:
-        """Stop the replenishment task.
-
-        Python 3.11+ re-raises ``CancelledError`` on ``await task`` after
-        ``task.cancel()`` even when the task body suppressed the exception
-        (until ``uncancel()`` is called). Suppress it here so the caller —
-        typically ``iModelManager.shutdown()`` iterating multiple iModels —
-        does not abort on the first close.
-        """
+        """Stop the replenishment task; swallows the Python 3.11+ re-raised
+        ``CancelledError`` so callers closing multiple iModels don't abort early."""
         if self._rate_limit_replenisher_task:
             self._rate_limit_replenisher_task.cancel()
             try:
@@ -149,14 +134,8 @@ class RateLimitedAPIProcessor(Processor):
 
     @override
     async def handle_denied(self, event: Any) -> bool:
-        """Rate-limit denial is a DEFERRAL, not a rejection.
-
-        Return ``False`` so the base ``process()`` re-enqueues the event
-        (leaving it ``PENDING``) instead of terminalizing it — the call is
-        retried on a later cycle once the rate limit replenishes. Returning
-        ``True`` (as the base does for permission rejections) would silently
-        drop rate-limited work.
-        """
+        """Rate-limit denial is a DEFERRAL, not a rejection: returns ``False`` so
+        ``process()`` re-enqueues the event (stays ``PENDING``) instead of terminalizing it."""
         return False
 
 

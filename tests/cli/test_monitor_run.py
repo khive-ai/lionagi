@@ -6,9 +6,8 @@ dashboard, not a replacement)."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
-import signal
 import threading
 import time
 import uuid
@@ -20,17 +19,20 @@ import pytest
 from lionagi.cli.monitor import (
     _advance_chains,
     _dispatch_wait,
+    _effective_session_status,
     _format_wait_line,
     _new_chain_state,
     _poll_pending_once,
     _query_schedule_runs_since,
     _resolve_schedule_run,
+    _resolve_session_run,
+    _resolve_watched_runs,
     _split_watched_ids,
     add_monitor_subparser,
     run_monitor_wait,
 )
 from lionagi.cli.status import EXIT_RUNNING, EXIT_UNKNOWN
-from lionagi.state.db import StateDB
+from lionagi.state.db import SCHEDULE_RUN_TERMINAL_STATUSES, StateDB
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -41,6 +43,19 @@ def temp_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     db_path = tmp_path / "state.db"
     monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
     return db_path
+
+
+@pytest.fixture
+def sleep_probe(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record `_dispatch_wait`'s poll-interval sleep calls instead of letting
+    them block. `_dispatch_wait` only reaches its `_sleep_interval(interval)`
+    call *after* a tick that leaves the chain still open (see the loop in
+    `lionagi/cli/monitor.py`) -- so an empty list here is a deterministic,
+    load-independent proof that the wait resolved on its first tick rather
+    than a wall-clock bound that flakes under machine contention."""
+    calls: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda secs: calls.append(secs))
+    return calls
 
 
 async def _make_schedule(
@@ -73,12 +88,14 @@ async def _make_schedule_run(
     exit_code: int | None = None,
     chain_depth: int = 0,
     chain_parent_id: str | None = None,
+    invocation_id: str | None = None,
 ) -> str:
     rid = uuid.uuid4().hex[:12]
     await db.create_schedule_run(
         {
             "id": rid,
             "schedule_id": schedule_id,
+            "invocation_id": invocation_id,
             "trigger_context": {},
             "action_kind": "agent",
             "action_args": [],
@@ -173,6 +190,66 @@ async def test_resolve_schedule_run_not_found_returns_none(temp_db_path: Path) -
         assert row is None
 
 
+# ── _resolve_watched_runs: bounded creation-grace retry ─────────────────────
+#
+# fire_now() hands a run_id to its caller before the fired occurrence row is
+# durably written (the fire itself runs as a background task) — resolving
+# that id immediately can race the insert. _resolve_watched_runs must retry
+# within a bounded grace period instead of giving up on one lookup.
+
+
+@pytest.mark.asyncio
+async def test_resolve_watched_runs_retries_until_row_appears(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        sched_id = await _make_schedule(db)
+        run_id = uuid.uuid4().hex[:12]
+
+        # Insert with the pre-chosen id after a short delay, simulating the
+        # background _fire task's race window against the caller's lookup.
+        async def _insert_directly() -> None:
+            await asyncio.sleep(0.05)
+            async with StateDB() as inner_db:
+                await inner_db.create_schedule_run(
+                    {
+                        "id": run_id,
+                        "schedule_id": sched_id,
+                        "invocation_id": None,
+                        "trigger_context": {},
+                        "action_kind": "agent",
+                        "action_args": [],
+                        "status": "running",
+                        "exit_code": None,
+                        "chain_depth": 0,
+                        "chain_parent_id": None,
+                        "fired_at": time.time(),
+                    }
+                )
+
+        task = asyncio.ensure_future(_insert_directly())
+        try:
+            pending, session_pending, unresolved = await _resolve_watched_runs(
+                db, [run_id], grace_seconds=2.0
+            )
+        finally:
+            await task
+
+    assert unresolved == []
+    assert run_id in pending
+    assert session_pending == {}
+
+
+@pytest.mark.asyncio
+async def test_resolve_watched_runs_gives_up_after_grace_period(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        pending, session_pending, unresolved = await _resolve_watched_runs(
+            db, ["never-created"], grace_seconds=0.1
+        )
+
+    assert pending == {}
+    assert session_pending == {}
+    assert unresolved == ["never-created"]
+
+
 # ── _poll_pending_once (the testable inner tick — no real sleeps needed) ────
 
 
@@ -195,6 +272,106 @@ async def test_poll_pending_once_reports_immediately_terminal_run(
     assert "status=completed" in out
 
 
+@pytest.mark.parametrize("status", sorted(SCHEDULE_RUN_TERMINAL_STATUSES))
+@pytest.mark.asyncio
+async def test_poll_pending_once_treats_every_terminal_status_as_done(
+    temp_db_path: Path, capsys: pytest.CaptureFixture, status: str
+) -> None:
+    """Every shared-vocabulary terminal status ends the wait on the first
+    tick — a hand-listed subset here once omitted timed_out, leaving
+    timed-out occurrences pending forever."""
+    async with StateDB() as db:
+        sched_id = await _make_schedule(db, name=f"term-{status}")
+        run_id = await _make_schedule_run(db, sched_id, status=status)
+        pending = {run_id: await db.get_schedule_run(run_id)}
+        done: list[dict[str, Any]] = []
+        await _poll_pending_once(db, pending, {}, done)
+
+    assert [r["id"] for r in done] == [run_id]
+    assert run_id not in pending
+    assert f"status={status}" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_once_prints_coordination_line_when_nonzero(
+    temp_db_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """The wait primitive's per-run print (`li monitor run <id>`) appends a
+    coordination one-liner sourced from the run's invocation node_metadata,
+    written by the scheduler engine's finalize path -- only when non-zero."""
+    coordination = {
+        "signals": {"emitted": {"ScheduleRunSucceeded": 1}, "received": 1, "acted_on": 1},
+        "files_overlap": {"count": 1, "top": [{"path": "/repo/shared.py", "workers": 2}]},
+    }
+    async with StateDB() as db:
+        inv_id = uuid.uuid4().hex[:12]
+        await db.create_invocation(
+            {
+                "id": inv_id,
+                "skill": "scheduled:test",
+                "started_at": time.time(),
+                "node_metadata": {"coordination": coordination},
+            }
+        )
+        sched_id = await _make_schedule(db, name="coord-sched")
+        run_id = await _make_schedule_run(
+            db, sched_id, status="completed", exit_code=0, invocation_id=inv_id
+        )
+        pending = {run_id: await db.get_schedule_run(run_id)}
+        done: list[dict[str, Any]] = []
+        await _poll_pending_once(db, pending, {}, done)
+
+    out = capsys.readouterr().out
+    assert "coordination: emitted=1 received=1 acted_on=1 files_overlap=1" in out
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_once_omits_coordination_line_when_all_zero(
+    temp_db_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    coordination = {
+        "signals": {"emitted": {}, "received": 0, "acted_on": 0},
+        "files_overlap": {"count": 0, "top": []},
+    }
+    async with StateDB() as db:
+        inv_id = uuid.uuid4().hex[:12]
+        await db.create_invocation(
+            {
+                "id": inv_id,
+                "skill": "scheduled:test",
+                "started_at": time.time(),
+                "node_metadata": {"coordination": coordination},
+            }
+        )
+        sched_id = await _make_schedule(db, name="zero-sched")
+        run_id = await _make_schedule_run(
+            db, sched_id, status="completed", exit_code=0, invocation_id=inv_id
+        )
+        pending = {run_id: await db.get_schedule_run(run_id)}
+        done: list[dict[str, Any]] = []
+        await _poll_pending_once(db, pending, {}, done)
+
+    out = capsys.readouterr().out
+    assert "coordination" not in out
+
+
+@pytest.mark.asyncio
+async def test_poll_pending_once_no_invocation_id_omits_coordination_line(
+    temp_db_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """A schedule_run with no invocation_id (or none found) must not error;
+    it simply prints no coordination line."""
+    async with StateDB() as db:
+        sched_id = await _make_schedule(db, name="no-inv-sched")
+        run_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
+        pending = {run_id: await db.get_schedule_run(run_id)}
+        done: list[dict[str, Any]] = []
+        await _poll_pending_once(db, pending, {}, done)
+
+    out = capsys.readouterr().out
+    assert "coordination" not in out
+
+
 @pytest.mark.asyncio
 async def test_poll_pending_once_leaves_running_run_pending(
     temp_db_path: Path, capsys: pytest.CaptureFixture
@@ -215,10 +392,7 @@ async def test_poll_pending_once_leaves_running_run_pending(
 async def test_poll_pending_once_across_two_ticks_with_db_mutation_no_real_sleep(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """Drives the run from running -> completed between two direct calls to
-    the tick function — the deterministic, zero-wall-clock way to exercise
-    'terminal across different poll iterations' (see also the real-thread
-    variant against _dispatch_wait below)."""
+    """Drives the run from running -> completed between two direct tick calls -- the deterministic, zero-wall-clock way to exercise 'terminal across different poll iterations' (see also the real-thread variant against _dispatch_wait below)."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db)
         run_id = await _make_schedule_run(db, sched_id, status="running")
@@ -384,11 +558,7 @@ async def test_advance_chains_grace_expires_without_child_resolves_on_parent_exi
 async def test_advance_chains_cancelled_run_resolves_without_grace(
     temp_db_path: Path,
 ) -> None:
-    """A watched run that lands status="cancelled" can never get a chain
-    child fired for it -- the engine's CancelledError branch sets
-    status="cancelled" and skips its chain-fire block entirely -- so even
-    though the schedule declares a matching on_fail, no grace window opens;
-    the root resolves on the very next tick."""
+    """A watched run landing status='cancelled' never gets a chain child fired -- the engine's CancelledError branch skips the chain-fire block entirely -- so even with a matching on_fail declared, no grace window opens; the root resolves on the very next tick."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="declares-on-fail", on_fail={"kind": "agent"})
         run_id = await _make_schedule_run(db, sched_id, status="cancelled", exit_code=None)
@@ -405,11 +575,7 @@ async def test_advance_chains_cancelled_run_resolves_without_grace(
 async def test_advance_chains_skipped_run_resolves_without_grace(
     temp_db_path: Path,
 ) -> None:
-    """A skipped run (overlap or missed-fire policy) is created terminal by
-    create_skipped_run and never goes through the engine's fire path, so no
-    chain child can ever follow it -- even though its schedule declares a
-    matching on_fail (skipped runs have exit_code=None), no grace window
-    opens; the root resolves on the very next tick."""
+    """A skipped run (overlap/missed-fire policy) is created terminal by create_skipped_run and never goes through the fire path, so no chain child can follow it -- even with a matching on_fail declared (skipped runs have exit_code=None), no grace window opens; resolves on the very next tick."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="declares-on-fail-skip", on_fail={"kind": "agent"})
         run_id = await _make_schedule_run(db, sched_id, status="skipped", exit_code=None)
@@ -426,12 +592,7 @@ async def test_advance_chains_skipped_run_resolves_without_grace(
 async def test_advance_chains_failed_run_without_exit_code_resolves_without_grace(
     temp_db_path: Path,
 ) -> None:
-    """A run that failed before its subprocess ever spawned (argv build
-    error or internal exception) lands status="failed" with exit_code=None.
-    The engine's chain block sits after the subprocess returns a real exit
-    code, so such a run can never get a chain child -- even with a matching
-    on_fail declared, no grace window opens; the root resolves on the very
-    next tick."""
+    """A run that failed before its subprocess ever spawned lands status='failed' with exit_code=None; the chain block sits after a real exit code, so it can never get a chain child even with a matching on_fail -- no grace window opens, resolves on the very next tick."""
     async with StateDB() as db:
         sched_id = await _make_schedule(
             db, name="declares-on-fail-noexit", on_fail={"kind": "agent"}
@@ -450,11 +611,7 @@ async def test_advance_chains_failed_run_without_exit_code_resolves_without_grac
 async def test_advance_chains_chain_depth_at_cap_resolves_without_grace(
     temp_db_path: Path,
 ) -> None:
-    """A watched run already at the engine's chain-depth cap can never get a
-    chain child fired for it either -- the engine only fires when
-    chain_depth < _MAX_CHAIN_DEPTH (10) -- so a schedule declaring a
-    matching on_success still gets no grace window; the root resolves on
-    the very next tick."""
+    """A watched run already at the engine's chain-depth cap (chain_depth < _MAX_CHAIN_DEPTH == 10) can never get a chain child fired either -- a matching on_success still gets no grace window; resolves on the very next tick."""
     async with StateDB() as db:
         sched_id = await _make_schedule(
             db, name="declares-on-success", on_success={"kind": "agent"}
@@ -475,11 +632,7 @@ async def test_advance_chains_chain_depth_at_cap_resolves_without_grace(
 async def test_advance_chains_multi_hop_chain_followed_to_final_link(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """(f) a retry-on-failure chain (on_fail declared, no on_success):
-    parent fails -> child1 fails -> child2 succeeds. Depth-2 chain; the
-    final link (child2) decides the aggregate, and child2's own schedule
-    has no on_success declared so it resolves immediately once it succeeds
-    (no further grace, no infinite chase)."""
+    """(f) A retry-on-failure chain (on_fail only): parent fails -> child1 fails -> child2 succeeds. Depth-2 chain; child2 (the final link, no on_success of its own) decides the aggregate and resolves immediately once it succeeds -- no further grace, no infinite chase."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="retry-on-fail", on_fail={"kind": "agent"})
         parent_id = await _make_schedule_run(db, sched_id, status="failed", exit_code=1)
@@ -529,18 +682,16 @@ async def test_advance_chains_multi_hop_chain_followed_to_final_link(
 
 @pytest.mark.asyncio
 async def test_dispatch_wait_single_immediately_terminal_success(
-    temp_db_path: Path, capsys: pytest.CaptureFixture
+    temp_db_path: Path, capsys: pytest.CaptureFixture, sleep_probe: list[float]
 ) -> None:
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="my-sched")
         run_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
 
-    started = time.monotonic()
     exit_code = _dispatch_wait([run_id], interval=5.0, follow=False)
-    elapsed = time.monotonic() - started
 
     assert exit_code == 0
-    assert elapsed < 2.0, "already-terminal run must not wait out a full poll interval"
+    assert sleep_probe == [], "already-terminal run must not wait out a full poll interval"
     out = capsys.readouterr().out
     assert run_id in out
     assert "status=completed" in out
@@ -580,7 +731,7 @@ async def test_dispatch_wait_multi_id_one_nonzero_exit_fails_aggregate(temp_db_p
 
 @pytest.mark.asyncio
 async def test_dispatch_wait_unknown_id_returns_exit_unknown_without_blocking(
-    temp_db_path: Path, caplog: pytest.LogCaptureFixture
+    temp_db_path: Path, caplog: pytest.LogCaptureFixture, sleep_probe: list[float], monkeypatch
 ) -> None:
     # Open+close once so state.db actually exists on disk — this test is
     # about an id that isn't among the (existing) schedule_runs, not about
@@ -588,13 +739,16 @@ async def test_dispatch_wait_unknown_id_returns_exit_unknown_without_blocking(
     async with StateDB():
         pass
 
-    started = time.monotonic()
+    # A genuinely unknown id still exhausts the bounded resolution grace
+    # period (see _resolve_watched_runs) before giving up — zero it out so
+    # this test stays fast without asserting away that retry.
+    monkeypatch.setattr("lionagi.cli.monitor._RESOLVE_GRACE_SECONDS", 0.0)
+
     with caplog.at_level(logging.ERROR, logger="lionagi.cli.error"):
         exit_code = _dispatch_wait(["nonexistent-id"], interval=5.0, follow=False)
-    elapsed = time.monotonic() - started
 
     assert exit_code == EXIT_UNKNOWN
-    assert elapsed < 2.0, "unresolved id must not enter the poll loop at all"
+    assert sleep_probe == [], "unresolved id must not enter the poll loop at all"
     assert "nonexistent-id" in caplog.text
 
 
@@ -634,10 +788,7 @@ async def test_dispatch_wait_mixed_unknown_and_resolved_still_returns_exit_unkno
 async def test_dispatch_wait_polls_across_real_iterations_until_background_mutation(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """Integration-level companion to the deterministic two-tick test above:
-    a background thread flips the row to terminal partway through, proving
-    the sync orchestration loop (not just the inner tick function) actually
-    polls on a real cadence rather than resolving everything up front."""
+    """Integration companion to the deterministic two-tick test above: a background thread flips the row to terminal partway through, proving the sync orchestration loop -- not just the inner tick function -- actually polls on a real cadence."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db)
         run_id = await _make_schedule_run(db, sched_id, status="running")
@@ -662,25 +813,37 @@ async def test_dispatch_wait_polls_across_real_iterations_until_background_mutat
     assert run_id in capsys.readouterr().out
 
 
+def _interrupt_dispatch_on_tick(monkeypatch: pytest.MonkeyPatch, *, tick: int) -> None:
+    """Deterministically interrupt a ``_dispatch_wait`` poll/follow loop: raising KeyboardInterrupt from ``run_async`` on the ``tick``-th call (rather than a real SIGINT, which could land after the loop returns and crash the shared pytest-xdist worker) exercises the same clean-exit path with no signal that can outlive the call. Call 1 is the initial resolve, call 2 the first bounded tick, later calls the follow-tail ticks."""
+    import lionagi.ln.concurrency as concurrency_mod
+
+    real_run_async = concurrency_mod.run_async
+    calls = {"n": 0}
+
+    def _fake_run_async(coro: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == tick:
+            coro.close()
+            raise KeyboardInterrupt
+        return real_run_async(coro)
+
+    monkeypatch.setattr(concurrency_mod, "run_async", _fake_run_async)
+
+
 @pytest.mark.asyncio
 async def test_dispatch_wait_sigint_while_still_pending_returns_exit_running(
-    temp_db_path: Path,
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A run that never goes terminal + a real SIGINT mid-wait must report
+    """A run that never goes terminal + an interrupt mid-wait must report
     EXIT_RUNNING, not silently succeed."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db)
         run_id = await _make_schedule_run(db, sched_id, status="running")
 
-    def _send_interrupt() -> None:
-        time.sleep(0.3)
-        os.kill(os.getpid(), signal.SIGINT)
-
-    t = threading.Thread(target=_send_interrupt, daemon=True)
-    t.start()
+    # call 1 resolves the still-running run; interrupt the first poll tick.
+    _interrupt_dispatch_on_tick(monkeypatch, tick=2)
 
     exit_code = _dispatch_wait([run_id], interval=0.05, follow=False)
-    t.join(timeout=2)
 
     assert exit_code == EXIT_RUNNING
 
@@ -711,13 +874,7 @@ async def test_dispatch_wait_interrupted_during_resolve_returns_exit_running(
 async def test_dispatch_wait_keyboard_interrupt_after_tick_mutates_state_still_reports_failure(
     temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression: run_async can complete a tick's real work (printing a
-    terminal row, mutating `pending`/`done`) and *then* raise
-    KeyboardInterrupt before _dispatch_wait ever sees the tick's return
-    value -- exactly what happens when SIGINT is delivered right as the
-    tick's coroutine finishes. The already-observed failure must still be
-    reflected in the exit code, not lost to a vacuous empty-`done` success.
-    """
+    """Regression: run_async can mutate state (print a terminal row, update pending/done) and only then raise KeyboardInterrupt before _dispatch_wait sees the tick's return value -- exactly what SIGINT delivered at tick-completion looks like. The already-observed failure must still be reflected in the exit code, not lost to a vacuous empty-done success."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db)
         run_id = await _make_schedule_run(db, sched_id, status="failed", exit_code=1)
@@ -747,10 +904,7 @@ async def test_dispatch_wait_keyboard_interrupt_after_tick_mutates_state_still_r
 async def test_dispatch_wait_chain_follow_on_fail_recovery_final_link_wins(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """(b) a failed parent whose schedule declares on_fail, and whose
-    already-fired child succeeded, must report exit 0 -- the chain
-    recovered, and the *final* link decides, not the failed first one. Both
-    links' lines are printed."""
+    """(b) A failed parent whose schedule declares on_fail, whose already-fired child succeeded, must report exit 0 -- the chain recovered and the final link decides, not the failed first one."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="flaky", on_fail={"kind": "agent"})
         parent_id = await _make_schedule_run(db, sched_id, status="failed", exit_code=1)
@@ -769,6 +923,7 @@ async def test_dispatch_wait_chain_follow_on_fail_recovery_final_link_wins(
 @pytest.mark.asyncio
 async def test_dispatch_wait_chain_follow_no_declared_action_resolves_immediately(
     temp_db_path: Path,
+    sleep_probe: list[float],
 ) -> None:
     """(c) a schedule declaring on_success only, hit by a FAILED run, needs
     no grace wait at all -- must resolve well before a full poll interval,
@@ -777,15 +932,14 @@ async def test_dispatch_wait_chain_follow_no_declared_action_resolves_immediatel
         sched_id = await _make_schedule(db, name="success-only", on_success={"kind": "agent"})
         run_id = await _make_schedule_run(db, sched_id, status="failed", exit_code=1)
 
-    started = time.monotonic()
     exit_code = _dispatch_wait([run_id], interval=5.0, follow=False)
-    elapsed = time.monotonic() - started
 
     assert exit_code == 1
-    assert elapsed < 2.0, "no matching chain action declared -- must not enter a grace wait"
+    assert sleep_probe == [], "no matching chain action declared -- must not enter a grace wait"
 
 
 @pytest.mark.asyncio
+@pytest.mark.slow_timing
 async def test_dispatch_wait_chain_follow_grace_expiry_does_not_hang(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
@@ -832,15 +986,7 @@ async def test_dispatch_wait_no_chain_ignores_fired_children(
 async def test_dispatch_wait_overlapping_roots_child_watched_directly_succeeds(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """Regression: a parent AND its already-linked chain child are both
-    passed as initial watch roots (e.g. from comma/list expansion). The
-    parent is terminal from the start, which starts a grace window that
-    discovers the child via chain_parent_id -- but the child is *also* one
-    of the originally-watched roots, and is still running at that moment.
-    The discovery must not clobber the child's own root ownership: once the
-    child later completes on its own, both the parent's root (resolved via
-    the child as its final link) and the child's own root must resolve, not
-    just the parent's."""
+    """Regression: parent and its already-linked chain child are both passed as initial watch roots (e.g. comma/list expansion); the parent's grace-window discovery of the child (via chain_parent_id) must not clobber the child's own root ownership -- once the still-running child later completes, both the parent's root (resolved via the child as final link) and the child's own root must resolve."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="chained", on_success={"kind": "agent"})
         parent_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
@@ -874,10 +1020,7 @@ async def test_dispatch_wait_overlapping_roots_child_watched_directly_succeeds(
 async def test_dispatch_wait_overlapping_roots_child_watched_directly_fails(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """Failure-side variant of the overlapping-roots regression above: the
-    child (also a directly-watched root) completes with a nonzero exit code
-    -- the aggregate must report failure (1), not fall back to EXIT_RUNNING
-    because the child's own root never resolved."""
+    """Failure-side variant of the overlapping-roots regression above: the child (also a directly-watched root) completes with a nonzero exit code -- the aggregate must report failure (1), not fall back to EXIT_RUNNING."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="chained", on_success={"kind": "agent"})
         parent_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
@@ -911,14 +1054,7 @@ async def test_dispatch_wait_overlapping_roots_child_watched_directly_fails(
 async def test_dispatch_wait_child_already_terminal_same_tick_prints_once(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """Regression: parent AND its chain child are *both* already terminal
-    before `_dispatch_wait` even starts (no background flip needed) -- the
-    very first poll tick prints both directly, then the parent's grace-
-    window discovery finds the child via chain_parent_id. The child's own
-    schedule declares no chain action of its own, so it should already be
-    resolved outright by the time discovery reaches it -- re-adding it to
-    `pending` would make the next tick's `_poll_pending_once` print it a
-    second time."""
+    """Regression: parent and its chain child are both already terminal before _dispatch_wait starts; the first poll tick prints both, then the parent's grace-window discovery finds the child via chain_parent_id -- since the child declares no chain action of its own it is already resolved, so re-adding it to pending would print it a second time."""
     async with StateDB() as db:
         parent_sched = await _make_schedule(db, name="parent-sched", on_success={"kind": "agent"})
         parent_id = await _make_schedule_run(db, parent_sched, status="completed", exit_code=0)
@@ -944,12 +1080,7 @@ async def test_dispatch_wait_child_already_terminal_same_tick_prints_once(
 async def test_dispatch_wait_child_already_terminal_joins_own_grace_prints_once(
     temp_db_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    """Variant of the above: the already-terminal child's own schedule
-    *also* declares a matching chain action (on_success), so discovery must
-    join the parent's root into the child's own `awaiting_grace` entry
-    instead of resolving it outright -- and once that grace window expires
-    (no grandchild ever fires), both roots resolve together on the child's
-    exit code, each line still printed exactly once."""
+    """Variant of the above: the already-terminal child's own schedule also declares a matching chain action (on_success), so discovery must join the parent's root into the child's own awaiting_grace entry instead of resolving it outright -- both roots then resolve together on the child's exit code, each line printed exactly once."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db, name="chained", on_success={"kind": "agent"})
         parent_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
@@ -970,17 +1101,7 @@ async def test_dispatch_wait_child_already_terminal_joins_own_grace_prints_once(
 async def test_dispatch_wait_deep_chain_follows_handoff_past_terminal_child(
     temp_db_path: Path, capsys: pytest.CaptureFixture, descendant_first: bool
 ) -> None:
-    """Regression: a three-link chain (parent failed -> child failed ->
-    grandchild succeeded), all terminal before the wait starts, watched via
-    both the parent AND the child as overlapping roots. When the child is
-    listed first, its grace window discovers the grandchild and hands its
-    root off BEFORE the parent's grace window discovers the child — so the
-    parent's discovery finds an already-processed child that is no longer
-    in awaiting_grace. It must follow the child's handoff forward to the
-    grandchild (the chain's real tail) instead of resolving the parent's
-    root on the child's intermediate failure: final-link-wins means this
-    recovered chain reports success in both watch orders, each run printed
-    exactly once."""
+    """Regression: a three-link chain (parent failed -> child failed -> grandchild succeeded), all terminal before the wait starts, watched via both parent and child. When the child is listed first its grace window discovers the grandchild and hands its root off before the parent's discovery reaches it -- the parent must follow that handoff to the grandchild (final-link-wins) rather than resolve on the child's intermediate failure, in either watch order, each run printed exactly once."""
     async with StateDB() as db:
         parent_sched = await _make_schedule(db, name="parent-sched", on_fail={"kind": "agent"})
         parent_id = await _make_schedule_run(db, parent_sched, status="failed", exit_code=1)
@@ -1042,56 +1163,46 @@ async def test_query_schedule_runs_since_empty_when_nothing_newer(temp_db_path: 
 
 
 @pytest.mark.asyncio
-async def test_dispatch_wait_follow_sigint_clean(temp_db_path: Path) -> None:
+async def test_dispatch_wait_follow_sigint_clean(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Mirrors test_watch_mode_sigint_clean in test_monitor.py: --follow must
-    exit cleanly (not hang, not traceback) on SIGINT once the initial set has
-    drained."""
+    exit cleanly (not hang, not traceback) on interrupt once the initial set
+    has drained."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db)
         run_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
 
-    def _send_interrupt() -> None:
-        time.sleep(0.3)
-        os.kill(os.getpid(), signal.SIGINT)
-
-    t = threading.Thread(target=_send_interrupt, daemon=True)
-    t.start()
+    # call 1 resolves, call 2 drains the initial set; interrupt the first
+    # follow-tail tick (call 3).
+    _interrupt_dispatch_on_tick(monkeypatch, tick=3)
 
     exit_code = _dispatch_wait([run_id], interval=0.05, follow=True)
-    t.join(timeout=2)
 
     assert exit_code == 0
 
 
 @pytest.mark.asyncio
 async def test_dispatch_wait_follow_preserves_initial_failure_exit_code(
-    temp_db_path: Path,
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression: --follow must not collapse an initial bounded-set FAILURE
-    into a false success just because the follow phase was entered and later
-    interrupted. The initial watched set's aggregate result is the contract
-    --follow's exit code honors; the open-ended tail has no result of its
-    own to report."""
+    """Regression: --follow must not collapse an initial bounded-set FAILURE into a false success just because the follow phase was entered and later interrupted -- the initial watched set's aggregate result is the contract --follow's exit code honors."""
     async with StateDB() as db:
         sched_id = await _make_schedule(db)
         run_id = await _make_schedule_run(db, sched_id, status="failed", exit_code=1)
 
-    def _send_interrupt() -> None:
-        time.sleep(0.3)
-        os.kill(os.getpid(), signal.SIGINT)
-
-    t = threading.Thread(target=_send_interrupt, daemon=True)
-    t.start()
+    # call 1 resolves, call 2 drains the initial (failed) set; interrupt the
+    # first follow-tail tick (call 3).
+    _interrupt_dispatch_on_tick(monkeypatch, tick=3)
 
     exit_code = _dispatch_wait([run_id], interval=0.05, follow=True)
-    t.join(timeout=2)
 
     assert exit_code == 1
 
 
 @pytest.mark.asyncio
 async def test_dispatch_wait_follow_ignores_pre_existing_runs_reports_only_new(
-    temp_db_path: Path, capsys: pytest.CaptureFixture
+    temp_db_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Baseline-first discipline: a schedule_run that already existed before
     --follow started watching must never be (re-)reported during the follow
@@ -1103,25 +1214,33 @@ async def test_dispatch_wait_follow_ignores_pre_existing_runs_reports_only_new(
 
     new_run_id: dict[str, str] = {}
 
-    def _create_new_run_then_interrupt() -> None:
-        import asyncio
+    async def _create_new_run() -> None:
+        async with StateDB() as db2:
+            new_run_id["id"] = await _make_schedule_run(
+                db2, sched_id, status="completed", exit_code=0
+            )
 
-        async def _go() -> None:
-            async with StateDB() as db2:
-                new_run_id["id"] = await _make_schedule_run(
-                    db2, sched_id, status="completed", exit_code=0
-                )
+    # call 1 resolves, call 2 drains the watched set and enters follow; on the
+    # first follow-tail tick (call 3) create a new run (created after the
+    # baseline, so the same tick reports it), then interrupt the next tick.
+    import lionagi.ln.concurrency as concurrency_mod
 
-        time.sleep(0.25)
-        asyncio.run(_go())
-        time.sleep(0.4)
-        os.kill(os.getpid(), signal.SIGINT)
+    real_run_async = concurrency_mod.run_async
+    calls = {"n": 0}
 
-    t = threading.Thread(target=_create_new_run_then_interrupt, daemon=True)
-    t.start()
+    def _fake_run_async(coro: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            real_run_async(_create_new_run())
+            return real_run_async(coro)
+        if calls["n"] == 4:
+            coro.close()
+            raise KeyboardInterrupt
+        return real_run_async(coro)
+
+    monkeypatch.setattr(concurrency_mod, "run_async", _fake_run_async)
 
     exit_code = _dispatch_wait([watched_id], interval=0.05, follow=True)
-    t.join(timeout=5)
 
     assert exit_code == 0
     out = capsys.readouterr().out
@@ -1322,6 +1441,29 @@ def test_run_monitor_wait_empty_string_token_rejected_as_usage_error():
 # ── CLI wiring: `li monitor run --help` / `li monitor --help` subprocess ────
 
 
+# ── ADR-0035 regression: `li monitor run` output format is untouched ───────
+
+
+@pytest.mark.asyncio
+async def test_monitor_run_output_format_byte_identical_after_adr_0094(
+    temp_db_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """The new `li wait` verb (ADR-0035) must not change a single byte of
+    `li monitor run`'s own line format — it is a distinct contract
+    (`name=`/`chain_depth=`, no `reason=`/`artifact_dir=`)."""
+    async with StateDB() as db:
+        sched_id = await _make_schedule(db, name="regression-check")
+        run_id = await _make_schedule_run(db, sched_id, status="completed", exit_code=0)
+
+    exit_code = run_monitor_wait([run_id])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert (
+        out.strip()
+        == f"{run_id}  name=regression-check  chain_depth=0  status=completed  exit_code=0"
+    )
+
+
 def test_cli_monitor_run_help_subprocess():
     import subprocess
     import sys
@@ -1351,3 +1493,403 @@ def test_cli_monitor_help_still_shows_dashboard_usage():
     )
     assert result.returncode == 0
     assert "--watch" in result.stdout
+
+
+# ── li monitor run: resolving agent session ids (issue: profile-typed agent
+# sessions previously errored with "schedule_run not found") ────────────────
+
+
+async def _make_agent_session(db: StateDB, *, status: str = "completed") -> str:
+    """A minimal 'sessions' row shaped like a li agent run, bypassing schedule_runs."""
+    from lionagi import Branch
+    from lionagi.cli._runs import setup_agent_persist, teardown_agent_persist
+
+    branch = Branch(name="b1")
+    ctx = await setup_agent_persist(branch, agent_name="implementer")
+    assert ctx is not None
+    await teardown_agent_persist(ctx, status=status)
+    return ctx["session_id"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_run_exact_match(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        session_id = await _make_agent_session(db, status="completed")
+        row = await _resolve_session_run(db, session_id)
+    assert row is not None
+    assert row["id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_run_prefix_match(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        session_id = await _make_agent_session(db, status="completed")
+        row = await _resolve_session_run(db, session_id[:12])
+    assert row is not None
+    assert row["id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_run_not_found_returns_none(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        row = await _resolve_session_run(db, "no-such-session")
+    assert row is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_wait_resolves_completed_agent_session(
+    temp_db_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """`li monitor run <session_id>` must resolve an agent session id — not
+    error 'schedule_run not found' — and report its terminal status."""
+    async with StateDB() as db:
+        session_id = await _make_agent_session(db, status="completed")
+
+    exit_code = _dispatch_wait([session_id], interval=5.0, follow=False)
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert session_id in out
+    assert "status=completed" in out
+
+
+@pytest.mark.asyncio
+async def test_dispatch_wait_resolves_failed_agent_session_nonzero_exit(
+    temp_db_path: Path,
+) -> None:
+    async with StateDB() as db:
+        session_id = await _make_agent_session(db, status="failed")
+
+    exit_code = _dispatch_wait([session_id], interval=5.0, follow=False)
+    assert exit_code == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_wait_agent_session_still_running_returns_exit_running(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A session that never goes terminal + an interrupt mid-wait must
+    report EXIT_RUNNING, not hang forever or silently succeed."""
+    async with StateDB() as db:
+        from lionagi import Branch
+        from lionagi.cli._runs import setup_agent_persist
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+
+    # call 1 resolves the still-running session; interrupt the first poll tick.
+    _interrupt_dispatch_on_tick(monkeypatch, tick=2)
+
+    exit_code = _dispatch_wait([session_id], interval=0.05, follow=False)
+
+    assert exit_code == EXIT_RUNNING
+
+
+# ── li monitor run: linked_engine_session_id drill-in + bounded --max-wait ──
+
+
+@pytest.mark.asyncio
+async def test_dispatch_wait_follows_linked_engine_session_to_completion(
+    temp_db_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """A profile-typed session teardown pinned at 'running' (linked engine
+    session was alive but not yet terminal) must resolve via the linked
+    engine row's status, not hang on its own frozen 'running' column."""
+    from lionagi import Branch
+    from lionagi.cli._runs import setup_agent_persist, teardown_agent_persist
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-333333333333"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+        final = await teardown_agent_persist(
+            ctx,
+            status="failed",
+            exception=ProviderError("abandoned stream reader"),
+            engine_session_uid=engine_uid,
+        )
+    assert final == "running"
+
+    def _flip_engine_to_completed() -> None:
+        import asyncio
+
+        from lionagi.state.claude_mirror import session_db_id
+
+        async def _go() -> None:
+            async with StateDB() as db2:
+                await _set_fields(db2, "sessions", session_db_id(engine_uid), status="completed")
+
+        time.sleep(0.25)
+        asyncio.run(_go())
+
+    t = threading.Thread(target=_flip_engine_to_completed, daemon=True)
+    t.start()
+
+    exit_code = _dispatch_wait([session_id], interval=0.05, follow=False)
+    t.join(timeout=5)
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert session_id in out
+    assert "status=completed" in out
+
+
+@pytest.mark.asyncio
+async def test_dispatch_wait_persists_reconciled_status_to_profile_row(
+    temp_db_path: Path,
+) -> None:
+    """`li monitor run` resolving a profile session via its linked engine row must PERSIST the reconciled terminal status through StateDB.update_status(), not just synthesize it in memory for this one call, so the profile session's own DB row doesn't stay stuck at 'running' forever."""
+    from lionagi import Branch
+    from lionagi.cli._runs import setup_agent_persist, teardown_agent_persist
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-333333333334"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+        final = await teardown_agent_persist(
+            ctx,
+            status="failed",
+            exception=ProviderError("abandoned stream reader"),
+            engine_session_uid=engine_uid,
+        )
+    assert final == "running"
+
+    async with StateDB() as db:
+        await _set_fields(db, "sessions", session_db_id(engine_uid), status="completed")
+
+    exit_code = _dispatch_wait([session_id], interval=0.05, follow=False, max_wait=1.0)
+    assert exit_code == 0
+
+    async with StateDB() as db:
+        persisted = await db.get_session(session_id)
+    assert persisted is not None
+    assert persisted["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_wait_reconciliation_never_flips_an_already_terminal_row(
+    temp_db_path: Path,
+) -> None:
+    """A profile row that is ALREADY terminal ('failed') must never be
+    force-reconciled to a *different* terminal status the linked engine
+    later reports ('completed') -- ADR-0035's terminal guard rejects that
+    write, and `li monitor run` must report the persisted 'failed' status
+    (the terminal row is authoritative) instead of crashing on the
+    rejected transition."""
+    from lionagi import Branch
+    from lionagi.cli._runs import setup_agent_persist, teardown_agent_persist
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-333333333335"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+        final = await teardown_agent_persist(
+            ctx,
+            status="failed",
+            exception=ProviderError("abandoned stream reader"),
+            engine_session_uid=engine_uid,
+        )
+    assert final == "running"
+
+    async with StateDB() as db:
+        # The profile row resolved to failure on its own (independent of the
+        # linked engine mirror) and is now terminal -- while the linked engine
+        # later reports a *different* terminal status.
+        await _set_fields(db, "sessions", session_id, status="failed")
+        await _set_fields(db, "sessions", session_db_id(engine_uid), status="completed")
+
+    exit_code = _dispatch_wait([session_id], interval=0.05, follow=False, max_wait=1.0)
+
+    assert exit_code == 1
+
+    async with StateDB() as db:
+        persisted = await db.get_session(session_id)
+    assert persisted is not None
+    assert persisted["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_effective_session_status_cas_mismatch_reports_persisted_status(
+    temp_db_path: Path,
+) -> None:
+    """`db.update_status()` returns `False` (rather than raising
+    `TransitionRejectedError`) when the persisted row simply no longer matches
+    `expected_statuses` at write time -- e.g. it moved between our stale read
+    and this write, but the guard rejects on the CAS mismatch before it ever
+    reaches ADR-0035's terminal check. `_effective_session_status()` must not
+    ignore that `False` and fall through to the synthesized linked-engine
+    status; it must re-read and report the persisted row instead."""
+    from lionagi import Branch
+    from lionagi.cli._runs import setup_agent_persist, teardown_agent_persist
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-333333333336"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+        final = await teardown_agent_persist(
+            ctx,
+            status="failed",
+            exception=ProviderError("abandoned stream reader"),
+            engine_session_uid=engine_uid,
+        )
+        assert final == "running"
+
+        # This is the stale read `_effective_session_status()` would act on --
+        # status="running", still linked to the engine session.
+        stale_row = await db.get_session(session_id)
+        assert stale_row is not None
+        assert stale_row["status"] == "running"
+
+        # Simulate the race: between that read and the reconciliation write,
+        # something else (e.g. the profile session's own executor) persisted
+        # this row to "failed", while the linked engine session went
+        # "completed" independently.
+        await _set_fields(db, "sessions", session_id, status="failed")
+        await _set_fields(db, "sessions", session_db_id(engine_uid), status="completed")
+
+        result = await _effective_session_status(db, stale_row)
+
+        assert result["status"] == "failed"
+
+        persisted = await db.get_session(session_id)
+        assert persisted is not None
+        assert persisted["status"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.slow_timing
+async def test_dispatch_wait_max_wait_bounds_a_stuck_session(temp_db_path: Path) -> None:
+    """A session that never reconciles (no --max-wait would hang this forever)
+    must give up after max_wait seconds and report EXIT_RUNNING."""
+    async with StateDB() as db:
+        from lionagi import Branch
+        from lionagi.cli._runs import setup_agent_persist
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+
+    started = time.monotonic()
+    exit_code = _dispatch_wait([session_id], interval=0.05, follow=False, max_wait=0.3)
+    elapsed = time.monotonic() - started
+
+    assert exit_code == EXIT_RUNNING
+    assert elapsed < 3.0, "max_wait must bound the loop instead of hanging"
+
+
+@pytest.mark.asyncio
+@pytest.mark.slow_timing
+async def test_dispatch_wait_default_max_wait_bounds_a_stuck_session_without_caller_bound(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no max_wait supplied (the real production default for `li monitor run`/`li monitor --run`) and no external interrupt, the built-in bounded default must still stop the wait and report EXIT_RUNNING instead of hanging forever; the module-level default is monkeypatched down to keep the test fast."""
+    import lionagi.cli.monitor as monitor_mod
+
+    monkeypatch.setattr(monitor_mod, "_DEFAULT_MAX_WAIT_SECONDS", 0.3)
+
+    async with StateDB() as db:
+        from lionagi import Branch
+        from lionagi.cli._runs import setup_agent_persist
+
+        branch = Branch(name="b1")
+        ctx = await setup_agent_persist(branch, agent_name="implementer")
+        assert ctx is not None
+        session_id = ctx["session_id"]
+
+    started = time.monotonic()
+    exit_code = _dispatch_wait([session_id], interval=0.05, follow=False)
+    elapsed = time.monotonic() - started
+
+    assert exit_code == EXIT_RUNNING
+    assert elapsed < 3.0, "the default bound must stop the loop instead of hanging"

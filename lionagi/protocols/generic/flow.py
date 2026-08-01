@@ -52,12 +52,29 @@ class Flow(Element, Generic[E, P]):
                 )
         return self
 
+    @staticmethod
+    def _index_progression_names(progressions: Any) -> dict[str, UUID]:
+        """Map each named progression to its id, rejecting duplicate names.
+
+        add_progression enforces name uniqueness; construction and
+        deserialization must enforce the same invariant, otherwise a
+        later-listed progression silently shadows an earlier one in the name
+        index and the earlier one becomes unreachable by name.
+        """
+        names: dict[str, UUID] = {}
+        for progression in progressions:
+            if progression.name:
+                if progression.name in names:
+                    raise ItemExistsError(
+                        f"Progression with name '{progression.name}' already exists."
+                    )
+                names[progression.name] = progression.id
+        return names
+
     def model_post_init(self, __context: Any) -> None:
         """Rebuild _progression_names index from progressions."""
         super().model_post_init(__context)
-        for progression in self.progressions:
-            if progression.name:
-                self._progression_names[progression.name] = progression.id
+        self._progression_names = self._index_progression_names(self.progressions)
 
     # ==================== Serialization ====================
 
@@ -85,7 +102,9 @@ class Flow(Element, Generic[E, P]):
     def from_dict(cls, data: dict) -> Flow:
         """Deserialize from dict; reconstructs Pile fields explicitly (model_validate can't round-trip them)."""
         data = data.copy()
-        metadata = data.pop("metadata", {})
+        # Copy the nested metadata dict: data.copy() is shallow, so popping
+        # lion_class off the original would mutate the caller's snapshot.
+        metadata = dict(data.pop("metadata", None) or {})
         metadata.pop("lion_class", None)
 
         # Coerce scalar fields that model_construct won't validate
@@ -95,7 +114,6 @@ class Flow(Element, Generic[E, P]):
         items = cls._coerce_pile(data.pop("items", None)) or Pile()
         progressions = cls._coerce_pile(data.pop("progressions", None)) or Pile()
 
-        # Validate referential integrity
         item_ids = set(items.keys())
         for prog in progressions:
             missing = set(prog) - item_ids
@@ -111,11 +129,8 @@ class Flow(Element, Generic[E, P]):
             **data,
         )
         # Rebuild private attrs that model_construct skips
-        flow._progression_names = {}
         flow._lock = threading.RLock()
-        for prog in flow.progressions:
-            if prog.name:
-                flow._progression_names[prog.name] = prog.id
+        flow._progression_names = cls._index_progression_names(flow.progressions)
         return flow
 
     # ==================== Progression Management ====================
@@ -135,28 +150,48 @@ class Flow(Element, Generic[E, P]):
             if progression.name:
                 self._progression_names[progression.name] = progression.id
 
+    def _purge_name_index(self, uid: UUID) -> None:
+        """Drop every name-index entry pointing at `uid`, however it got there."""
+        stale = [name for name, pid in self._progression_names.items() if pid == uid]
+        for name in stale:
+            del self._progression_names[name]
+
     def remove_progression(self, key: UUID | str | P) -> None:
         """Remove progression by UUID, name, or instance; raises ItemNotFoundError if absent."""
         with self._lock:
-            if isinstance(key, str) and key in self._progression_names:
-                uid = self._progression_names.pop(key)
-                self.progressions.pop(uid)
+            if isinstance(key, str):
+                prog = self.get_progression(key)
+                self._purge_name_index(prog.id)
+                self.progressions.pop(prog.id)
                 return
 
             uid = ID.get_id(key)
-            prog = self.progressions[uid]
-            if prog.name and prog.name in self._progression_names:
-                del self._progression_names[prog.name]
+            self.progressions[uid]
+            self._purge_name_index(uid)
             self.progressions.pop(uid)
 
     def get_progression(self, key: UUID | str | P) -> P:
         """Return progression by UUID, name, or instance; raises ItemNotFoundError if absent."""
         with self._lock:
-            if isinstance(key, str) and key in self._progression_names:
-                uid = self._progression_names[key]
-                return self.progressions[uid]
-
             if isinstance(key, str):
+                uid = self._progression_names.get(key)
+                if uid is not None:
+                    prog = self.progressions.get(uid, None)
+                    # A progression's `name` can be mutated directly (Progression
+                    # has no back-reference to this Flow), so a stored index
+                    # entry can point at a progression removed or renamed away
+                    # from `key`. Treat that as stale rather than trusting it.
+                    if prog is not None and prog.name == key:
+                        return prog
+                    del self._progression_names[key]
+
+                # Live scan repairs the index for a progression whose current
+                # name matches `key` but was never (or no longer) indexed.
+                for prog in self.progressions:
+                    if prog.name == key:
+                        self._progression_names[key] = prog.id
+                        return prog
+
                 try:
                     uid = ID.get_id(key)
                     return self.progressions[uid]
@@ -182,11 +217,11 @@ class Flow(Element, Generic[E, P]):
                 else:
                     progs_list = list(progressions)
 
+                # Resolve every reference through the owned progression pile,
+                # including bare Progression instances: appending to an unowned
+                # progression would mutate an ordering the flow does not track.
                 for p in progs_list:
-                    if isinstance(p, Progression):
-                        resolved.append(p)
-                    else:
-                        resolved.append(self.get_progression(p))
+                    resolved.append(self.get_progression(p))
 
             self.items.include(item)
 

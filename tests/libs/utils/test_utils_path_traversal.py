@@ -1,22 +1,36 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Attack-driven regression tests for acreate_path directory traversal.
+"""Attack-driven regression tests for create_path/acreate_path directory traversal.
 
-These tests verify that acreate_path refuses to create files outside the
-supplied base directory when filenames contain path-traversal components.
+These tests verify that create_path and acreate_path refuse to create files
+outside the supplied base directory when filenames contain path-traversal
+components, absolute-path redirection, or symlink indirection.
 
 Issue: acreate_path only rejected backslashes. A
 caller could pass filename='../escape.txt' or 'sub/../../../escape.txt'
 and receive or create paths outside the intended base directory.
 
 Fix: reject '.' and '..' filename components before mkdir; resolve and
-assert the candidate path stays within the resolved base directory.
+assert the candidate path stays within the resolved base directory. Both
+constructors share this containment check (_build_safe_path) so sync
+create_path and async acreate_path have equivalent symlink-containment
+semantics — the sync variant previously had none at all.
 """
+
+from pathlib import Path
 
 import pytest
 
-from lionagi.ln._utils import acreate_path
+from lionagi.ln._utils import acreate_path, create_path
+
+
+def _symlink_or_skip(link: Path, target: Path, *, target_is_directory: bool = False) -> None:
+    """Create a symlink, or skip the test on platforms without symlink support."""
+    try:
+        link.symlink_to(target, target_is_directory=target_is_directory)
+    except OSError as exc:
+        pytest.skip(f"symlinks not supported on this platform: {exc}")
 
 
 class TestAcreatePathTraversalContainment:
@@ -130,3 +144,236 @@ class TestAcreatePathTraversalContainment:
 
         with pytest.raises(ValueError, match="escapes base directory"):
             await acreate_path(directory=base, filename="link.txt", file_exist_ok=True)
+
+    @pytest.mark.anyio
+    async def test_absolute_filename_redirect_escape_rejected(self, tmp_path):
+        """An absolute-looking filename segment must not redirect outside base.
+
+        `"/etc"` joined onto a slash-separated filename lexically replaces
+        the whole path when built with plain string concatenation; the
+        containment re-check must still catch it.
+        """
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError, match="escapes base directory"):
+            await acreate_path(directory=base, filename="/etc/passwd-escape.txt")
+
+
+class TestCreatePathTraversalContainment:
+    """Sync create_path must reject the same escapes as async acreate_path.
+
+    Prior to this fix, sync create_path performed no traversal or
+    containment validation at all — only acreate_path did. These mirror the
+    async TestAcreatePathTraversalContainment cases to prove the sync and
+    async constructors now share identical semantics.
+    """
+
+    def test_dotdot_filename_raises_value_error(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError, match=r"'\.\.'|escape|traversal"):
+            create_path(directory=base, filename="../escape.txt")
+
+    def test_nested_dotdot_raises_value_error(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError):
+            create_path(directory=base, filename="sub/../../../etc/passwd")
+
+    def test_dot_component_raises_value_error(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError, match=r"'\.'|'\.\.'"):
+            create_path(directory=base, filename="./sneaky.txt")
+
+    def test_dotdot_standalone_raises(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError):
+            create_path(directory=base, filename="..")
+
+    def test_no_traversal_is_created_outside_base(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        escape_target = tmp_path / "escape.txt"
+        try:
+            create_path(directory=base, filename="../escape.txt")
+        except ValueError:
+            pass
+        assert not escape_target.exists(), "create_path created a file outside the base directory"
+
+    def test_normal_subdir_filename_still_works(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        result = create_path(directory=base, filename="sub/file.txt")
+        assert result.name == "file.txt"
+        assert result.parent.name == "sub"
+        result.relative_to(base)
+
+    def test_backslash_still_rejected(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError, match="directory separators"):
+            create_path(directory=base, filename="win\\path.txt")
+
+    def test_absolute_filename_redirect_escape_rejected(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(ValueError, match="escapes base directory"):
+            create_path(directory=base, filename="/etc/passwd-escape.txt")
+
+    def test_symlinked_subdir_escape_rejected(self, tmp_path):
+        """A symlinked subdirectory pointing outside the base must be rejected.
+
+        This is the exact vector sync create_path had zero protection
+        against before this fix: it never resolved or containment-checked
+        the directory at all.
+        """
+        base = tmp_path / "base"
+        base.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        _symlink_or_skip(base / "link", outside, target_is_directory=True)
+
+        with pytest.raises(ValueError, match="escapes base directory"):
+            create_path(directory=base, filename="link/escape.txt")
+        assert not (outside / "escape.txt").exists()
+
+    def test_symlinked_final_component_escape_rejected(self, tmp_path):
+        """A symlinked final filename pointing outside the base must be rejected."""
+        base = tmp_path / "base"
+        base.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "target.txt"
+        target.write_text("secret")
+        _symlink_or_skip(base / "link.txt", target)
+
+        with pytest.raises(ValueError, match="escapes base directory"):
+            create_path(directory=base, filename="link.txt", file_exist_ok=True)
+
+
+class TestReturnRepresentation:
+    """The shared builder preserves the caller's own path representation:
+    a relative ``directory`` argument yields a relative return value (the
+    original create_path/acreate_path contract), while an absolute
+    ``directory`` still yields an absolute return value. Containment and
+    traversal checks always run against the fully resolved candidate
+    regardless of which representation is returned."""
+
+    def test_create_path_relative_directory_returns_relative(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = create_path(directory="relbase", filename="file.txt")
+        assert not result.is_absolute()
+        assert result == Path("relbase") / "file.txt"
+        assert result.resolve() == (tmp_path / "relbase" / "file.txt").resolve()
+        # the caller-relative return value must write to the same location
+        # the resolved/contained candidate designates
+        result.write_text("hello")
+        assert (tmp_path / "relbase" / "file.txt").read_text() == "hello"
+
+    def test_create_path_absolute_directory_returns_absolute(self, tmp_path):
+        result = create_path(directory=tmp_path, filename="file.txt")
+        assert result.is_absolute()
+        assert result == (tmp_path / "file.txt").resolve()
+
+    @pytest.mark.anyio
+    async def test_acreate_path_relative_directory_returns_relative(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = await acreate_path(directory="relbase", filename="file.txt")
+        result = Path(str(result))
+        assert not result.is_absolute()
+        assert result == Path("relbase") / "file.txt"
+        assert result.resolve() == (tmp_path / "relbase" / "file.txt").resolve()
+        result.write_text("hello")
+        assert (tmp_path / "relbase" / "file.txt").read_text() == "hello"
+
+    @pytest.mark.anyio
+    async def test_acreate_path_absolute_directory_returns_absolute(self, tmp_path):
+        result = await acreate_path(directory=tmp_path, filename="file.txt")
+        result = Path(str(result))
+        assert result.is_absolute()
+        assert result == (tmp_path / "file.txt").resolve()
+
+    def test_create_path_relative_traversal_still_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "relbase").mkdir()
+        with pytest.raises(ValueError):
+            create_path(directory="relbase", filename="../escape.txt")
+
+    @pytest.mark.anyio
+    async def test_acreate_path_relative_traversal_still_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "relbase").mkdir()
+        with pytest.raises(ValueError):
+            await acreate_path(directory="relbase", filename="../escape.txt")
+
+
+class TestSymlinkSwapBetweenValidationAndMkdir:
+    """A symlink swapped in after validation but before mkdir must not
+    redirect the helper's filesystem side effects outside the checked root.
+
+    Regression: _build_safe_path validated the resolved candidate, but the
+    public helpers ran mkdir/exists against the caller-facing, unresolved
+    ``directory / full_name`` spelling. For a relative directory reached
+    through a symlink, swapping that symlink between validation and mkdir
+    redirected creation outside the checked root even though the check
+    itself had passed. The fix runs mkdir/exists against the resolved
+    candidate captured at validation time, so a later swap of the symlink
+    cannot change where the side effect lands.
+    """
+
+    def _setup(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        base = tmp_path / "race-base"
+        base.mkdir()
+        inside = base / "inside"
+        inside.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        link = base / "link"
+        _symlink_or_skip(link, inside, target_is_directory=True)
+        return base, inside, outside, link
+
+    def test_create_path_symlink_swap_stays_in_checked_root(self, tmp_path, monkeypatch):
+        base, inside, outside, link = self._setup(tmp_path, monkeypatch)
+
+        swapped = {"done": False}
+        original_mkdir = Path.mkdir
+
+        def swap_then_mkdir(self, *args, **kwargs):
+            if not swapped["done"]:
+                swapped["done"] = True
+                link.unlink()
+                link.symlink_to(outside, target_is_directory=True)
+            return original_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", swap_then_mkdir)
+
+        create_path(directory="race-base/link", filename="sub/f.txt")
+
+        assert swapped["done"], "mkdir hook never fired; test setup is stale"
+        assert not (outside / "sub").exists(), "swap redirected creation outside the checked root"
+        assert (inside / "sub").is_dir()
+
+    @pytest.mark.anyio
+    async def test_acreate_path_symlink_swap_stays_in_checked_root(self, tmp_path, monkeypatch):
+        base, inside, outside, link = self._setup(tmp_path, monkeypatch)
+
+        swapped = {"done": False}
+        original_mkdir = Path.mkdir
+
+        def swap_then_mkdir(self, *args, **kwargs):
+            if not swapped["done"]:
+                swapped["done"] = True
+                link.unlink()
+                link.symlink_to(outside, target_is_directory=True)
+            return original_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", swap_then_mkdir)
+
+        await acreate_path(directory="race-base/link", filename="sub/f.txt")
+
+        assert swapped["done"], "mkdir hook never fired; test setup is stale"
+        assert not (outside / "sub").exists(), "swap redirected creation outside the checked root"
+        assert (inside / "sub").is_dir()

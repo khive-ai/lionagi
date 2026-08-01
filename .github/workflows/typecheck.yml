@@ -5,13 +5,23 @@ on:
     branches: [ main, develop ]
     paths-ignore:
       - '**/*.ipynb'
+  # ready_for_review is not a default activity type, so without this a draft PR
+  # marked ready starts no run. Naming types replaces the defaults rather than
+  # extending them, so the three defaults are listed back.
   pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
     branches: [ main, develop ]
     paths-ignore:
       - '**/*.ipynb'
 
 permissions:
   contents: read
+
+concurrency:
+  # A new push to a PR supersedes its own earlier run; pushes to a branch and
+  # manual runs are never cancelled, because those results are a record.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pyright:
@@ -20,7 +30,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.10"
 
@@ -44,6 +54,9 @@ jobs:
 
     - name: Run pyright
       run: uvx pyright==1.1.402 --outputjson > /tmp/pyright_output.json || true
+
+    - name: Check Branch chat overload contract
+      run: uvx pyright==1.1.402 tests/typing/branch_chat.py
 
     - name: Check against baseline (advisory)
       continue-on-error: true

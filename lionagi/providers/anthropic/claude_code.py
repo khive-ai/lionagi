@@ -73,18 +73,7 @@ __all__ = ("ClaudeCodeRequest", "stream_claude_code_cli", "ClaudeCodeCLIEndpoint
 
 
 # --------------------------------------------------------------------------- flag metadata
-#
-# Each CLI-mappable field carries a ``json_schema_extra`` dict produced by
-# ``_cli()``.  The generic ``_build_declarative_args()`` loop reads these
-# dicts (sorted by *order*) and emits the correct flag sequence.
-#
-# kind semantics:
-#   value      – ``--flag <str(val)>``
-#   bool       – ``--flag`` when truthy, omit otherwise
-#   bool_pair  – ``--flag`` when True, ``--neg-flag`` when False, omit when None
-#   list_args  – ``--flag arg1 arg2 …`` (one flag, many positional args)
-#   json_value – ``--flag '<json>'``   (dict/list serialised to JSON string)
-#   repeat     – ``--flag a --flag b`` (flag repeated per item)
+# json_schema_extra-driven CLI flag protocol — see docs/internals/runtime.md.
 
 
 # --------------------------------------------------------------------------- request model
@@ -117,8 +106,7 @@ class ClaudeCodeRequest(BaseModel):
     )
 
     # ── model & runtime (order 20–29) ─────────────────────────────
-    # Bare "sonnet" is pinned to Sonnet 5 (see _pin_sonnet_alias) rather than
-    # left to the CLI's own alias resolution.
+    # Bare "sonnet" is pinned to Sonnet 5 — see _pin_sonnet_alias.
     model: Literal["sonnet", "opus", "haiku"] | str | None = Field(
         default="claude-sonnet-5",
         json_schema_extra=_cli("--model", 20),
@@ -190,8 +178,9 @@ class ClaudeCodeRequest(BaseModel):
         default=False,
         json_schema_extra=_cli("--strict-mcp-config", 51, "bool"),
     )
-    # Legacy: if set and mcp_config is absent, serialised to --mcp-config JSON
-    mcp_servers: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    # Legacy: if set and mcp_config is absent, serialised to --mcp-config JSON.
+    # None-vs-{} is a deliberate invariant — see docs/internals/runtime.md.
+    mcp_servers: dict[str, Any] | None = Field(default=None, exclude=True)
 
     # ── agents (order 60–69) ──────────────────────────────────────
     agent: str | None = Field(
@@ -347,7 +336,6 @@ class ClaudeCodeRequest(BaseModel):
 
             prompt = "\n".join(prompts)
 
-        # 3. assemble the request data
         data_: dict[str, Any] = dict(
             prompt=prompt,
             resume=resume,
@@ -401,10 +389,8 @@ class ClaudeCodeRequest(BaseModel):
                     f"Workspace: {cwd_resolved}"
                 ) from None
 
-        # Repo-containment: resolve write-target path fields and reject symlink
-        # escapes.  ``add_dir`` is a read-only grant validated separately by
-        # ``_validate_add_dir`` — absolute paths there are deliberate grants,
-        # not escapes, and must not be rejected here.
+        # Repo-containment on write-target path fields; add_dir is excluded
+        # (read-only grant, validated separately) — see docs/internals/runtime.md.
         repo_root = self.repo.resolve()
         for fname, fval in (
             ("system_prompt_file", self.system_prompt_file),
@@ -460,8 +446,9 @@ class ClaudeCodeRequest(BaseModel):
             else:
                 args.append("--debug")
 
-        # Legacy mcp_servers dict → serialise as --mcp-config JSON inline
-        if self.mcp_servers and not self.mcp_config:
+        # `is not None` (not truthiness) — an explicit {} must still force
+        # zero MCP servers rather than falling back to CLI discovery.
+        if self.mcp_servers is not None and not self.mcp_config:
             args.extend(
                 [
                     "--mcp-config",
@@ -495,8 +482,7 @@ async def _ndjson_from_cli(request: ClaudeCodeRequest):
     workspace = request.cwd()
     workspace.mkdir(parents=True, exist_ok=True)
     cmd = [CLAUDE_CLI, *request.as_cmd_args()]
-    # Pass the repair callback so a malformed-but-repairable final JSON object
-    # is recovered rather than silently dropped (matches pre-refactor behaviour).
+    # tail_repair recovers a malformed-but-repairable final JSON object instead of dropping it.
     async with contextlib.aclosing(
         ndjson_from_cli(cmd, cwd=workspace, tail_repair=_claude_tail_repair)
     ) as stream:
@@ -585,6 +571,14 @@ async def stream_claude_code_cli(  # noqa: C901
         session = CLISession()
     theme = request.cli_display_theme or "light"
     seen_system_ids: set[str] = set()
+    # ``--include-partial-messages`` emits ``stream_event`` envelopes before
+    # the ordinary, complete ``assistant`` message.  Track the message ids for
+    # which text/thinking deltas were forwarded so the complete envelope can
+    # still populate ``session.messages`` without duplicating its content in
+    # the provider-neutral StreamChunk stream.
+    partial_message_ids: set[str] = set()
+    current_partial_message_id: str | None = None
+    partial_without_message_id = False
 
     stream = stream_cc_cli_events(request)
     try:
@@ -613,16 +607,75 @@ async def stream_claude_code_cli(  # noqa: C901
                 session.chunks.append(sc)
                 yield sc
 
+            # ------------------------ PARTIAL ASSISTANT ------------------------
+            elif typ == "stream_event":
+                event = obj.get("event") or {}
+                event_type = event.get("type")
+
+                if event_type == "message_start":
+                    message = event.get("message") or {}
+                    current_partial_message_id = message.get("id")
+                    continue
+
+                if event_type == "message_stop":
+                    current_partial_message_id = None
+                    continue
+
+                if event_type != "content_block_delta":
+                    continue
+
+                delta = event.get("delta") or {}
+                delta_type = delta.get("type")
+                content: str | None = None
+                chunk_type: str | None = None
+                callback = None
+
+                if delta_type == "text_delta":
+                    content = delta.get("text")
+                    chunk_type = "text"
+                    callback = on_text
+                elif delta_type == "thinking_delta":
+                    content = delta.get("thinking")
+                    chunk_type = "thinking"
+                    callback = on_thinking
+
+                if not content or chunk_type is None:
+                    continue
+
+                message_id = current_partial_message_id
+                if message_id:
+                    partial_message_ids.add(message_id)
+                else:
+                    partial_without_message_id = True
+
+                if callback:
+                    await maybe_await(callback(content))
+                sc = StreamChunk(
+                    type=chunk_type,
+                    content=content,
+                    is_delta=True,
+                    metadata=obj,
+                )
+                session.chunks.append(sc)
+                yield sc
+
             # ------------------------ ASSISTANT --------------------------------
             elif typ == "assistant":
                 msg = obj["message"]
                 session.messages.append(msg)
+                msg_id = msg.get("id")
+                has_forwarded_partials = bool(
+                    (msg_id and msg_id in partial_message_ids)
+                    or (not msg_id and partial_without_message_id)
+                )
 
                 for blk in msg.get("content", []):
                     btype = blk.get("type")
                     if btype == "thinking":
                         thought = blk.get("thinking", "").strip()
                         session.thinking_log.append(thought)
+                        if has_forwarded_partials:
+                            continue
                         if on_thinking:
                             await maybe_await(on_thinking(thought))
                         if request.verbose_output:
@@ -633,6 +686,8 @@ async def stream_claude_code_cli(  # noqa: C901
 
                     elif btype == "text":
                         text = blk.get("text", "")
+                        if has_forwarded_partials:
+                            continue
                         if on_text:
                             await maybe_await(on_text(text))
                         if request.verbose_output:
@@ -715,6 +770,23 @@ async def stream_claude_code_cli(  # noqa: C901
                 session.duration_api_ms = obj.get("duration_api_ms")
                 session.is_error = obj.get("is_error", False)
 
+                # Terminal usage/cost/turns/duration -- the only channel run.py
+                # reads provider-reported usage from (persisted onto
+                # model_response, see run.py's "result" chunk handling).
+                result_meta: dict[str, Any] = {}
+                if session.usage:
+                    result_meta["usage"] = session.usage
+                if session.total_cost_usd is not None:
+                    result_meta["total_cost_usd"] = session.total_cost_usd
+                if session.num_turns is not None:
+                    result_meta["num_turns"] = session.num_turns
+                if session.duration_ms is not None:
+                    result_meta["duration_ms"] = session.duration_ms
+                if result_meta:
+                    rsc = StreamChunk(type="result", metadata=result_meta)
+                    session.chunks.append(rsc)
+                    yield rsc
+
             # ------------------------ DONE -------------------------------------
             elif typ == "done":
                 break
@@ -762,6 +834,9 @@ class ClaudeCodeCLIEndpoint(AgenticHandlersMixin, AgenticEndpoint):
     _handler_params = _CLAUDE_HANDLER_PARAMS
     _handler_kwarg = "claude_handlers"
     _request_model = ClaudeCodeRequest
+    # Claude Code streams a "system" event as soon as the CLI session starts,
+    # well before the run completes — see stream_cc_cli() above.
+    streams_first_output_early = True
 
     def __init__(self, config: EndpointConfig = None, **kwargs):
         handlers = kwargs.pop("claude_handlers", None)

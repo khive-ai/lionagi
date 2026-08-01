@@ -1,12 +1,13 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the per-node lifecycle signal contract (ADR-0083): lane_for projection, new signal types, engine bridge, reactive injection."""
+"""Tests for the per-node lifecycle signal contract (ADR-0033): lane_for projection, new signal types, engine bridge, reactive injection."""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest import mock
 
 import pytest
 
@@ -95,6 +96,39 @@ def test_lane_for_escalated_via_structured_output():
     req = EscalationRequest(reason="too hard")
     so = StructuredOutput(data=req)
     assert lane_for([NodeStarted(), so]) == "escalated"
+
+
+def test_lane_for_fyi_help_signal_via_node_escalated_is_not_terminal():
+    """A soft ('fyi') help signal is informational only — it must not pin
+    the node into the terminal 'escalated' lane (urgency reconciliation:
+    urgency='blocked' is the only urgency that projects to 'escalated')."""
+    from lionagi.casts.emission import EscalationRequest
+
+    req = EscalationRequest(reason="fyi", urgency="fyi")
+    sig = NodeEscalated(op_id="x", name="x", reason="fyi", route="notify", escalation_request=req)
+    # lane stays at the last real state ('running'), not pinned to 'escalated'.
+    assert lane_for([NodeStarted(), sig]) == "running"
+
+
+def test_lane_for_fyi_help_signal_via_structured_output_is_not_terminal():
+    from lionagi.casts.emission import EscalationRequest
+
+    req = EscalationRequest(reason="fyi", urgency="fyi")
+    so = StructuredOutput(data=req)
+    # lane stays at the last real state ('running'), not pinned to 'escalated'.
+    assert lane_for([NodeStarted(), so]) == "running"
+
+
+def test_lane_for_blocked_help_signal_via_node_escalated_is_terminal():
+    """urgency='blocked' (explicit or default) still projects to 'escalated' —
+    this preserves the original give_up/higher_tier behavior exactly."""
+    from lionagi.casts.emission import EscalationRequest
+
+    req = EscalationRequest(reason="blocked", urgency="blocked")
+    sig = NodeEscalated(
+        op_id="x", name="x", reason="blocked", route="give_up", escalation_request=req
+    )
+    assert lane_for([NodeStarted(), sig]) == "escalated"
 
 
 def test_lane_for_terminal_sticky_succeeded():
@@ -242,6 +276,54 @@ async def test_run_dag_emits_node_queued_before_started():
     qi = next(i for i, e in enumerate(signal_log) if e.startswith("queued:"))
     si = next(i for i, e in enumerate(signal_log) if e.startswith("started:"))
     assert qi < si, "NodeQueued must precede NodeStarted in the signal log"
+
+
+@pytest.mark.asyncio
+async def test_run_dag_calls_session_flow_once_with_same_graph():
+    """Pins the EngineRun.run_dag -> Session.flow bridge boundary directly,
+    independent of the NodeQueued/NodeStarted ordering assertion above.
+
+    Session is a pydantic model, so its methods can only be patched at the
+    class level (not per-instance) — the wrapper below forwards self/args
+    explicitly to the real implementation rather than relying on an
+    AsyncMock(wraps=...), which would drop the bound `self` and mis-route
+    the graph argument into it.
+    """
+    from lionagi.engines import Engine
+    from lionagi.operations.builder import OperationGraphBuilder
+    from lionagi.session.branch import Branch
+    from lionagi.session.session import Session
+
+    async def work(**kw):
+        return "ok"
+
+    session = Session()
+    branch = Branch(name="root")
+    session.include_branches(branch)
+    session.default_branch = branch
+    session.register_operation("work", work)
+
+    builder = OperationGraphBuilder()
+    builder.add_operation("work")
+    graph = builder.get_graph()
+
+    calls: list[tuple] = []
+    original_flow = Session.flow
+
+    async def _spy_flow(self, *args, **kwargs):
+        calls.append((self, args, kwargs))
+        return await original_flow(self, *args, **kwargs)
+
+    with mock.patch.object(Session, "flow", _spy_flow):
+        run = Engine().new_run(session=session)
+        result = await run.run_dag(graph)
+
+    assert len(result["completed_operations"]) == 1
+    assert len(calls) == 1
+    called_self, called_args, called_kwargs = calls[0]
+    assert called_self is session
+    passed_graph = called_args[0] if called_args else called_kwargs.get("graph")
+    assert passed_graph is graph
 
 
 # ---------------------------------------------------------------------------

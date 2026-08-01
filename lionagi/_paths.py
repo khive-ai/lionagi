@@ -11,6 +11,7 @@ from pathlib import Path
 __all__ = (
     "LIONAGI_HOME",
     "RUNS_ROOT",
+    "ensure_lionagi_dir",
     "find_lionagi_dirs",
 )
 
@@ -19,7 +20,7 @@ RUNS_ROOT: Path = LIONAGI_HOME / "runs"
 
 
 def _find_git_root(cwd: Path) -> Path | None:
-    """Return the git repository root for *cwd*, or None if not in a repo."""
+    """Git repo root for *cwd* via `git rev-parse --show-toplevel`, or None."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],  # noqa: S607
@@ -36,29 +37,37 @@ def _find_git_root(cwd: Path) -> Path | None:
 
 
 def find_lionagi_dirs() -> list[Path]:
-    """Find .lionagi/ directories, project-local first then global ~/.lionagi/."""
+    """Find `.lionagi/` dirs: git root, then cwd and its parents, then `~/.lionagi/`.
+
+    Uncached: every call re-resolves the git root and re-checks the paths, so
+    the result always reflects the current cwd and git context.
+    """
+    cwd = Path.cwd()
+    home = Path.home()
     dirs: list[Path] = []
 
-    # 1. Git root
-    git_root = _find_git_root(Path.cwd())
+    git_root = _find_git_root(cwd)
     if git_root is not None:
         candidate = git_root / ".lionagi"
         if candidate.is_dir():
             dirs.append(candidate)
 
-    # 2. Walk up from cwd
-    cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
         candidate = parent / ".lionagi"
         if candidate.is_dir() and candidate not in dirs:
             dirs.append(candidate)
 
-    # 3. Global ~/.lionagi/ (always check)
-    home_candidate = Path.home() / ".lionagi"
+    home_candidate = home / ".lionagi"
     if home_candidate.is_dir() and home_candidate not in dirs:
         dirs.append(home_candidate)
 
     return dirs
+
+
+def ensure_lionagi_dir(path: Path) -> Path:
+    """Create *path* (with parents) if missing; the creation boundary for `.lionagi/` topology."""
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 # Private alias for callers that imported the old name.

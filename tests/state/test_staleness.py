@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0019 staleness detection tests.
+"""ADR-0057 D6 staleness detection tests.
 
 Covers: kind-aware thresholds, terminal sessions are non-stale,
 last_message_at preferred over updated_at, touch_session_activity()
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,7 +87,7 @@ def test_flow_threshold_is_more_lenient_than_agent():
 
 
 def test_terminal_status_is_not_stale():
-    """ADR-0019 defers terminal-session classification to ADR-0024's health."""
+    """Terminal sessions are never stale; classification defers to ADR-0057 health."""
     now = 1_000_000.0
     for status in ("completed", "failed", "timed_out", "aborted", "cancelled"):
         s = {
@@ -135,13 +136,17 @@ def test_threshold_for_kind_returns_expected_values():
 # ── touch_session_activity DB heartbeat ────────────────────────────────────────
 
 
-async def test_touch_session_activity_bumps_last_message_at(db: StateDB):
+async def test_touch_session_activity_bumps_last_message_at(
+    db: StateDB, monkeypatch: pytest.MonkeyPatch
+):
+    import lionagi.state.db as state_db_mod
+
+    fixed_now = 1_000_000.0
+    monkeypatch.setattr(state_db_mod, "time", SimpleNamespace(time=lambda: fixed_now))
     s = await _make_session(db, status="running", invocation_kind="agent")
-    before = time.time()
     await db.touch_session_activity(s["id"])
-    after = time.time()
     row = await db.get_session(s["id"])
-    assert before <= row["last_message_at"] <= after
+    assert row["last_message_at"] == fixed_now
 
 
 async def test_touch_session_activity_with_explicit_at(db: StateDB):
@@ -179,7 +184,7 @@ async def test_touch_updates_updated_at_too(db: StateDB):
 
 
 def test_thresholds_cover_all_invocation_kinds():
-    """ADR-0012 invocation_kind vocabulary must all have explicit thresholds.
+    """Every invocation_kind must have an explicit staleness threshold.
 
     A missing kind silently falls back to DEFAULT_STALE_THRESHOLD, which
     is correct *behavior* but indicates the ADR was updated without

@@ -9,6 +9,7 @@ import pytest
 
 from lionagi._errors import ItemExistsError, ItemNotFoundError
 from lionagi.protocols.generic.flow import Flow
+from lionagi.protocols.generic.pile import Pile
 from lionagi.protocols.generic.progression import Progression
 from lionagi.protocols.graph.node import Node
 
@@ -226,6 +227,18 @@ class TestAddItem:
         with pytest.raises(ItemNotFoundError):
             flow.add_item(node, progressions="ghost")
 
+    def test_add_item_unowned_progression_instance_rejected(self):
+        """A Progression the flow does not own must not be silently mutated."""
+        flow = Flow()
+        node = Node(content="x")
+        external = Progression(name="external")
+        with pytest.raises(ItemNotFoundError):
+            flow.add_item(node, progressions=external)
+        # The operation fails atomically: neither the flow nor the external
+        # progression is touched.
+        assert node.id not in flow.items
+        assert node.id not in external
+
 
 # ---------------------------------------------------------------------------
 # remove_item
@@ -344,3 +357,62 @@ class TestReferentialIntegrityOnInit:
                 items={"collections": []},
                 progressions={"collections": [prog]},
             )
+
+
+class TestFlowDuplicateProgressionNames:
+    """Duplicate progression names are rejected on every construction path,
+    matching add_progression's uniqueness contract."""
+
+    def test_construction_rejects_duplicate_names(self):
+        nodes = _make_nodes(2)
+        p1 = Progression(order=[nodes[0].id], name="dup")
+        p2 = Progression(order=[nodes[1].id], name="dup")
+        with pytest.raises(ItemExistsError):
+            Flow(
+                items={"collections": nodes},
+                progressions={"collections": [p1, p2]},
+            )
+
+    def test_from_dict_rejects_duplicate_names(self):
+        nodes = _make_nodes(2)
+        p1 = Progression(order=[nodes[0].id], name="dup")
+        p2 = Progression(order=[nodes[1].id], name="dup")
+        with pytest.raises(ItemExistsError):
+            Flow.from_dict(
+                {
+                    "items": Pile(collections=nodes),
+                    "progressions": Pile(collections=[p1, p2]),
+                }
+            )
+
+    def test_distinct_names_still_allowed(self):
+        nodes = _make_nodes(2)
+        p1 = Progression(order=[nodes[0].id], name="a")
+        p2 = Progression(order=[nodes[1].id], name="b")
+        flow = Flow(
+            items={"collections": nodes},
+            progressions={"collections": [p1, p2]},
+        )
+        assert len(flow.progressions) == 2
+
+    def test_remove_by_uuid_purges_stale_name_after_direct_rename(self):
+        flow, nodes = _flow_with_items(1)
+        prog = _make_progression(nodes, name="before")
+        flow.add_progression(prog)
+
+        prog.name = "after"  # direct mutation; Flow has no back-reference
+        flow.remove_progression(prog.id)
+
+        assert "before" not in flow._progression_names
+        assert "after" not in flow._progression_names
+
+    def test_get_progression_resolves_new_name_after_direct_rename(self):
+        flow, nodes = _flow_with_items(1)
+        prog = _make_progression(nodes, name="before")
+        flow.add_progression(prog)
+
+        prog.name = "after"
+
+        with pytest.raises(ItemNotFoundError):
+            flow.get_progression("before")
+        assert flow.get_progression("after") is prog

@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +21,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("lionagi.hooks")
 
+_emitting_bus: ContextVar[HookBus | None] = ContextVar("emitting_hook_bus", default=None)
+
+
+def _current_emitting_bus() -> HookBus | None:
+    return _emitting_bus.get()
+
+
 __all__ = (
     "HookPoint",
     "HookBus",
@@ -26,6 +35,7 @@ __all__ = (
     "HookHandler",
     "StopHook",
     "hook",
+    "DORMANT_POINTS",
 )
 
 
@@ -36,7 +46,9 @@ class HookPoint(str, Enum):
     SESSION_START = "session.start"
     SESSION_END = "session.end"
     BRANCH_CREATE = "branch.create"
-    # not-yet-wired: no emit() call in the codebase
+    BRANCH_END = "branch.end"
+    # emitted in operations/chat/chat.py and operations/run/run.py, bracketing
+    # a session-bound iModel invocation/stream (see operations/_api_hooks.py)
     API_PRE_CALL = "api.pre_call"
     API_POST_CALL = "api.post_call"
     API_STREAM_CHUNK = "api.stream_chunk"
@@ -44,7 +56,24 @@ class HookPoint(str, Enum):
     TOOL_POST = "tool.post"  # emitted in operations/act/act.py on successful invocation
     TOOL_ERROR = "tool.error"  # emitted in operations/act/act.py on invocation error
     MESSAGE_ADD = "message.add"  # live: emitted in session/branch.py
-    ARTIFACT_CREATED = "artifact.created"  # not-yet-wired
+    # deprecated compatibility vocabulary: no owner has supplied a payload
+    # contract or production emit site (see docs/reference/agent-hooks.md)
+    ARTIFACT_CREATED = "artifact.created"
+    # emitted in operations/chat/chat.py and operations/run/run.py, immediately
+    # before provider invocation / streaming begins, when a turn-origin token
+    # is present on the operation context (see operations/_turn_origin.py)
+    USER_PROMPT_SUBMIT = "prompt.submit"
+
+
+# HookPoints with no production emit site. Registering a handler on one of
+# these is accepted (the enum member is real) but never fires — DORMANT_POINTS
+# is what turns that mismatch from silent into a warned one (see HookBus.on()).
+DORMANT_POINTS = frozenset({HookPoint.ARTIFACT_CREATED})
+
+
+# HookPoints that propagate handler exceptions (rather than logging and
+# swallowing them) so a guard can veto the action about to happen.
+_BLOCKING_POINTS = frozenset({HookPoint.TOOL_PRE, HookPoint.USER_PROMPT_SUBMIT})
 
 
 HookHandler = Callable[..., Awaitable[Any] | Any]
@@ -90,6 +119,14 @@ class HookBus:
 
     def on(self, point: HookPoint | str, handler: HookHandler) -> None:
         point = _normalize_point(point)
+        if point in DORMANT_POINTS:
+            warnings.warn(
+                f"Registering a handler on HookPoint.{point.name} ({point.value!r}), which has "
+                "no production emit site — this handler will never fire. See "
+                "docs/reference/agent-hooks.md for the current wiring status.",
+                UserWarning,
+                stacklevel=2,
+            )
         self._handlers.setdefault(point, []).append(handler)
 
     def off(self, point: HookPoint | str, handler: HookHandler) -> None:
@@ -111,27 +148,48 @@ class HookBus:
                 await maybe_await(handler(**kwargs))
             except StopHook:
                 break
+            except Exception as exc:
+                await self._record(
+                    point,
+                    {
+                        **kwargs,
+                        "denied": True,
+                        "exception": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                raise
         await self._record(point, kwargs)
 
     async def emit(self, point: HookPoint | str, /, **kwargs: Any) -> None:
         """Fire handlers sequentially; exceptions logged, not propagated."""
         point = _normalize_point(point)
-        if point is HookPoint.TOOL_PRE:
+        if point in _BLOCKING_POINTS:
             await self.blocking_emit(point, **kwargs)
             return
-        handlers = list(self._handlers.get(point, []))
-        for handler in handlers:
-            try:
-                await maybe_await(handler(**kwargs))
-            except StopHook:
-                break
-            except Exception:  # noqa: BLE001 — hook isolation invariant
-                logger.exception("Hook failed: %s", point.value)
+        token = _emitting_bus.set(self)
+        try:
+            if point is HookPoint.SESSION_END:
+                await self.flush_message_retries()
+            handlers = list(self._handlers.get(point, []))
+            for handler in handlers:
+                try:
+                    await maybe_await(handler(**kwargs))
+                except StopHook:
+                    break
+                except Exception:  # noqa: BLE001 — hook isolation invariant
+                    logger.exception("Hook failed: %s", point.value)
+        finally:
+            _emitting_bus.reset(token)
         # MESSAGE_ADD is represented on the signal bus by MessageAdded (emitted
         # directly via on_message_added); a redundant HookSignal here would
         # duplicate every message event on the observable stream.
         if point is not HookPoint.MESSAGE_ADD:
             await self._record(point, kwargs)
+
+    async def flush_message_retries(self) -> None:
+        """Flush default message-hook retries before terminal lifecycle work."""
+        for retry_queue in getattr(self, "_message_retry_queues", {}).values():
+            await retry_queue.flush()
 
 
 # ── Decorator for user-defined handlers ───────────────────────────────────────

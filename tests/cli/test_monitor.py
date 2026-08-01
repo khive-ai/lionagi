@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import json
 import signal
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -13,24 +15,47 @@ from typing import Any
 import pytest
 
 from lionagi.cli.monitor import (
+    _NON_TTY_MAX_COL_WIDTH,
     _cached_detect_project,
     _colour_status,
+    _detail_session,
+    _detail_show,
     _elapsed,
     _find_entity,
+    _format_coordination_line,
     _format_table,
     _gather_table_rows,
     _invocation_to_row,
+    _parse_json_field,
     _pid_alive,
     _play_to_row,
+    _render_branch_lines,
     _run_detail,
     _run_table,
     _session_to_row,
     _show_project_matches,
     _show_to_row,
     _since_timestamp,
+    _stdout_is_tty,
     _trunc,
 )
-from lionagi.state.db import StateDB
+from lionagi.state.db import (
+    PLAY_ACTIVE_STATUSES,
+    PLAY_TERMINAL_STATUSES,
+    StateDB,
+)
+
+
+class _FakeStdout:
+    """Minimal stand-in for sys.stdout exposing only isatty() — enough to
+    drive call-time TTY detection without a real terminal/pipe."""
+
+    def __init__(self, is_tty: bool) -> None:
+        self._is_tty = is_tty
+
+    def isatty(self) -> bool:
+        return self._is_tty
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -86,7 +111,13 @@ async def _make_session(
     return sid
 
 
-async def _make_invocation(db: StateDB, *, status: str = "running", skill: str = "show") -> str:
+async def _make_invocation(
+    db: StateDB,
+    *,
+    status: str = "running",
+    skill: str = "show",
+    node_metadata: dict | None = None,
+) -> str:
     inv_id = uuid.uuid4().hex[:12]
     await db.create_invocation(
         {
@@ -94,6 +125,7 @@ async def _make_invocation(db: StateDB, *, status: str = "running", skill: str =
             "skill": skill,
             "started_at": time.time(),
             "status": status,
+            "node_metadata": node_metadata,
         }
     )
     return inv_id
@@ -149,22 +181,15 @@ def test_elapsed_none_start():
 
 
 def test_elapsed_seconds():
-    start = time.time() - 45
-    result = _elapsed(start)
-    assert result.endswith("s")
-    assert "45" in result or "44" in result  # allow 1s wall clock drift
+    assert _elapsed(100.0, ended_at=145.0) == "45s"
 
 
 def test_elapsed_minutes():
-    start = time.time() - 90
-    result = _elapsed(start)
-    assert "m" in result
+    assert _elapsed(100.0, ended_at=190.0) == "1m30s"
 
 
 def test_elapsed_hours():
-    start = time.time() - 7200
-    result = _elapsed(start)
-    assert "h" in result
+    assert _elapsed(100.0, ended_at=7300.0) == "2h00m"
 
 
 def test_trunc_short():
@@ -177,19 +202,19 @@ def test_trunc_long():
     assert result.endswith("…")
 
 
-def test_since_timestamp_hours():
-    cutoff = _since_timestamp("1h")
-    assert abs(cutoff - (time.time() - 3600)) < 2
+def test_since_timestamp_hours(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("lionagi.cli.monitor.time.time", lambda: 100_000.0)
+    assert _since_timestamp("1h") == 96_400.0
 
 
-def test_since_timestamp_minutes():
-    cutoff = _since_timestamp("30m")
-    assert abs(cutoff - (time.time() - 1800)) < 2
+def test_since_timestamp_minutes(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("lionagi.cli.monitor.time.time", lambda: 100_000.0)
+    assert _since_timestamp("30m") == 98_200.0
 
 
-def test_since_timestamp_days():
-    cutoff = _since_timestamp("2d")
-    assert abs(cutoff - (time.time() - 2 * 86400)) < 2
+def test_since_timestamp_days(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("lionagi.cli.monitor.time.time", lambda: 200_000.0)
+    assert _since_timestamp("2d") == 27_200.0
 
 
 def test_since_timestamp_invalid():
@@ -278,6 +303,129 @@ def test_format_table_header():
     assert "ELAPSED" in output
 
 
+def test_format_table_non_tty_never_truncates_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Piped (non-TTY) output must never truncate identifying columns —
+    a long project name used to come back as 'ohdearquant/l…', silently
+    breaking `li monitor | grep <full-name>`. TTY-ness is patched on the
+    real sys.stdout (not the cached module global) to prove detection
+    happens at render time."""
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
+    long_project = "ohdearquant/lionagi-super-long-repo-name"
+    rows = [
+        {
+            "id": "abc123",
+            "type": "session",
+            "project": long_project,
+            "status": "running",
+            "phase": "agent",
+            "elapsed": "5m",
+            "agents": "1",
+        }
+    ]
+    output = _format_table(rows)
+    assert long_project in output
+
+
+def test_format_table_tty_still_truncates_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A TTY dashboard keeps the compact fixed-width behavior — only piped
+    output widens/never-truncates."""
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(True))
+    long_project = "ohdearquant/lionagi-super-long-repo-name"
+    rows = [
+        {
+            "id": "abc123",
+            "type": "session",
+            "project": long_project,
+            "status": "running",
+            "phase": "agent",
+            "elapsed": "5m",
+            "agents": "1",
+        }
+    ]
+    output = _format_table(rows)
+    assert long_project not in output
+    assert "…" in output
+
+
+def test_format_table_tty_detected_at_call_time_not_import_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same process/import must render both ways depending on stdout
+    *at call time* — a module imported while a TTY was attached, then
+    later invoked against redirected/piped stdout (or vice versa), must
+    not get stuck on whatever stdout looked like at import."""
+    long_project = "ohdearquant/lionagi-super-long-repo-name"
+    rows = [
+        {
+            "id": "abc123",
+            "type": "session",
+            "project": long_project,
+            "status": "running",
+            "phase": "agent",
+            "elapsed": "5m",
+            "agents": "1",
+        }
+    ]
+
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(True))
+    tty_output = _format_table(rows)
+    assert long_project not in tty_output
+
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
+    piped_output = _format_table(rows)
+    assert long_project in piped_output
+
+
+def test_stdout_is_tty_reflects_current_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(True))
+    assert _stdout_is_tty() is True
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
+    assert _stdout_is_tty() is False
+
+
+def test_format_table_non_tty_caps_pathological_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One pathologically long value must not blow up padding for every
+    row — layout width is capped at _NON_TTY_MAX_COL_WIDTH; the value
+    itself still prints in full (never clipped), just without alignment
+    padding past the cap."""
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
+    huge_project = "x" * 10_000
+    rows = [
+        {
+            "id": "abc123",
+            "type": "session",
+            "project": huge_project,
+            "status": "running",
+            "phase": "agent",
+            "elapsed": "5m",
+            "agents": "1",
+        },
+        {
+            "id": "def456",
+            "type": "session",
+            "project": "short-project",
+            "status": "running",
+            "phase": "agent",
+            "elapsed": "3m",
+            "agents": "1",
+        },
+    ]
+    output = _format_table(rows)
+    lines = output.splitlines()
+
+    # The full pathological value is still present — grep never misses it.
+    assert huge_project in output
+
+    # But layout (header separator, and every OTHER row's padding) must not
+    # scale with the 10k-char value: bounded by the column-width ceiling,
+    # not by the longest value seen.
+    separator = lines[1]
+    assert len(separator) < 10 * _NON_TTY_MAX_COL_WIDTH
+
+    short_line = next(line for line in lines if "short-project" in line)
+    assert len(short_line) < 10 * _NON_TTY_MAX_COL_WIDTH
+
+
 # ── Unit: row builders ────────────────────────────────────────────────────────
 
 
@@ -323,6 +471,67 @@ def test_session_to_row_current_phase_wins():
     # Before a flow leaves planning, current_phase is NULL → fall back.
     sess["current_phase"] = None
     assert _session_to_row(sess)["phase"] == "orchestrator"
+
+
+def test_parse_json_field_passes_through_dict():
+    assert _parse_json_field({"a": 1}) == {"a": 1}
+
+
+def test_parse_json_field_decodes_string():
+    assert _parse_json_field('{"a": 1}') == {"a": 1}
+
+
+def test_parse_json_field_rejects_non_object():
+    assert _parse_json_field("[1, 2]") is None
+    assert _parse_json_field("not json") is None
+    assert _parse_json_field(None) is None
+    assert _parse_json_field(42) is None
+
+
+def test_format_coordination_line_none_when_all_zero():
+    telemetry = {
+        "signals": {"emitted": {}, "received": 0, "acted_on": 0},
+        "files_overlap": {"count": 0, "top": []},
+    }
+    assert _format_coordination_line(telemetry) is None
+
+
+def test_format_coordination_line_renders_nonzero_counts():
+    telemetry = {
+        "signals": {"emitted": {"ScheduleRunSucceeded": 1}, "received": 2, "acted_on": 1},
+        "files_overlap": {"count": 3, "top": [{"path": "/a.py", "workers": 2}]},
+    }
+    line = _format_coordination_line(telemetry)
+    assert line == "emitted=1 received=2 acted_on=1 files_overlap=3"
+
+
+def test_format_coordination_line_none_when_missing_keys():
+    assert _format_coordination_line({}) is None
+
+
+def test_format_coordination_line_malformed_signals_list_does_not_raise():
+    """`signals` persisted as a list (not a dict) must be treated as absent
+    rather than raising AttributeError on `.get()`."""
+    assert _format_coordination_line({"signals": [1]}) is None
+
+
+def test_format_coordination_line_malformed_emitted_and_overlap_do_not_raise():
+    telemetry = {
+        "signals": {"emitted": [1, 2], "received": "not-a-number", "acted_on": None},
+        "files_overlap": [{"path": "/a.py"}],
+    }
+    assert _format_coordination_line(telemetry) is None
+
+
+def test_format_coordination_line_malformed_nested_counts_ignored_alongside_valid_ones():
+    """A malformed `files_overlap` shape must not suppress a legitimate
+    nonzero signal count elsewhere in the same telemetry dict."""
+    telemetry = {
+        "signals": {"emitted": {"ScheduleRunSucceeded": 1}, "received": 1, "acted_on": 1},
+        "files_overlap": "not-a-dict",
+    }
+    line = _format_coordination_line(telemetry)
+    assert line == "emitted=1 received=1 acted_on=1 files_overlap=0"
 
 
 def test_invocation_to_row():
@@ -909,6 +1118,80 @@ async def test_run_detail_session(temp_db_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_detail_session_shows_khive_injection_stats(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        sid = await _make_session(db)
+        await db.update_session(
+            sid,
+            node_metadata=json.dumps(
+                {
+                    "khive_injection": {
+                        "recall_turns": 2,
+                        "blocks_injected": 3,
+                        "failed": 1,
+                        "writeback_records": 5,
+                        "writeback_failed": 2,
+                    }
+                }
+            ),
+        )
+
+    output = await _run_detail(sid)
+
+    assert "khive injection" in output
+    assert "recall_turns=2" in output
+    assert "blocks_injected=3" in output
+    assert "failed=1" in output
+    assert "writeback_records=5" in output
+    assert "writeback_failed=2" in output
+
+
+@pytest.mark.asyncio
+async def test_detail_session_ignores_malformed_khive_injection_stats(
+    temp_db_path: Path,
+) -> None:
+    async with StateDB() as db:
+        sid = await _make_session(db)
+        sess = await db.get_session(sid)
+        assert sess is not None
+        sess["node_metadata"] = json.dumps(
+            {
+                "khive_injection": {
+                    "recall_turns": "many",
+                    "blocks_injected": False,
+                    "failed": None,
+                }
+            }
+        )
+        output = await _detail_session(db, sess)
+
+    assert "SESSION" in output
+    assert "khive injection" not in output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [-1, 0.5, float("nan"), float("inf")])
+async def test_detail_session_ignores_invalid_numeric_injection_stats(
+    temp_db_path: Path,
+    value: float,
+) -> None:
+    async with StateDB() as db:
+        sid = await _make_session(db)
+        sess = await db.get_session(sid)
+        assert sess is not None
+        sess["node_metadata"] = {
+            "khive_injection": {
+                "recall_turns": value,
+                "blocks_injected": 0,
+            }
+        }
+        output = await _detail_session(db, sess)
+
+    assert "SESSION" in output
+    assert "khive injection" not in output
+
+
+@pytest.mark.asyncio
 async def test_run_detail_invocation(temp_db_path: Path) -> None:
     async with StateDB() as db:
         inv_id = await _make_invocation(db, skill="codex-review")
@@ -918,12 +1201,161 @@ async def test_run_detail_invocation(temp_db_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_detail_invocation_shows_coordination_block(temp_db_path: Path) -> None:
+    coordination = {
+        "signals": {"emitted": {"ScheduleRunSucceeded": 1}, "received": 1, "acted_on": 1},
+        "files_overlap": {"count": 1, "top": [{"path": "/repo/shared.py", "workers": 2}]},
+    }
+    async with StateDB() as db:
+        inv_id = await _make_invocation(
+            db, skill="scheduled:flow", node_metadata={"coordination": coordination}
+        )
+    output = await _run_detail(inv_id)
+    assert "coordination" in output
+    assert "emitted=1 received=1 acted_on=1 files_overlap=1" in output
+    assert "/repo/shared.py" in output
+    assert "workers=2" in output
+
+
+@pytest.mark.asyncio
+async def test_run_detail_invocation_omits_coordination_block_when_all_zero(
+    temp_db_path: Path,
+) -> None:
+    coordination = {
+        "signals": {"emitted": {}, "received": 0, "acted_on": 0},
+        "files_overlap": {"count": 0, "top": []},
+    }
+    async with StateDB() as db:
+        inv_id = await _make_invocation(
+            db, skill="scheduled:agent", node_metadata={"coordination": coordination}
+        )
+    output = await _run_detail(inv_id)
+    assert "coordination" not in output
+
+
+@pytest.mark.asyncio
+async def test_run_detail_invocation_no_node_metadata_omits_coordination(
+    temp_db_path: Path,
+) -> None:
+    async with StateDB() as db:
+        inv_id = await _make_invocation(db, skill="show")
+    output = await _run_detail(inv_id)
+    assert "coordination" not in output
+
+
+@pytest.mark.asyncio
+async def test_run_detail_invocation_malformed_nested_telemetry_does_not_raise(
+    temp_db_path: Path,
+) -> None:
+    """A `coordination` dict whose nested `signals`/`files_overlap` values
+    do not match the shape this module writes (e.g. hand-edited state.db,
+    or a future writer bug) must render without raising."""
+    coordination = {
+        "signals": [1],
+        "files_overlap": {"count": 1, "top": "not-a-list"},
+    }
+    async with StateDB() as db:
+        inv_id = await _make_invocation(
+            db, skill="scheduled:flow", node_metadata={"coordination": coordination}
+        )
+    output = await _run_detail(inv_id)
+    assert "INVOCATION" in output
+    assert "files_overlap=1" in output
+
+
+@pytest.mark.asyncio
 async def test_run_detail_show(temp_db_path: Path) -> None:
     async with StateDB() as db:
         show_id = await _make_show(db, topic="implement-auth")
     output = await _run_detail(show_id)
     assert "SHOW" in output
     assert "implement-auth" in output
+
+
+# ── Show detail: how a play's status is classified into a marker ──────────────
+
+
+class _PlayRowsDB:
+    """Minimal db stand-in for _detail_show — it only calls fetch_all, to read
+    the show's plays. Rows are supplied directly so a play can carry a status
+    no writer would accept, which is the case the unrecognised marker is for."""
+
+    def __init__(self, plays: list[dict[str, Any]]) -> None:
+        self._plays = plays
+
+    async def fetch_all(self, *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        return self._plays
+
+
+_MARKER_PLAY_NAME = "marker-probe"
+
+
+async def _marker_for_status(status: str) -> str:
+    """Render a one-play show and return the marker column of that play's row."""
+    db = _PlayRowsDB(
+        [
+            {
+                "id": "0123456789ab",
+                "name": _MARKER_PLAY_NAME,
+                "status": status,
+                "started_at": None,
+                "ended_at": None,
+            }
+        ]
+    )
+    output = await _detail_show(db, {"id": "show-abc", "topic": "t", "status": "active"})
+    line = next(ln for ln in output.splitlines() if _MARKER_PLAY_NAME in ln)
+    return line[: line.index(_MARKER_PLAY_NAME)]
+
+
+@pytest.fixture
+def _no_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Markers are compared verbatim, so keep ANSI wrapping out of them."""
+    monkeypatch.setattr("lionagi.cli.monitor._IS_TTY", False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", sorted(PLAY_TERMINAL_STATUSES))
+async def test_detail_show_policy_terminal_status_reads_done(_no_tty: None, status: str) -> None:
+    """Driven from the lifecycle terminal set, not a literal list — a status
+    added to the policy is covered here the day it is added."""
+    assert await _marker_for_status(status) == "  [done]  "
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["running", "running_complete", "redoing"])
+async def test_detail_show_executing_status_reads_live(_no_tty: None, status: str) -> None:
+    assert await _marker_for_status(status) == "  [live]  "
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["gated", "pending"])
+async def test_detail_show_active_but_not_executing_reads_wait(_no_tty: None, status: str) -> None:
+    """Active without being the play that is moving — waiting is what it is
+    doing, so [wait] is the honest marker."""
+    assert status in PLAY_ACTIVE_STATUSES
+    assert await _marker_for_status(status) == "  [wait]  "
+
+
+@pytest.mark.asyncio
+async def test_detail_show_unrecognised_status_is_not_wait(_no_tty: None) -> None:
+    status = "no-such-play-status"
+    assert status not in PLAY_TERMINAL_STATUSES
+    assert status not in PLAY_ACTIVE_STATUSES
+    marker = await _marker_for_status(status)
+    assert marker == "  [????]  "
+    assert marker not in ("  [wait]  ", "  [done]  ", "  [live]  ")
+
+
+@pytest.mark.asyncio
+async def test_detail_show_marker_column_width_is_uniform(_no_tty: None) -> None:
+    """All four classifications occupy the same column, so the play names
+    below them stay aligned."""
+    markers = [
+        await _marker_for_status(s) for s in ("merged", "running", "gated", "no-such-play-status")
+    ]
+    assert len(set(markers)) == 4
+    assert {len(m) for m in markers} == {10}
 
 
 @pytest.mark.asyncio
@@ -940,6 +1372,87 @@ async def test_run_detail_play(temp_db_path: Path) -> None:
 async def test_run_detail_not_found(temp_db_path: Path) -> None:
     output = await _run_detail("no-such-id-xyz-999")
     assert "not found" in output.lower() or "error" in output.lower()
+
+
+# ── Regression: detail view shows playbook name ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_detail_session_shows_playbook_name(temp_db_path: Path) -> None:
+    """`li monitor <id>` for a play/flow session must surface the active
+    playbook — a session row already carries playbook_name, but the detail
+    view used to omit it entirely."""
+    async with StateDB() as db:
+        sid = await _make_session(db, invocation_kind="play")
+        await db.execute(
+            "UPDATE sessions SET playbook_name = ? WHERE id = ?", ("feature-impl", sid)
+        )
+    output = await _run_detail(sid)
+    assert "feature-impl" in output
+
+
+@pytest.mark.asyncio
+async def test_run_detail_session_no_playbook_name_omits_line(temp_db_path: Path) -> None:
+    """A plain `li agent` session has no playbook — no dangling 'playbook: -' line."""
+    async with StateDB() as db:
+        sid = await _make_session(db, invocation_kind="agent")
+    output = await _run_detail(sid)
+    assert "playbook:" not in output
+
+
+# ── Regression: branch (agent leg) sub-step visibility ────────────────────────
+
+
+async def _add_branch(db: StateDB, session_id: str, *, name: str, status: str = "running") -> str:
+    pid = uuid.uuid4().hex
+    await db.execute("INSERT INTO progressions(id, created_at) VALUES (?, ?)", (pid, time.time()))
+    bid = uuid.uuid4().hex
+    await db.execute(
+        "INSERT INTO branches(id, created_at, session_id, progression_id, name, status, started_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (bid, time.time(), session_id, pid, name, status, time.time()),
+    )
+    return bid
+
+
+def test_render_branch_lines_empty() -> None:
+    assert _render_branch_lines([]) == []
+
+
+def test_render_branch_lines_shows_name_and_status() -> None:
+    rows = [{"name": "reviewer", "status": "running", "started_at": time.time(), "ended_at": None}]
+    lines = _render_branch_lines(rows)
+    joined = "\n".join(lines)
+    assert "reviewer" in joined
+    assert "running" in joined
+
+
+@pytest.mark.asyncio
+async def test_run_detail_session_surfaces_branch_legs(temp_db_path: Path) -> None:
+    """A play/flow's internal sub-steps (e.g. a "reviewer" leg, a
+    "claude-code" leg) are recorded as branches with their own name/status —
+    `li monitor <session_id>` must list them so a caller can see a leg
+    transition without hand-polling sqlite."""
+    async with StateDB() as db:
+        sid = await _make_session(db, invocation_kind="play")
+        await _add_branch(db, sid, name="reviewer", status="completed")
+        await _add_branch(db, sid, name="claude-code", status="running")
+    output = await _run_detail(sid)
+    assert "reviewer" in output
+    assert "claude-code" in output
+
+
+@pytest.mark.asyncio
+async def test_run_detail_play_surfaces_branch_legs(temp_db_path: Path) -> None:
+    """Same sub-step visibility via the play id (not just the raw session id) —
+    `li monitor <play_id>` drills through the linked session to its branches."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        sid = await _make_session(db, invocation_kind="play")
+        play_id = await _make_play(db, show_id, name="backend-impl", session_id=sid)
+        await _add_branch(db, sid, name="reviewer", status="running")
+    output = await _run_detail(play_id)
+    assert "reviewer" in output
 
 
 @pytest.mark.asyncio
@@ -1365,26 +1878,332 @@ def test_background_hint_includes_session_id(
 
 def test_watch_mode_sigint_clean(temp_db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Watch loop exits cleanly when SIGINT is received."""
-    import os
-    import threading
+    import lionagi.cli.monitor as monitor_mod
+    import lionagi.ln.concurrency as concurrency_mod
 
-    from lionagi.cli.monitor import _watch_loop
+    handlers: dict[int, Any] = {}
+    monkeypatch.setattr(
+        monitor_mod.signal,
+        "signal",
+        lambda signum, handler: handlers.__setitem__(signum, handler),
+    )
+    monkeypatch.setattr(monitor_mod, "_clear_screen", lambda: None)
 
-    # Trigger SIGINT after a short delay from a background thread
-    def _send_interrupt():
-        time.sleep(0.3)
-        os.kill(os.getpid(), signal.SIGINT)
+    def interrupting_run_async(coro: Any) -> str:
+        coro.close()
+        handlers[signal.SIGINT](signal.SIGINT, None)
+        return ""
 
-    t = threading.Thread(target=_send_interrupt, daemon=True)
-    t.start()
+    monkeypatch.setattr(concurrency_mod, "run_async", interrupting_run_async)
 
-    exit_code = _watch_loop(
+    exit_code = monitor_mod._watch_loop(
         1,
         None,
         since_window=None,
         entity_type=None,
         project=None,
     )
-    t.join(timeout=2)
-    # Watch loop must return 0 (not raise or hang)
+
+    assert signal.SIGINT in handlers
     assert exit_code == 0
+
+
+# ── Ambiguous short-id prefixes ───────────────────────────────────────────────
+
+
+async def _make_session_with_id(db: StateDB, sid: str) -> str:
+    prog_id = uuid.uuid4().hex
+    await db.create_progression(prog_id)
+    await db.create_session(
+        {
+            "id": sid,
+            "progression_id": prog_id,
+            "status": "running",
+            "invocation_kind": "agent",
+            "started_at": time.time(),
+        }
+    )
+    return sid
+
+
+@pytest.mark.asyncio
+async def test_find_entity_rejects_ambiguous_prefix(temp_db_path: Path) -> None:
+    from lionagi.cli._util import AmbiguousIdError
+
+    async with StateDB() as db:
+        first = await _make_session_with_id(db, "abcde01")
+        second = await _make_session_with_id(db, "abcde02")
+
+        with pytest.raises(AmbiguousIdError) as excinfo:
+            await _find_entity(db, "abcde")
+
+    assert set(excinfo.value.candidates) == {first, second}
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_run_rejects_ambiguous_prefix(temp_db_path: Path) -> None:
+    from lionagi.cli._util import AmbiguousIdError
+    from lionagi.cli.monitor import _resolve_session_run
+
+    async with StateDB() as db:
+        await _make_session_with_id(db, "abcde01")
+        await _make_session_with_id(db, "abcde02")
+
+        with pytest.raises(AmbiguousIdError):
+            await _resolve_session_run(db, "abcde")
+
+
+@pytest.mark.asyncio
+async def test_run_detail_propagates_ambiguous_prefix(temp_db_path: Path) -> None:
+    """_run_detail's broad `except Exception` must not swallow the ambiguity
+    into a rendered detail body — the caller has to set the exit code."""
+    from lionagi.cli._util import AmbiguousIdError
+
+    async with StateDB() as db:
+        await _make_session_with_id(db, "abcde01")
+        await _make_session_with_id(db, "abcde02")
+
+    with pytest.raises(AmbiguousIdError):
+        await _run_detail("abcde")
+
+
+@pytest.mark.asyncio
+async def test_monitor_detail_ambiguous_prefix_exits_unknown(temp_db_path: Path) -> None:
+    import argparse
+
+    import lionagi.cli.monitor as monitor_mod
+    from lionagi.cli.status import EXIT_UNKNOWN
+
+    async with StateDB() as db:
+        await _make_session_with_id(db, "abcde01")
+        await _make_session_with_id(db, "abcde02")
+
+    args = argparse.Namespace(
+        run_ids=None,
+        since=None,
+        id="abcde",
+        entity_type=None,
+        project=None,
+        watch=False,
+        refresh=2,
+        interval=3.0,
+        follow=False,
+        chain=True,
+        max_wait=None,
+    )
+
+    assert monitor_mod.run_monitor(args) == EXIT_UNKNOWN
+
+
+def test_watch_loop_ambiguous_prefix_exits_unknown(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Watch mode can't refresh its way out of an ambiguous id — it stops."""
+    import lionagi.cli.monitor as monitor_mod
+    from lionagi.cli._util import AmbiguousIdError
+    from lionagi.cli.status import EXIT_UNKNOWN
+
+    monkeypatch.setattr(monitor_mod, "_clear_screen", lambda: None)
+
+    def raising_run_async(coro: Any) -> str:
+        coro.close()
+        raise AmbiguousIdError("abcde", "sessions", ["abcde01", "abcde02"])
+
+    import lionagi.ln.concurrency as concurrency_mod
+
+    monkeypatch.setattr(concurrency_mod, "run_async", raising_run_async)
+
+    saved = (signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM))
+    try:
+        exit_code = monitor_mod._watch_loop(
+            1, "abcde", since_window=None, entity_type=None, project=None
+        )
+    finally:
+        signal.signal(signal.SIGINT, saved[0])
+        signal.signal(signal.SIGTERM, saved[1])
+
+    assert exit_code == EXIT_UNKNOWN
+
+
+# ── Watch mode: SIGTERM during a refresh ──────────────────────────────────────
+#
+# run_async installs its own signal handlers for the duration of the call, so a
+# signal delivered inside a refresh surfaces as SigtermInterrupt/KeyboardInterrupt
+# out of run_async rather than setting the loop's own flag. Both derive from
+# BaseException, so the loop has to name them.
+
+
+def test_watch_loop_exits_cleanly_on_sigterm_during_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import lionagi.cli.monitor as monitor_mod
+    import lionagi.ln.concurrency as concurrency_mod
+    from lionagi.ln.concurrency.utils import SigtermInterrupt
+
+    monkeypatch.setattr(monitor_mod, "_clear_screen", lambda: None)
+
+    def sigterm_run_async(coro: Any) -> str:
+        coro.close()
+        raise SigtermInterrupt("SIGTERM during refresh")
+
+    monkeypatch.setattr(concurrency_mod, "run_async", sigterm_run_async)
+
+    saved = (signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM))
+    try:
+        exit_code = monitor_mod._watch_loop(
+            1, None, since_window=None, entity_type=None, project=None
+        )
+    finally:
+        signal.signal(signal.SIGINT, saved[0])
+        signal.signal(signal.SIGTERM, saved[1])
+
+    assert exit_code == 0
+
+
+def test_watch_loop_restores_prior_signal_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop's handlers must not outlive the loop, on any exit path."""
+    import lionagi.cli.monitor as monitor_mod
+    import lionagi.ln.concurrency as concurrency_mod
+    from lionagi.ln.concurrency.utils import SigtermInterrupt
+
+    monkeypatch.setattr(monitor_mod, "_clear_screen", lambda: None)
+
+    def sigterm_run_async(coro: Any) -> str:
+        coro.close()
+        raise SigtermInterrupt("SIGTERM during refresh")
+
+    monkeypatch.setattr(concurrency_mod, "run_async", sigterm_run_async)
+
+    def sentinel_sigint(signum: int, frame: Any) -> None:
+        pass
+
+    def sentinel_sigterm(signum: int, frame: Any) -> None:
+        pass
+
+    saved = (signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM))
+    try:
+        signal.signal(signal.SIGINT, sentinel_sigint)
+        signal.signal(signal.SIGTERM, sentinel_sigterm)
+
+        monitor_mod._watch_loop(1, None, since_window=None, entity_type=None, project=None)
+
+        assert signal.getsignal(signal.SIGINT) is sentinel_sigint
+        assert signal.getsignal(signal.SIGTERM) is sentinel_sigterm
+    finally:
+        signal.signal(signal.SIGINT, saved[0])
+        signal.signal(signal.SIGTERM, saved[1])
+
+
+def test_watch_loop_leaves_unrestorable_handlers_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A handler installed outside Python is reported as None and cannot be
+    reinstalled, so taking it over would mean keeping it forever. The loop must
+    decline to replace it rather than install a handler it can never remove."""
+    import lionagi.cli.monitor as monitor_mod
+    import lionagi.ln.concurrency as concurrency_mod
+    from lionagi.ln.concurrency.utils import SigtermInterrupt
+
+    monkeypatch.setattr(monitor_mod, "_clear_screen", lambda: None)
+
+    def sigterm_run_async(coro: Any) -> str:
+        coro.close()
+        raise SigtermInterrupt("SIGTERM during refresh")
+
+    monkeypatch.setattr(concurrency_mod, "run_async", sigterm_run_async)
+    monkeypatch.setattr(signal, "getsignal", lambda signum: None)
+
+    installed: list[int] = []
+    monkeypatch.setattr(signal, "signal", lambda signum, handler: installed.append(signum))
+
+    monitor_mod._watch_loop(1, None, since_window=None, entity_type=None, project=None)
+
+    assert installed == []
+
+
+# ── Regression: a play awaiting a gate decision is not running ────────────────
+
+
+@pytest.mark.asyncio
+async def test_gated_play_absent_from_default_listing(temp_db_path: Path) -> None:
+    """A play parked on a gate decision has stopped and cannot advance on its
+    own, so the default (no --since) view must not list it as in-flight work.
+    A running play in the same store is the control: the filter still selects
+    real work, it just no longer selects a play waiting to be decided."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        gated_id = await _make_play(db, show_id, status="gated", name="awaiting-gate")
+        running_id = await _make_play(db, show_id, status="running", name="in-flight")
+
+        rows = await _gather_table_rows(db, since=None, entity_type=None, project=None)
+
+    ids = [r["id"] for r in rows]
+    assert running_id[:16] in ids, "a running play must still be listed"
+    assert gated_id[:16] not in ids
+
+
+@pytest.mark.asyncio
+async def test_gated_play_absent_from_play_type_listing(temp_db_path: Path) -> None:
+    """Same exclusion through `--type play`, which reaches the plays query by
+    its own branch in _gather_entities."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        gated_id = await _make_play(db, show_id, status="gated", name="awaiting-gate")
+
+        rows = await _gather_table_rows(db, since=None, entity_type="play", project=None)
+
+    assert gated_id[:16] not in [r["id"] for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_gated_play_still_visible_with_since(temp_db_path: Path) -> None:
+    """--since drops the status filter entirely, which is what keeps an
+    undecided play reachable after it stops counting as running. Guards that
+    escape hatch: if the window query ever grew a status filter of its own, a
+    gated play would become invisible rather than merely not-running."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        gated_id = await _make_play(db, show_id, status="gated", name="awaiting-gate")
+
+        rows = await _gather_table_rows(
+            db, since=time.time() - 3600, entity_type=None, project=None
+        )
+
+    assert gated_id[:16] in [r["id"] for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_show_detail_marks_gated_play_as_waiting(temp_db_path: Path) -> None:
+    """The show detail view splits plays into done/live/wait. A play waiting on
+    a gate decision belongs in wait, not live."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        await _make_play(db, show_id, status="gated", name="awaiting-gate")
+        await _make_play(db, show_id, status="running", name="in-flight")
+
+    output = await _run_detail(show_id)
+
+    gated_line = next(line for line in output.splitlines() if "awaiting-gate" in line)
+    running_line = next(line for line in output.splitlines() if "in-flight" in line)
+    assert "[wait]" in gated_line
+    assert "[live]" not in gated_line
+    assert "[live]" in running_line, "a running play must still be marked live"
+
+
+@pytest.mark.asyncio
+async def test_show_detail_marks_blocked_play_as_done(temp_db_path: Path) -> None:
+    """`blocked` is a terminal play status: the play has finished and cannot
+    move again on its own. The detail view must render it [done], not [wait] —
+    waiting is the one thing a blocked play is not doing. A gated play in the
+    same store is the control for the distinction the marker draws: it is also
+    not executing, but it is genuinely unfinished, so it stays [wait]."""
+    async with StateDB() as db:
+        show_id = await _make_show(db)
+        await _make_play(db, show_id, status="blocked", name="blocked-play")
+        await _make_play(db, show_id, status="gated", name="awaiting-gate")
+
+    output = await _run_detail(show_id)
+
+    blocked_line = next(line for line in output.splitlines() if "blocked-play" in line)
+    gated_line = next(line for line in output.splitlines() if "awaiting-gate" in line)
+    assert "[done]" in blocked_line
+    assert "[wait]" not in blocked_line
+    assert "[wait]" in gated_line, "an undecided play is unfinished, not done"

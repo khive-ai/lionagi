@@ -245,7 +245,10 @@ _MIGRATED_AREAS = {
     "launches",
     "projects",
     "engine-defs",
+    "workflow-defs",
     "sessions",
+    "operator",
+    "approvals",
     "admin",
     "schedules",
     "stats",
@@ -295,3 +298,8 @@ def test_live_app_projects_route_present():
 def test_live_app_sessions_signals_route_present():
     paths = {getattr(r, "path", None) for r in _live_app.routes}
     assert "/api/sessions/{session_id}/signals" in paths
+
+
+def test_legacy_bypass_permission_leo_routes_are_not_mounted():
+    paths = {getattr(r, "path", None) for r in _live_app.routes}
+    assert not any(path and path.startswith("/api/leo") for path in paths)

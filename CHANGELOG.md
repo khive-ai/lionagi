@@ -6,19 +6,728 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-07-31
+
+### Fixed
+
+- **One agent run no longer shows up twice in Studio.** The codex mirror
+  imported every rollout under `~/.codex/sessions`, including the rollouts
+  written by headless `codex exec` runs that lionagi itself had spawned as
+  agent legs — so a single run appeared once under its agent's name and again
+  as an extra "Codex session". Rollouts whose originator marks them as
+  headless (`codex_exec`) are no longer imported: the run that spawned them
+  already persists a first-class session. Interactive Codex history (desktop
+  app, TUI, IDE) mirrors exactly as before. Rows imported by earlier versions
+  are absorbed on the mirror's next start, so existing double entries heal on
+  upgrade; the removal is scoped to importer-written rows (`imported_*`) and
+  can never touch a live run's session.
+
+## [0.32.0] - 2026-07-30
+
+### Upgrading from 0.31.1
+
+**The browser-credential system is gone.** Studio is a single-user tool that
+binds to loopback by default, and before the Operator workspace landed its only
+access control was the optional bearer token set through
+`LIONAGI_STUDIO_AUTH_TOKEN`. The credential system introduced alongside that
+workspace is removed again, so there is no login step, no stored browser
+credential, and nothing to rotate. The bearer token is unchanged and is still
+the way to protect a Studio you bind to a non-loopback host with `--host` or
+`LIONAGI_STUDIO_HOST`. Anything that worked before the Operator arrived is
+unaffected. If you stored a credential during that window, discard it.
+
+**The Studio marketplace bundle now leads with its MCP server** and no longer
+ships a `.mcp.json`. The manifest declares the server inline, so there is no
+precedence question between two carriers. `uv` on PATH is the only prerequisite.
+The bundle version moves to 1.1.0, which is what makes an already installed
+plugin pick any of this up. A plugin-provided server's tools are namespaced, so
+the tool a plugin user calls is `mcp__plugin_orchestrate_lion__request` rather
+than the unscoped name. The `li` CLI stays documented as the path for someone
+working inside a lionagi checkout.
+
 ### Added
 
-- `lionagi.operations.lndl_middle` — an LNDL seam `Middle` (ADR-0087 §1-2), importable from the package itself (`from lionagi.operations.lndl_middle import lndl_middle, build_lndl_middle, DEFAULT_ROUND_BUDGET`): `lndl_middle` (ready to use) and `build_lndl_middle(round_budget=3)` (custom round budget). Opt in per call with `branch.operate(instruction=..., middle=lndl_middle)`; advances one LNDL round per inner chat call, renders the target model's field names into round-1 guidance (native `response_format` is stripped from the per-round chat call, so the model is told what to fill via an LNDL `Specs:` line instead), bridges `<lact>` calls through the branch's normal `act()` path (existing permission policies and hooks apply unchanged), and classifies each round into a `RoundOutcome` (`Success`, `Continue`, `Retry`, `Exhausted`) to drive repair — a parse/assemble/validation failure re-prompts the model with the typed error instead of surfacing a raw traceback. Round-budget exhaustion raises `LNDLError` rather than returning a raw error string or `None`.
+- **An Operator workspace in Studio.** A conversational way to ask for work,
+  watch it run, and approve what it proposes, without having to learn the rest
+  of the Studio UI first. Everything that changes state is permission gated: the
+  Operator proposes, and the change happens when you approve it.
+
+- **The Operator keeps its session and can answer questions about the app.** A
+  conversation persists its provider session id and resumes it, so the second
+  message no longer meets a stranger and continuity is no longer faked by
+  replaying earlier frames as prompt text. The id is re-read every turn rather
+  than pinned on first write, because a resumed session is free to hand back a
+  new id and pinning would silently stop resuming the moment it did. The page
+  snapshot the browser already sent with every turn is now rendered into the
+  prompt, bounded per value the same way history frames are. Five read-only
+  tools answer questions the panel previously could not: run statistics over a
+  window, the current view, the schedule list with next fire and recent health,
+  the agent library, and the playbook names that launching one requires. Each is
+  a bounded, explicitly projected read, and project paths go through the same
+  leaf-name redaction as the existing run list.
+
+- **A model selector in the Operator header.** Switching models starts a fresh
+  provider session for that conversation, because a provider session belongs to
+  the model that opened it and resuming one under a different model is
+  undefined. Tool calls render compactly instead of dominating the transcript,
+  and agent definitions render as markdown rather than raw preformatted text.
+
+- **Codex sessions appear in Studio.** `~/.codex/sessions/**/rollout-*.jsonl` is
+  mirrored into StateDB the way `~/.claude/projects` already was, and enough
+  import provenance is recorded that a mirrored row can be told apart from a run
+  lionagi executed itself.
+
+- **khive context-injection counters in session detail.** A bare agent run
+  recorded no context-injection telemetry, so the counters lived only as long as
+  the process and `li monitor` had nothing to show.
+
+- A run reports which MCP servers it gave its workers. `mcp_config_servers` names
+  them on the submit handle, and `job.status` now carries the whole `mcp_config`
+  group, so a run that has already finished answers the question without anyone
+  opening its record on disk. An empty list and a null say different things: the
+  list means the question was settled and the answer was none, which covers both
+  a caller disabling MCP for the run and a config that was found and declares no
+  servers. The null means no set was resolved, which happens three ways: a caller
+  named their own config file, which this run does not read; no config was found
+  at or above the launch directory; or the record predates the field. The field
+  reports what was resolved, which is not a claim that the child's provider then
+  started each server.
+
+### Changed
+
+- **The Studio marketplace bundle's primary interface is its MCP server.** The
+  nine skills and the README lead with it, and the manifest carries the server
+  declaration inline. See the upgrade note above for what an installed plugin
+  needs in order to receive this.
+
+- Markdown artifacts render through a guard that replaces an absolute or
+  protocol-relative image target with a visible placeholder naming the alt text.
+  Opening an artifact could otherwise issue requests to hosts named inside it.
+  Markdown rendered elsewhere is unchanged.
+
+### Removed
+
+- **The browser-credential system.** See the upgrade note above.
+
+### Fixed
+
+- Resuming a codex agent that was given MCP servers with `env` or `http_headers`
+  no longer fails before spawn. Those fields are handed to codex through a
+  generated config profile rather than the command line, and codex takes one
+  profile per invocation, so the code refuses to add a second one when the
+  caller already asked for a profile of their own. A resumed agent re-spawns from
+  its persisted request, which carries the profile the first run generated, and
+  that was being read as a caller's profile. A profile named in the generated
+  shape, `lionagi-mcp-` followed by 32 hex characters, is now replaced instead,
+  which is also what the resumed agent needs: the first run deleted its profile
+  file on the way out, so the inherited name pointed at nothing. That shape is
+  reserved. Any other profile name, including another name under the same
+  prefix, is the caller's and is still refused.
+
+- **A spawn that never resolved is no longer reported as still running.** A job
+  record whose spawn phase is still preparing names a spawn that was never
+  attempted, or one whose result was never written. The classifier makes no
+  claim about its fate, because no bound on the record can tell a loaded machine
+  from a dead spawn, and it now says so instead of presenting the row with the
+  signature of a live one. The job listing likewise says which running rows
+  never started, and no longer lists a directory that was reserved but whose
+  record has not been published: reserving a directory happens before the
+  command is prepared, and publishing the record is the boundary that turns a
+  reservation into a job. A record that exists but cannot be read is still
+  listed, along with the state of that read, rather than hidden.
+
+- **A spawn command rejects excess positionals before it submits.** These
+  commands take at most a model and a prompt positionally. An extra value used
+  to be accepted at the request layer and to fail later during argument parsing,
+  after a job record and a child process already existed, with the error visible
+  only in a console log rather than in the response.
+
+- **The fingerprint a help surface quotes is the one the call can send.** A
+  spawn verb's `schema_fingerprint` hashes the schema the call resolves, and for
+  the playbook and flow submissions that schema includes the named playbook's
+  own declared arguments, so the fingerprint is a function of the playbook. Two
+  surfaces disagreed about that.
+
+- **A terminal notice is signed by the seat that submitted the run.** The
+  delivery command was spawned without a working directory and inherited the
+  caller's, so a notifier that resolves its own identity from its working
+  directory signed with whoever owns the directory the run executed in.
+  Separately, a failed terminal notice is now classified without storing what it
+  said.
+
+- **Worker artifact directories are described only where they exist.** The
+  initial worker setup set CLI-only endpoint settings for every worker, so an
+  API-backed worker was told in its prompt that the artifact directory was its
+  working directory, which is not true for it. Reactively spawned workers on
+  non-CLI providers get an output-only artifact path for the same reason: tools
+  falling back to their own default working directory could otherwise write
+  relative output outside the named path.
+
+- **A generated profile name is matched at both ends.** A prefix match treated a
+  caller-supplied name that merely started like a generated one, such as one
+  with a trailing newline, as this code's own to overwrite.
+
+- **A job lock reports a release that did not happen.** Release failures were
+  suppressed unconditionally. Suppression now applies only when the protected
+  section itself failed, where a release failure must not answer in place of the
+  real one. When the section succeeded, a failure to unlock or close is the only
+  failure there is, and it reaches the caller.
+
+- **A caller-supplied working directory is resolved before it is checked.** The
+  directory check answers about the submitting process's own directory, and the
+  value was recorded unresolved, so a relative path was checked against one
+  directory and read back against whatever directory a later reader was in.
+
+- **Provider capability tables are complete and guarded at import.** The
+  per-provider yolo and bypass tables are keyed by provider spelling and were
+  maintained by hand, so they had drifted: three CLI provider spellings were
+  absent from both. Naming MCP servers for a gemini provider now raises rather
+  than being silently dropped, since the CLI behind it cannot carry them, and a
+  spawn is refused only when servers were actually named. Explicit MCP
+  configurations that are not supported are rejected outright. The agy print
+  mode gets a cap derived from the caller's timeout, validated before it reaches
+  argv, and an unrepresentable Antigravity deadline is rejected rather than
+  encoded.
+
+- **Scheduler and Studio startup.** Studio inspected Git state on the event
+  loop, so a slow repository read blocked the loop before the server began
+  serving; the inspection now runs in a worker thread and is still awaited in
+  place, which keeps the guarantee it exists for. A scheduled run exported an
+  invocation id to its children, but the child CLI had no way to read it, so
+  budget accounting saw zero spend for work that had really run. The one-time
+  dispatch-timestamp backfill ran in the same transaction as the statement that
+  added the column, so a database that gained the column in an earlier release
+  without the backfill never got one; it is now gated on a durable marker
+  claimed with an insert-if-absent, so it happens exactly once per database
+  regardless of when the column arrived. A failing scheduler subprocess now
+  carries its diagnostic instead of discarding stdout. Claim-time candidates
+  sort duration-valid first, so a row that can never run no longer consumes a
+  cap slot ahead of a valid one.
+
+- **A declarative command target's arguments are held to their own field's
+  contract.** They were validated against a different field's validator and
+  persisted to a destination whose imperative path validates it differently.
+
+- **State persistence backlog.** Standard-library `default=` conversions are
+  honored while non-finite values are still refused on the durable JSON path.
+  Schema inspection and migration are serialized under backend-appropriate
+  locks. Messages referenced only by owners that were deleted are pruned.
+  Inherited run identity is consumed after a single child allocation. Session
+  retention is based on the latest update and rechecked under the prune lock.
+  Float-list message embeddings are encoded as little-endian float32 blobs with
+  parity across backends.
+
+- **Concurrent streams no longer report each other's ending.** A stream's
+  terminal state was held in a plain attribute on the event, so two streams
+  running concurrently on one event overwrote each other and a post-stream hook
+  could be told how the other stream ended. The state now lives in a per-event
+  context variable for the duration of that hook, and is retained on the event
+  afterwards so a parent reading the property later still sees the last terminal
+  state.
+
+- **An explicitly supplied model that happens to be falsy is preserved.**
+  `chat()` resolved its model with an `or`, which discarded it. It now asks the
+  parameter class whether the argument is a sentinel, which is the policy that
+  decides every other omitted field on that class.
+
+- **The public message projection is nullable again.** `Message.chat_msg` is
+  documented to contain any projection failure and return `None`. A prior change
+  removed that guard, so a failure while reading the role or rendering content
+  escaped to callers that rely on the nullable result to skip an unrenderable
+  message.
+
+- **An artifact verdict that was never recorded is distinguishable from one that
+  failed.** Verification carried a single shape for three situations: checked
+  and passed, checked and failed, and never checked. Consumers indexed the
+  failure fields unconditionally, so a session with no stored verdict read as a
+  session that had missed its artifacts.
+
+- **`li kill` recognizes macOS framework Python launchers.** Framework builds
+  present argv[0] with a capital P, and the match was case-sensitive, so a
+  shebang-launched `li` started by a framework interpreter was not recognized as
+  ours and `li kill` declined to act on its own process. Team wakeup rounds are
+  also now told the artifact contract their result has to meet.
+
+- **The full-page graph editor's MiniMap uses its default dimensions.** It
+  rendered at a fixed size intended for a compact embed that no surface actually
+  renders.
+
+- **The served OpenAPI document states the running version.** The Studio app was
+  built without one, so the framework supplied its own default and every release
+  served the same string. A client reading that document to decide what the
+  server supports was reading a constant, which made two servers on different
+  releases indistinguishable and left a version-keyed feature gate unable to
+  move. Note that the published Python package carries the backend only: the
+  browser interface ships in the container image and in the hosted deployment,
+  both built from the same release.
+
+- **Packaging.** The VS Code extension no longer ships a source map that a
+  negation had re-included after `.vscodeignore` excluded it. The marketplace
+  manifest lint accepts only frontmatter a YAML parser can read, so a file can
+  no longer pass the lint and still fail to load in a plugin host.
+  `datamodel-code-generator` is floored at the patched release.
+
+### Internal
+
+- Two consecutive releases published no container image. Buildx setup is now
+  retried, since it pulls from a registry outside this project,
+  and the release now reads the tag back from the registry rather than trusting
+  the push step. Workflows also run when a draft pull request is marked ready,
+  which raises no event under GitHub's default activity types, and a pull
+  request's own in-flight runs are superseded instead of queueing beside them.
+
+## [0.31.1] - 2026-07-28
+
+### Upgrading from 0.31.0
+
+**Durable JSON now refuses non-finite floats.** Writing `NaN`, `Infinity`, or
+`-Infinity` through the paths that persist state to disk previously produced
+output that is not JSON, or a value that reads back as `null` with no way to
+tell it from an absent one. Those writes now raise, with the path to the
+offending value named in the error.
+
+Migration: if you persist computed floats, guard them at the point you build the
+record (`math.isfinite(x)`) and decide what a non-finite value should mean in
+your data, rather than letting it reach the writer.
+
+A database stamped with a newer schema version is also refused when it is opened
+for writing, rather than being migrated down to the shape this release applies.
+Read-only opens apply no schema and are unaffected, so such a database can still
+be inspected.
+
+### Added
+
+- A resolved MCP server set is handed to every CLI provider that can carry one,
+  rather than only to Claude providers. A codex agent that was given servers
+  previously lost them: on two of the three spawn paths silently, and on the
+  third with a message reporting a refusal while the set was dropped anyway. The
+  decision is now one capability check applied in one place, so the paths cannot
+  disagree. Fields carrying secrets are written to a private profile file
+  instead of the command line.
+- A flow or fanout run can choose the MCP servers its agents receive, including
+  deliberately handing over none instead of arriving there by an empty search.
+- A flow that names neither an agent nor a model orchestrates by default rather
+  than being refused.
+- `StreamTerminalState` is public. A streamed event now records how its stream
+  ended, as completed, closed early, cancelled, or failed, and exposes it as
+  `stream_terminal_state`.
+- `profile.list` takes `names` and `fields`, so a caller asking whether one
+  profile exists and what model it runs no longer pays for the whole roster.
+  Given neither, the reply is what it was.
+- Studio shows artifacts as they arrive instead of waiting for the run to end.
+
+### Changed
+
+- Non-finite floats are rejected where durable JSON reaches the filesystem, and
+  where a JSON `null` would be undetectable. See the upgrade note above.
+- A database stamped with a newer schema version is refused on a writable open.
+  Read-only opens are unaffected. See the upgrade note above.
+
+### Fixed
+
+- A fanout with no declared dependencies runs its workers concurrently again. An
+  empty dependency list was being read as "unspecified", which chained the
+  workers into a sequence, so a fan of N workers took roughly N times longer
+  than it should. It still completed, which is why nothing caught it: it was
+  only slow, and no test measured speed.
+- Cleanup failures in the job store no longer answer for the failures underneath
+  them. A release that fails cannot replace the error the caller raised, and an
+  interrupt arriving during release is neither swallowed nor allowed to skip the
+  close.
+- An expected artifact named by a bare filename matches the file a worker
+  produced in its own directory. Verification joined every declared path
+  directly under the artifacts root, where in a multi-worker run the file never
+  lands, so a run that had completed successfully was rewritten as failed. An
+  entry that names a directory still matches exactly.
+- The diagnostics for MCP passthrough describe the branch they observed rather
+  than the whole run, and name the provider actually in hand. One branch's
+  inability to carry a server set read as a verdict on every worker in a flow,
+  and a codex agent was told the message was about the Claude CLI.
+- The post-invocation hook on a streamed event runs however the stream ends,
+  not only when it runs to completion. A source error, a consumer that stopped
+  early, and a cancelled consuming task each bypassed it before. Whatever ended
+  the stream still reaches the caller unchanged.
+- A run whose process is conclusively gone gets an attributable end instead of
+  staying open, and `job.wait` stops holding its window open for it.
+- A terminal notice that could not be delivered is reported where callers wait,
+  and the run's log keeps the line saying so.
+- A submission naming no model is refused instead of returning a run id for
+  something that will not start. A spawn that fails is one failed operation
+  rather than a lost batch. `help` and `ops` in one request is refused instead
+  of silently dropping the ops.
+- Run records report what happened rather than what was asked for: the profile
+  the run used, the dependencies it has, the prompt that ran, and the artifact
+  directory each orchestration worker was given.
+- `li kill` reaches a play's workers when the row records them, and says so when
+  it cannot. A play awaiting a gate decision is no longer reported as running,
+  and a kill that performed no termination exits non-zero.
+- One prompt-length limit for orchestration specs, raised from 8,192 to 262,144
+  characters. The check lived in three places, each with its own copy of the
+  number, so a spec the CLI accepted could still be refused by a schedule. They
+  now read one constant, and the refusal names the limit it enforced.
+- The planner roster carries each role's description. A role sharing its name
+  with a user profile showed the profile's line instead, which with the default
+  profiles present was every role. Roles whose two spellings differ only by `-`
+  or `_` are one entry rather than two, and a plan may still name either.
+- Profile lookup reports only the profiles that shadow the name asked for,
+  rather than every profile declared.
+- A model supplied for a single call chooses the transport for that call. A
+  CLI-backed branch given an API model for one call routed it into the CLI
+  streaming path, which rejects it, and was left holding the rejected model.
+- The terminal envelope a flow emits when finalization fails reports the
+  resolved outcome when resolution got that far, instead of restating the
+  flow's coarser status, and no longer labels an interrupted run a user abort.
+- Agent profile names treat `-` and `_` as the same spelling.
+- Long codex conversations can spawn: the prompt is passed over stdin rather
+  than as a command-line argument.
+- `Pile` and `Progression` are iterables rather than iterators, so iterating one
+  twice works.
+- Messages that fail to render are no longer dropped, and an arbitrary payload's
+  `allowed()` is not called.
+- A pre-dispatch failure no longer consumes its `github_poll` trigger.
+- The schema stamp moves with the migrations, and SQLite is checked before WAL
+  is enabled.
+- `li state prune` reclaims message rows and previews a measured count.
+- Studio renders markdown artifacts as markdown, and spaces execution-graph
+  nodes by their real height.
+
+### Docs
+
+- ADR coverage for attributable run ends, and for four `job.wait` properties
+  that were previously left to the reader.
+- Corrected the provider path and list in the architecture guide.
+- Two tool docstrings that described behaviour the code refuses.
+
+## [0.31.0] - 2026-07-26
+
+### Upgrading from 0.30.2
+
+0.30.2 does not contain the MCP server. Its published wheel has no `lionagi/mcp/` files and its
+`li` entry point registers no `mcp` subcommand, so installing `lionagi[mcp]` at that version
+installs `fastmcp` and no server: the extra appears to succeed while `li mcp` fails with an
+invalid-choice error. The MCP client wrapper under `lionagi/service/connections/` is a separate,
+long-standing feature and is unaffected. 0.31.0 is the first release that ships the server.
+
+### Added
+
+- `li mcp` serves an MCP server (over stdio) that submits `li` runs — agent, flow, and fanout —
+  as detached background jobs and answers questions about them. The server advertises a single
+  tool, `request`, and every operation is a namespaced verb passed to it. A submit returns a
+  `run_id` immediately while the run continues in its own process group, so it survives an
+  MCP-server restart. `fastmcp` stays behind the optional
+  `[mcp]` extra; importing `lionagi` never pulls it, and the job engine plus terminal notify hook
+  are standard-library only. Terminal notices are delivered through a configured command
+  (lionagi's own `notify.on_terminal` setting, a per-submit override, or an environment default),
+  never a hardcoded one, and the delivery outcome is recorded on the job and surfaced by the
+  `job.status` operation. See `docs/reference/mcp-server.md` for the verb catalog and `.mcp.json`
+  registration.
+- `/api/admin/health` reports `code_identity`: which commit the Studio daemon's code was loaded
+  from, whether that checkout has since moved or been edited, how far behind its comparison ref it
+  is, and a `drift` verdict over all of it. Under an editable install the code being served is
+  whatever commit the working tree sits on, and it keeps being served after the tree moves — a
+  state the version string cannot show, since it is identical between a current checkout and one
+  many commits behind. A reading that cannot be taken is reported as `unknown` with the reason
+  rather than omitted, because an absent key is indistinguishable from a healthy one to anything
+  scanning the response. The reading runs off the event loop, so a daemon never stalls on its own
+  health check.
+
+### Fixed
+
+- The Studio daemon no longer reports a commit it never loaded. `code_identity` reads its git
+  position once and keeps it, initialising lazily, and the daemon left that initialisation to the
+  first `/api/admin/health` request. A checkout moved after startup but before that request — an
+  ordinary deploy or branch switch — was then read as the position the process had loaded from, so
+  the response named the new commit with `checkout_moved` false and a clean `drift` verdict, which
+  is the exact condition the field exists to detect. The daemon now takes the snapshot in its
+  lifespan, before the scheduler starts and before it serves anything, as the MCP server already
+  did.
+- The built-in provider collision filter no longer misses a plugin entry whose endpoint class
+  comes from a helper module. `_reject_builtin_collisions` identified an activation's entries by
+  requiring the class to be defined in the activated provider module, but a provider module may
+  register a class supplied by a helper or generated module. Such an entry carries the same
+  provenance `register` already records while its `__module__` differs, so it stayed registered
+  and silently took over a provider name a built-in serves, with no rejection diagnostic. The
+  filter now identifies activation entries by that recorded provenance alone.
+- The studio scheduler no longer silently runs a scheduled action in the daemon's own working
+  directory when the schedule's configured execution root is unavailable. A subprocess started
+  without an explicit `cwd` inherits the daemon's directory, and `_resolve_action_cwd` fell through
+  to that inherit whenever a schedule's `action_cwd`/`action_project` could not be resolved to an
+  existing directory (e.g. after a worktree was pruned). When the daemon's own directory resolves
+  to a project, the spawn does not fail — it succeeds and runs the action in the wrong directory,
+  substituting the working directory (and anything a tool derives from it) for the one the schedule
+  configured. The resolver now fails closed for any schedule that carries an execution root, raising
+  `SchedulerCwdInheritRefusedError` (recorded as `run.failed.cwd_inherit_refused`) instead of
+  inheriting. Pre-migration rows that configured no execution root keep the legacy inherit-and-warn
+  behavior and are backfilled on daemon restart.
+- `Observable` is a structural protocol again, restoring duck-typed Pile admission. A prior
+  change made admission nominal: `isinstance(item, Observable)` required inheriting the ABC, so
+  an object exposing an `id` was rejected by `Pile`. `Observable` is now a single
+  runtime-checkable `Protocol` — any object with an `id` conforms, and `Element` satisfies it
+  through its `id` field rather than by inheritance. Identity resolution (`ID.get_id`,
+  `validate_order`) is structural to match, so an admitted duck-typed item can also be found,
+  retrieved, and removed by identity instead of being admitted but unreachable. `item_type`
+  normalizes the classes it is given without judging conformance, since a class that assigns
+  `self.id` in `__init__` declares nothing at class level while its instances conform; the check
+  belongs at admission, where a real object can be inspected. Serializing a Pile still requires
+  items to provide `to_dict()`.
+
+## [0.30.2] - 2026-07-23
+
+### Fixed
+
+- `to_list(..., unique=True)` no longer drops unequal items whose structural hashes collide.
+  When the input holds an unhashable value, deduplication falls back to hashing; that fallback
+  compared by hash alone, so two unequal mappings with colliding hashes (e.g. `{"x": -1}` and
+  `{"x": -2}`, since `hash(-1) == hash(-2)`) were treated as duplicates and the second was lost.
+  Hashable items now stay on the native set, and only genuinely unhashable values are bucketed by
+  structural hash and confirmed by identity-or-equality, so a collision keeps both items while a
+  repeated same instance (such as `NaN`, which is unequal to itself) still collapses to one.
+
+- `lcall` / `alcall` no longer ignore input transforms when `flatten`/`dropna` are unset.
+  `input_use_values` now extracts a mapping's values, and `input_unique` without flatten raises the
+  documented `unique=True requires flatten=True` instead of being silently dropped. The
+  no-transform path is unchanged, so ordinary calls behave exactly as before.
+
+- `aterminate_process_group` enforces its grace timeout on the Trio backend. The post-`terminate`
+  wait was bounded with `asyncio.wait_for`, which raises `RuntimeError: no running event loop` on
+  an AnyIO/Trio task before the timeout policy could apply, so a process that ignored `terminate`
+  was never force-killed. The wait now uses an AnyIO cancel scope, preserving the `SIGKILL`
+  escalation on both the asyncio and Trio backends.
+
+- `FieldModel` metadata survives `to_spec()`, and spoofed union types are rejected. Unknown
+  metadata keys and an explicit `None` default are no longer dropped when a field model is
+  converted to a `Spec`, and a type that merely imitates `types.UnionType` (for instance by
+  stringifying to the same repr) no longer passes the base-type validity check that real unions
+  satisfy.
+
+- `OperableModel` captures `FieldModel`s supplied as constructor extra fields. The extra-field
+  validator discarded them before the after-validator could record them in `extra_field_models`,
+  so a model built with field-model extras lost that structure.
+
+- `Session` mail is no longer dropped when a delivery fails. Both the async and sync exchange
+  collect paths cleared in-flight state even when the inbox write raised, losing the message from
+  every recovery surface; a failed delivery now stays recoverable via `drain_pending()`. A cloned
+  branch also re-serializes idempotently, so a branch restored from a clone can be saved again.
+
+- `Flow` and `Pile` no longer mutate caller-owned state or disagree on ordering. `Flow.from_dict`
+  copies caller metadata before popping `lion_class` rather than mutating a reusable snapshot;
+  `Flow.add_item` resolves progressions through the owned pile so an unowned `Progression` raises
+  before any mutation (the operation fails atomically); and `Pile.to_df` serializes in progression
+  order, matching iteration and every other ordered dump path.
+
+- Provider and reader fixes: reading `OllamaConfigs.CHAT.options` no longer eagerly registers the
+  Ollama chat endpoint (the request schema resolves off the decorator-free schema module, restoring
+  the lazy-import contract); `gemini-3.6-flash` resolves to its High-effort model id by default with
+  a version-aware fallback that neither silently downgrades an explicit `3.6` id nor false-upgrades
+  an unrelated number containing `3.6`; an Antigravity CLI turn that reports `SUCCESS` with empty
+  content is now surfaced as an error instead of silence stamped success; and `get_run_file` rejects
+  a file whose bytes are malformed UTF-8 at the read-cap boundary instead of serving it as truncated
+  text.
+
+## [0.30.1] - 2026-07-21
+
+### Changed
+
+- Restored the foundational name `Observable` for the nominal Pile-admission ABC that
+  0.30.0 had briefly renamed to `PileItem`. `Observable` is core lionagi ontology — the
+  observer/observable concept the `Session`, `SessionObserver`, `Communicatable`, and event
+  layers are built on — and names a thing with durable identity that a `Pile` can hold, not a
+  container-membership role. The nominal-only admission behavior introduced in 0.30.0 is
+  unchanged: `isinstance(item, Observable)` still requires inheritance rather than a bare `id`
+  attribute, the structural `ObservableProto` split stays deleted, and `Pile` admission remains
+  nominal. `PileItem` is removed with no compatibility alias (own-use scope). Every in-tree
+  caller (`Element`, `Pile`, `Communicatable`, `SessionObserver`, `validate_sender_recipient`)
+  and the public `lionagi.protocols.types` facade use `Observable`.
+
+### Fixed
+
+- The `li agent` codex file-access hint now recommends `--yolo` (the sandboxed default) rather
+  than `--bypass` (which disables the sandbox) when a codex leg would otherwise hang on its first
+  tool call. `--bypass` is still noted as the sandbox-disabling escape hatch.
+
+## [0.30.0] - 2026-07-20
+
+### Removed
+
+- `lionagi._paths.clear_lionagi_dirs_cache` — `find_lionagi_dirs()` no longer caches the git-root lookup (it now calls `git rev-parse --show-toplevel` directly on every call), so there is no cache to clear. `_paths` is a private module (never re-exported from `lionagi/__init__.py` or any public package); this removal is internal-only, no consumer alias needed.
+- `ObservableProto` and `LegacyObservable` (`lionagi.protocols.contracts`, previously
+  re-exported from `lionagi.protocols.types`). Neither had an in-tree caller. Removed outright
+  per the own-use scope in `docs/governance/standards/deprecation-policy.md` section 0, with no
+  compatibility alias.
+- `Observable` (`lionagi.protocols._concepts`, `lionagi.protocols.types`), renamed to
+  `PileItem`. The name previously pointed at a structural protocol and now had to point at the
+  nominal admission ABC Pile actually enforces; rather than let the same name's `isinstance`
+  answers invert under existing callers, the nominal contract ships under a new name and every
+  in-tree caller (`Element`, `Pile`, `Communicatable`, `SessionObserver`,
+  `validate_sender_recipient`) was updated in this change.
+
+### Added
+
+- `PileItem` (`lionagi.protocols._concepts`, `lionagi.protocols.types`): the nominal Pile-item
+  admission contract, renamed from `Observable`.
+
+### Fixed
+
+- API hook emit sites (`API_PRE_CALL`/`API_POST_CALL`/`API_STREAM_CHUNK`, `operations/_api_hooks.py`)
+  hardened: a non-finite provider usage count (`NaN`/`inf`) is dropped from the typed usage
+  summary instead of raising on `int()` coercion and aborting an otherwise-successful call; the
+  `log_api_metrics` built-in reports the real `input_tokens`/`output_tokens` instead of an
+  always-`None` `total`; `_safe_identifier` now redacts credential-shaped model/provider values
+  that satisfy the identifier allowlist; and the stream `chunk_type` (provider-sourced, unlike
+  model/provider) is validated against the closed `StreamChunk` vocabulary so a prefixless
+  credential cannot reach telemetry.
+- Endpoint provider registry no longer swallows bundled-module import errors or mis-routes
+  unknown providers: a genuinely-absent optional dependency is now distinguished from a broken
+  bundled module (the latter surfaces its `ImportError` instead of masquerading as "not
+  installed"), and an unknown provider name is refused rather than silently mis-resolved.
+- A failure in the post-DAG finalize step (synthesis-artifact write, team-inbox post, run-metadata
+  build, branch-snapshot and resume-pointer writes) is no longer reported as a DAG failure. The DAG
+  result is already complete when finalize runs, so a finalize side-effect error is surfaced
+  distinctly instead of masking an otherwise-successful run.
+- MCP client recovery no longer lets a policy-omitted re-entrant `get_client` inherit an earlier
+  caller's trust: the transport-recovery path (which must recover the policy the transport was
+  already authorized with) and the genuine no-policy path are disambiguated, so an omitted policy
+  cannot silently reuse a prior caller's security capability.
+- Agent `--resume`/`--continue-last` no longer silently drops an explicitly requested role.
+  create_agent provenance is read only from the immutable branch-origin marker, never re-derived
+  from persisted system-message content, so a markerless branch given a role gets that role's
+  system prompt rather than having it skipped.
+
+## [0.29.1] - 2026-07-15
+
+### Added
+
+- Typed schedule quick-create commands: `li schedule create <agent|flow|playbook|command> <name> ...` compile straight into a `ScheduleMember` and run through the identical `resolve_member`/`create_quick_schedule` path a ScheduleSet member uses — no forked validation. Command-kind actions are gated by a `LIONAGI_SCHEDULER_COMMAND_ALLOWLIST` env allowlist (empty means refuse all), accept bare PATH-resolvable executable names only, and reject leading-dash argument tokens.
+- Versioned ScheduleSet declaration layer: `li schedule apply/plan` reconcile a committed `ScheduleSet` YAML document against owned rows (omitted owned rows are disabled, never deleted), and `li schedule export` converts existing rows back into documents — legacy rows via typed reconstruction through the same static resolution an apply uses, declaration/cli rows via authored-spec re-export. Conversion blocks (never half-emits) rows it cannot represent faithfully: chained follow-up actions, unsupported action kinds, flow-YAML rows carrying a model, launch-time extra args, and github triggers whose effective poll cadence differs from the default. Mixed-project exports write one document per effective project with collision-checked sibling filenames. Exported flow snapshots are referenced relative to the output directory so document and sidecar commit and move together; absolute working directories are kept verbatim but flagged on the export report.
+- Schedule observability: run rows join schedule metadata in a `RunView`, `li schedule runs/status` output is enriched, and `li schedule trigger --wait` follows the fired run to its terminal state.
+- Terminal notify forwarding for declared schedules, and a per-invocation `--notify` on `li agent` and `li o fanout`, both riding the generic on-terminal callback layer (ADR-0095).
+- `li kill` reaps detached-play workers transitively (ADR-0104, now marked Accepted/Implemented).
+- khive context injection active on the agent spawn path and the bare `li agent` path (ADR-0008).
+- Mirrored sessions stored and resolvable by `cc_session_id`; inherited agent-depth env marker `LIONAGI_AGENT_DEPTH`.
+- lionbench v0 record schemas and campaign config.
+
+### Fixed
+
+- Schedule row reads decode `authored_spec`/`resolved_target`; schedule rolling-window cap, github 403 no-poison-cache, outbox durability contract, and scheduler cancel routing.
+- Live-persist teardown drain, terminal-notify `previous_status`, run manifest lifecycle, and fanout partial durability; state lifecycle batch covering transition rejection precedence, initial-state history, and the terminal-write chokepoint; `cc_session_id` backfill preserves reconcile CAS.
+- Hooks: permanently-invalid messages are dropped instead of blocking the retry queue; gate action re-derivation and denial-signal audit.
+- MCP: explicit transport-trust decision at load time; the permission chain now applies to MCP-discovered tools.
+- Provider batch: replayable no-buffer fast path, bounded MCP arrays, OpenAI Batch endpoint routing, gemini teardown retry, and case-fold provider routing.
+- Operations: FAILED action error path, first-chunk cancel cleanup, the `suppress_errors=False` captured-failure path, and context-provider registry coverage.
+- Plugins: restored cross-plugin tool-name collision check, targeted single-plugin rescan, and a win32 platform guard.
+- CLI: restored the available-profiles hint on a plugin-scoped profile miss, unconditional bypass warning, settings ancestor-walk, and resume system-prompt backfill.
+- Protocols: Node admission, Graph/Edge round-trip, processor capacity and queue bounds, and `gather_writeback` treating a non-int writeback return as success.
+- LNDL batch: round-outcome policy, per-round-shape rule, numeric coercion, and multi-block extraction.
+- Studio: honest fleet stats totals, minimap sizing, a show-level lifecycle reaper for phantom active shows, and a soft watchdog bounding coding-engine plan/verify stages.
+
+### Docs
+
+- Practical operator guide for scheduling workflows (typed quick-create per kind, ScheduleSet declarations, triage, stopping and misbehaving-schedule playbooks); stale recurring-runs cookbook rules rewritten.
+- Benchmark-gate contributing docs aligned with the same-machine A/B contract; ADR cross-reference and numbering fixes.
+
+## [0.29.0] - 2026-07-13
+
+### Added
+
+- Dispatch outbox retention and auditable purge (ADR-0059 delta 3): `dispatch_outbox` rows now expire automatically, riding the existing `prune_old_data` maintenance sweep — terminal-success rows (`delivered`/`acked`) after `LIONAGI_STUDIO_DISPATCH_RETENTION_SUCCESS_DAYS` (default 7 days), dead-lettered/expired rows after `LIONAGI_STUDIO_DISPATCH_RETENTION_DEAD_LETTER_DAYS` (default 30 days); `pending`/`delivering` rows are never eligible for the automatic sweep. `li dispatch purge` now writes an `admin_events` audit row on every delete (single-row and bulk) and gains bulk criteria: `li dispatch purge --status STATUS [--before EPOCH] [--dry-run]`, requiring an id or explicit criteria so a bare invocation cannot mass-delete. An explicit `--status` is honored exactly as given, including `pending`/`delivering` (naming an in-flight status is deliberate operator intent); a bare `--before` with no `--status` defaults to terminal statuses only and never implicitly sweeps `pending`/`delivering` rows. `status_transitions` history for purged dispatch rows is preserved, not cascade-deleted. `deliver_due_dispatches` now tolerates a row being purged out from under it mid-scan (an operator purge racing the scheduler tick): that row is skipped and the rest of the due batch still delivers, instead of the whole tick aborting on `LookupError`.
+- A directory-bundle plugin system (ADR-0088): a `plugin.yaml` manifest schema, filesystem discovery scoped to `.lionagi/plugins/`, a content-pinned trust model (sha256 over the manifest plus every declared capability file), a lazy two-stage activation registry (discovery is a data-only parse; bundle code is imported only on first actual use), and a `li plugin` CLI surface (`list` / `info` / `trust` / `enable` / `disable`). Four runtime consumers are wired end to end: a trusted, enabled plugin's agent profiles and playbooks resolve as `<plugin>/<name>` (bare-name resolution when unambiguous, with a shadow warning against a same-named local profile, and `li play list` now merging local + plugin playbook names), its provider modules are consulted on an `EndpointRegistry` match miss before falling back to the generic OpenAI-compatible endpoint, and its tools are consulted on an `ActionManager` tool-name miss. A plugin that shadows a built-in provider or tool name is now rejected outright with a named, explicit error rather than silently winning or losing the collision. Plugin discovery never fires on a bare `import lionagi`.
+- A generic on-terminal callback layer for run-terminal events (ADR-0095/ADR-0060), plus `--notify` and a `notify.on_terminal` settings contract: `li agent`, flow/play runs, schedule runs, and Studio launches now all emit the same versioned `RunTerminalEnvelope` from the one guarded lifecycle transition every entity status write already funnels through, instead of each CLI command needing its own notification plumbing. `notify.on_terminal` is authorable as a shell command string (no-shell, `shlex`-split) or a mapping (`{enabled, adapter: {kind: exec|python}, filter}`), resolved per-run override > project settings > global settings > disabled, and never raises on malformed settings. A `terminal_deliveries` reconciliation ledger gives consumers that need a durable "have I seen this terminal event yet" query an idempotent-ack alternative to the fire-and-forget in-process push.
+- Team-lifecycle orchestration primitives: a code-level done/finished signal (`li team send --kind done|finished`, or the messenger tool's bound actions) that never depends on an LLM formatting JSON correctly, wakeup rounds that inject one bounded follow-up round of operations for workers with unread mail once every live worker has signaled done (capped by `--team-max-rounds`, default 2), and a pure `compute_quiescence` predicate declaring a run settled once every worker is done and no unread mail remains. Team mode also gains in-process messaging: API-model worker branches share an `Exchange` and get a bound `LionMessenger` tool (send/receive) at creation, so peers on the same run can message each other without round-tripping through the file-based team channel; CLI-driven workers keep using that file channel unchanged.
+- A unified lifecycle transition service (ADR-0058, phases 1-2): `StateDB.update_status()` and `transitions.transition()` now delegate their guarded read/CAS/edge-validation/history-append algorithm to one shared service (SQLite `BEGIN IMMEDIATE` / PostgreSQL `FOR UPDATE`) backed by a self-validating policy registry covering all seven lifecycle-bearing entity types (session, invocation, show, play, team, schedule_run, dispatch), instead of two independently-drifting implementations of the same guarantee.
+- Interoperable external hooks (ADR-0048): tool events now route through the `ActionManager.invoke` chokepoint — `add_tool_pre_hook`/`add_tool_post_hook` run outermost around every tool call the manager mediates (plain function tools, `Tool` objects, and MCP-discovered tools alike), implementing the allow/deny/ask/rewrite decision vocabulary with deny/ask/unrecognized all failing closed. `USER_PROMPT_SUBMIT` joins `TOOL_PRE` as the second blocking hook point, gated by a tri-state turn-origin token that guarantees it fires exactly once per user-originated turn no matter how many internal chat/parse/ReAct calls that turn triggers underneath.
+- Studio scheduler platform depth: a claim-time admission seam (ADR-0071 D3) rejects a job over its per-concurrency-key waiter cap or whose declared max duration exceeds the worker's lease TTL, with a submit-time fast-fail path (`AdmissionRejectedError`) mirroring the authoritative claim-time gate; an allow-listed `command` action kind runs templated argv through a re-validated allow-list immediately before spawn (no intervening await can smuggle a revoked command through); a stable execution root now persists per schedule; a nullable `resume_packet` JSON column on `schedule_runs` carries resumable-run metadata; GitHub triggers now expose `head_repo`/`head_repo_is_fork`/`is_same_repo` with a `same_repo_only` filter (fail-closed on a missing/null head repo) and self-report poller health (healthy-age and consecutive-401 count); and per-run coordination telemetry (signals emitted/received/acted-on, plus a files-read overlap indicator) is surfaced in `li monitor` and the run-wait one-liner.
+- Opt-in agent-profile role wiring with fail-closed policy binding: a profile's frontmatter `role` key (never defaulted from the profile name) routes `li agent -a <profile>` through `AgentSpec.coding()`'s policy-rendering path, and a role that resolves but has no entry in the active policy pack now raises instead of silently rendering an unconstrained policy block. `AgentSpec.mcp_servers`/`mcp_config_path` are now forwarded into the `claude_code` CLI provider's own per-turn MCP request (previously they only reached `branch.acts`, which CLI providers never consult); `codex`/`gemini_code` legs log a warning and no-op since neither request model carries an MCP field yet.
+- A nudge engine with declarative JIT guidance rules and model-operated context-management activation, giving agent runs a rule-based post-hook plane for firing bounded, capped guidance messages (once/cooldown semantics) in response to tool results, independent of any single feature's own hook.
+- A pre-turn `ContextProvider` injection seam (ADR-0100): an ordered provider registry on `Branch` renders into the system-guidance fold ahead of chat/run calls, with per-turn budget enforcement (lowest-priority providers dropped first) and full failure containment (a provider exception is reported, never raised, and injected text never enters the durable message record). `KhiveInjectionProvider` implements it against a live khive daemon over the existing MCP transport: it issues a `memory.recall` (+ optional `knowledge.compose`) built from the turn's own rendered instruction and the branch's declared name/role, emits `brain.auto_feedback` in the same round-trip, and an opt-in post-turn writeback hook FIFO-pairs tool errors with their resolving response into a capped, low-provenance `memory.remember`.
+- A server-side Studio approval ledger (`approvals` table, CAS `pending -> granted/denied -> consumed/expired`, 5-minute lazy expiry, single-use params-hash matching) with a `/api/approvals/*` route surface; grant/deny routes structurally refuse an operator/service-principal bearer, so an automated driver can never self-approve its own proposed action through the human confirm path. An append-only `approval_evidence` table hash-chains every lifecycle event (`chain_hash = sha256(content_hash + previous_hash)`) with an optional HMAC-signed variant (`LIONAGI_STUDIO_EVIDENCE_HMAC_KEY`) and a `GET /api/approvals/evidence/verify` endpoint that replays and validates the chain.
+- A durable task-queue substrate for Studio: `schedule_runs` is generalized into a shared task entity (nullable `schedule_id` for ad-hoc task applications, a widened lifecycle-status set, and queue/lease/concurrency columns), a submit surface writes durable queued rows, and a `workers` registry with a declarative capability-class map (eligibility/serialization/affinity) drives capability-aware claiming with bounded-lease recovery — replacing the prior capability-free-only worker exclusion.
+- `lionbench`: a harvested-PR benchmark harness with pluggable agent adapters, a cross-repo instance index (lionagi in-repo source plus lattice bench data pinned at merge commit), M0/M1/M2 arm configs with khive-namespace pinning for injection-enabled arms (so a benchmark run can never contaminate the live posterior store), and additional harvested Python-framework instances. The shared cost meter also gained a fourth pricing dimension for cache-write tokens (previously mispriced into the cache-read bucket or dropped entirely) and launch pricing rows for the GPT-5.6 model tiers.
+- Studio scheduler signal bus: typed run/schedule lifecycle signals with per-handler predicates and committed-write minting (a failing predicate can't starve sibling handlers; ordinary handler failures aggregate into an `ExceptionGroup` while cancellation still propagates). A companion casts help-signal escalation protocol adds an urgency-typed (`fyi`/`blocked`) escalation request, with `fyi` routed to a non-terminal notify lane and only `blocked` reaching the terminal escalated lane; the messenger tool gains a fire-and-continue `help` action.
+- Studio: file references in rendered agent messages (markdown links and bare inline-code filenames pointing at a known run file) now resolve to clickable in-Studio artifact links, backed by a read-only file-serving endpoint hardened against traversal, symlink escape, and protected filenames.
+- MCP tool registration now refuses, at registration time, any discovered/configured tool whose name, description, or input schema exposes a caller-controlled command/process/script executor — across discovery descriptors, raw config dicts, prebuilt `Tool` objects, and the metadata-free `tool_names` shortcut — with no configuration opt-out.
+- Model-aware codex reasoning-effort tiers (`max`/`ultra`); `li stats runs`, a read-only aggregate reporting subcommand over the runs substrate (`--since`, `--group-by`, `--json`); and a `bypass` agent-profile frontmatter field (mirroring the existing `yolo` field) so a codex profile can opt into bypass without passing the CLI flag on every invocation.
+
+### Changed
+
+- `AgentSpec.coding(secure=True)`'s built-in guards (`guard_destructive`, `guard_paths`) now register in the same `security_pre` bucket as an explicit `PermissionPolicy`, so they get the same security -> user -> security recheck: a user pre-hook that rewrites a command or path argument into a destructive/out-of-workspace one after the guard already passed is now denied, where it previously slipped through unrechecked. Every security control evaluation (`PermissionPolicy`, the built-in guards, and the session gate) is now expressed as one immutable `GateResult` (`lionagi.agent.gate`); an evaluator that raises unexpectedly now produces a recorded, fail-closed deny instead of an uncaught exception.
+
+### Deprecated
+
+- `Step.request_operative`'s ignored-parameter warning (`parse_kwargs`, `exclude_fields`, `field_descriptions`, `config_dict`, `doc`, `new_model_name`, `parameter_fields`, `request_params`) now names v0.29.0 as the removal target, replacing a stale v0.21.0 promise.
+- The free `lionagi.protocols.messages.create_message` function (also exported as `lionagi.create_message`) now emits a `DeprecationWarning` at call time; use `MessageManager.create_message` instead. Behavior and signature are unchanged.
+- `lionagi.ln.to_uuid` now emits a `DeprecationWarning` at call time. It is not equivalent to `lionagi.protocols.ids.to_uuid` or `lionagi.protocols.ids.canonical_id`; use `lionagi.protocols.ids.to_uuid` for raw UUID/string values and `lionagi.protocols.ids.canonical_id` for generic Observable-like objects.
+- `lionagi.cli._runs.teardown_orchestration_persist` is now an async wrapper that emits a `DeprecationWarning` and delegates unchanged to `teardown_persist`; use `teardown_persist` instead.
+- `lionagi.cli.orchestrate._common.TEAM_WORKER_SYSTEM` is deprecated; use `TEAM_COORD_SECTION` appended to a worker's own system prompt instead.
+- `lionagi.operations.select.select.select` now emits a `DeprecationWarning` at call time; use `Branch.operate()` with an explicit caller-owned response model instead. Behavior and signature are unchanged; `select_v1` remains undeprecated for internal use.
+
+### Removed
+
+- Studio's operator panel and its abandoned Designer page (`routes/designer.tsx`, `WorkflowDesigner`, and the nav/command/rail entries and dead i18n keys pointing at them) have been removed; the shared flow-canvas editor those pages used is still reachable (and unaffected) from the Library page's inline workflow viewer.
+- Internal dead code: the AST filesystem-scan class registry (an import-time `os.walk` + `ast.parse` over `protocols/{generic,graph,messages}`) is gone in favor of a direct registry lookup with a dotted-path-import fallback, and the unused `can_transition` lifecycle helper has been dropped.
+
+### Fixed
+
+- `guard_paths()` now delegates workspace containment to the canonical `lionagi.libs.path_safety.resolve_workspace_path` helper instead of its own parent-walk check: a direct symlink under an allowed root is refused before it is followed (even when its target is inside the workspace), an intermediate directory symlink that resolves outside the workspace is denied on containment, and a fixed set of protected basenames (`.env`, `.netrc`, SSH private keys, `.htpasswd`) is denied even when the caller supplies no `denied_paths`. This closes a gap where only caller-supplied deny rules were enforced and symlink escapes were not checked at all. Multi-root and custom `denied_paths` composition, the `guard_paths()` signature, and deny-only behavior when no `allowed_paths` are configured are unchanged.
+- The same canonical path-safety containment is now applied uniformly to `create_path`, sandbox inputs, and artifact file references — closing the same class of symlink-escape and traversal gap on surfaces outside `guard_paths()` itself.
+- Run-terminal notification reliability: terminal notify now fires even when invocation finalize raises, instead of being skipped; a worker-liveness watchdog now fails a flow loudly instead of hanging it indefinitely behind a zombied worker process.
+- Team-lifecycle correctness: round-2 wakeup operations now carry proper attribution and thread context, the team-mode coordination prompt is reconciled with the actual delivery channel, and a stopped `Exchange.run()` now raises instead of silently no-op'ing.
+- Hook-chokepoint correctness: the `USER_PROMPT_SUBMIT` guard now runs before context-provider side effects fire (a rejected prompt leaves no persisted instruction and no provider side effects), a tool post-hook's reason notes are surfaced instead of discarded, a tool-pre-hook denial is now captured as a `FAILED` event with post-hooks skipped during cancellation, and preprocessor-added keys survive post-preprocessor revalidation instead of being dropped.
+- State and scheduler reliability: `dispatched_at` is backfilled for pre-existing running `schedule_runs` rows, chain-child rows are excluded from `schedule_run_exists_since`, the working GitHub poll token is now cached instead of shelling out to `gh` on every tick, `list_schedules` N+1 queries are batched, `branches.status` is finalized at teardown via the `BRANCH_END` hook, the WAL is checkpointed before a rebuild backup with a hardened `transition()` column allowlist, and schedule occurrence recording/recovery-scan/reaping is now atomic.
+- Sandbox worktree safety: `create_sandbox` now records the base branch's commit SHA at creation time; `sandbox_diff` no longer stages anything or otherwise mutates the worktree index while computing a diff; `sandbox_merge` refuses to run against a detached HEAD or a `repo_root` not checked out on the session's recorded base branch, and refuses to merge into a protected branch name (`main`, `master`, `release*`) without an explicit `allow_protected=True`; `sandbox_discard` only marks a session inactive once both the worktree removal and branch deletion actually succeed.
+- Branch snapshots (both the pre-stream and post-turn writers) are now written atomically via a sibling temp file plus `os.replace()`, so a process kill mid-write leaves the prior complete snapshot intact instead of a torn, unparseable one that made the branch unresumable.
+- Telemetry and provider-failure reliability: token/cost capture is now wired for the `claude_code` and `codex` CLI paths (previously only `gemini-cli` re-surfaced real usage, so `total_cost_usd` silently read `0.0` for every other CLI session); provider failures are now classified into retryable/non-retryable reason codes instead of one generic bucket; the OpenAI system-to-developer role rewrite is now gated by model family; and custom provider calls route through the native retry path.
+- Orchestration and CLI planning fixes: `flow.py`'s `plan()` now enforces its `max_tasks` constraint with a backstop raise (an over-limit plan previously escaped as a bare, uncaught `ValueError` instead of the CLI's normal `FlowPlanError` exit path) and the planner prompt now explicitly maximizes DAG width instead of collapsing into a near-linear chain; a reactive flow resume can now replay reactively spawned nodes; a reactively spawned node's `spawn-N` id is now stamped at construction time (previously minted post-run by completion order, so an unrelated sibling could "become" spawn-1) and told its own required artifact directory before it runs; per-role mode allowlists now surface correctly in the planner's mode roster instead of silently dropping at execution; tool docstrings no longer drop operational content meant for the LLM; `li agent` fails fast on a nonexistent `--cwd` before spawning; and the plain-profile system prompt reapplies correctly on resume/continue.
+- Studio run and session observability: `NodeEscalated` now routes as a non-terminal notify (not a terminal state); truncated run-file reads correctly distinguish a boundary-split UTF-8 character from binary content; the fleet run-detail execution graph falls through gracefully on an edgeless graph with a more compact MiniMap; run-DAG edges are transitively reduced with honest node status; fleet page legibility is improved (day-scale durations, labeled counts, tool-row output previews); and session message polling no longer binds every progression id as its own SQL bind variable.
+- Studio frontend resilience: stale JS chunks are excluded from the SPA rewrite and the page reloads once on a chunk-load failure; a hosted API base is now injected on Vercel builds so the local-first SPA still works; a wrong-app-on-port condition is now distinguished from an unreachable daemon; and chat nodes now apply `config.model` and reject bare model strings instead of silently misapplying configuration.
+- Message and action rendering correctness: the per-message render cache is now bypassed for content holding untracked-mutable objects, and multi-turn result-chunk deltas are summed instead of overwriting each other.
+- `soupsieve` bumped from 2.8.3 to 2.8.4, addressing published ReDoS and memory-exhaustion advisories.
+
+### Performance
+
+- Flow execution hot path: adjacency edge lookups, a predecessor cache (moved onto `Graph` itself), and an `alcall` fast path speed up DAG execution; an identity-keyed cache for `Operative` model types avoids rebuilding structurally-identical response models on repeated calls.
+- Messaging and state hot path: a revision-keyed per-message render cache avoids re-rendering unchanged prepared history; live message persistence is now bundled into a single transaction instead of one write per message; and a session's action-message stats query now forces a primary-key probe instead of a slower scan.
+- CLI and service startup: the command registry and `lionagi.state` export are now lazy-loaded, and `EndpointConfig` kwarg validation no longer rebuilds its JSON schema on every call.
+
+## [0.28.0] - 2026-07-08
+
+### Added
+
+- `lionagi.operations.lndl_middle` — an LNDL seam `Middle`, importable from the package itself (`from lionagi.operations.lndl_middle import lndl_middle, build_lndl_middle, DEFAULT_ROUND_BUDGET`): `lndl_middle` (ready to use) and `build_lndl_middle(round_budget=3)` (custom round budget). Opt in per call with `branch.operate(instruction=..., middle=lndl_middle)`; advances one LNDL round per inner chat call, renders the target model's field names into round-1 guidance (native `response_format` is stripped from the per-round chat call, so the model is told what to fill via an LNDL `Specs:` line instead), bridges `<lact>` calls through the branch's normal `act()` path (existing permission policies and hooks apply unchanged), and classifies each round into a `RoundOutcome` (`Success`, `Continue`, `Retry`, `Exhausted`) to drive repair — a parse/assemble/validation failure re-prompts the model with the typed error instead of surfacing a raw traceback. Round-budget exhaustion raises `LNDLError` rather than returning a raw error string or `None`.
 - `lionagi.lndl.build_action_call` — parses a lact node's call text into an `ActionCall` placeholder; factored out of `assembler._alias_value` so callers (like the new LNDL middle) can build placeholders for lacts with no `OUT{}` to gate against yet.
+- Studio scheduler — metric threshold alerts: a schedule carrying a `threshold_config` (`{"metric": "failed_sessions" | "total_cost_usd" | "p95_latency_ms", "op": "gt" | "gte", "value": N, "window_minutes": N}`) evaluates the metric on each tick of its own cron/interval cadence and only fires its action when the threshold is breached, with a cooldown of `window_minutes` so a sustained breach alerts once per window instead of every tick. Authorable via `li schedule create --threshold-config '<json>'`.
+- Studio scheduler — per-schedule token/spend budgets (`--max-cost-usd`, `--max-tokens`) and a daemon-wide global concurrent-fire cap, so scheduled work cannot exhaust budget or overwhelm the host.
+- Studio scheduler — GitHub triggers are now authorable directly from `li schedule create --trigger-type github --github-repo OWNER/NAME --github-filter '<json>'`, fire once per GitHub event (not once per poll), support a `pr_merged` mode that dispatches on merge, and filter on `draft` state; `head_sha` and `draft` are emitted on each event.
+- Studio workflows — `WorkflowDef`s compile and run on `Session.flow`, emit per-node lifecycle signals for live run observability, carry many-to-many run tags with tag filtering, support condition authoring on workflow edges in the designer, and split `playbook` into its own library kind alongside built-in playbook templates surfaced on the Workflows page.
+- Studio UI — a three-question Mission Control overview, schedules table and card views, and internationalization covering the top-16 world languages with RTL support.
+- `EngineResult` and a budget-degrade contract for engines, so a run that exhausts its budget degrades to a typed result instead of a bare failure.
+- Reactive flows surface dropped `SpawnRequest`s in the flow result for observability instead of discarding them silently.
+- `li agent --context-from` for cross-agent context handoff, and `li studio` frontend modes (`--web` hosted default, `--docker`, `--no-frontend`).
 
 ### Changed
 
 - `lionagi.lndl.assembler.assemble()` now raises `MissingLvarError` when `OUT{}` references an alias that's declared nowhere (previously the field was silently dropped from the assembled dict); an alias executed in an earlier round now resolves via `action_results` without redeclaration, so a later round's `OUT{}` can reference it directly.
 - `lionagi.lndl.assembler.assemble()` now raises `MissingFieldError` when the target model has required fields absent from `OUT{}`, rather than deferring the failure to a downstream `pydantic.ValidationError` with no LNDL-level context.
+- Studio run and verdict state derivation is unified on a single code path (the standalone verdict sniffer is gone), so run status and verdict are reported consistently across the run list, run detail, and the run DAG.
+
+### Deprecated
+
+- `li studio --no-docker` — the Docker frontend is now selected explicitly with `--docker`; the hosted `--web` frontend is the default.
 
 ### Removed
 
 - `lionagi.lndl.MissingOutBlockError` and `lionagi.lndl.AmbiguousMatchError` — retired, unused error classes. A response with no `OUT{}` block is classified as `Continue` (the model is still thinking), not an error; ambiguous-match scoring was never wired to a real assembly path.
+- A sweep of internal dead code with no public surface: a deprecated `protocols` structure re-export shim, the unused `AccessError` and hook `registered_handlers`, three unused CLI helpers, `providers/config.py`, the studio `status_mapping.py` and a runs read-path adapter, and a dead state `persist.py` module with its legacy reason-code resolver.
+
+### Fixed
+
+- Studio scheduler GitHub triggers no longer collapse a burst of merged PRs into a single fire or lose events behind pagination: polling returns structured per-event items, dispatches each exactly once, advances its cursor only past events it actually dispatched, and bounds merged-PR pagination so the cursor can never move past an unfetched merge (no permanent skips, no duplicate reviews). A deleted action working directory now fails the run with a clear reason instead of a generic spawn error. A GitHub `401` (typically a `GITHUB_TOKEN` that was valid at daemon launch but has since expired) now falls through to a fresh `gh`-CLI token and retries once, instead of pinning the poller to the dead credential and going silently blind on every subsequent poll; a 401 that survives the retry logs at ERROR.
+- Studio run and session observability corrections: run-health and status misreporting fixed across the app, phantom `failed`/terminal classification gated behind a liveness-and-staleness check, stale in-flight play rows and null-status rows reaped to a terminal state on runner death (honoring the recorded pid and a staleness grace), engine sub-agent branches and chat-node turns persisted, and run-DAG edges rendered from `depends_on`/`parent_id`.
+- Studio run and session detail read-paths are paginated with corrected message and action aggregates; long message lists are windowed and no longer flash on update.
+- Studio frontend clears a misleading error when a static SPA rewrite masks a missing API base, and ships a frontend backlog cluster of redirect, API-base, pulse, overflow-accessibility, and calendar fixes.
+- State and scheduler terminal-status-integrity floor: a cluster of terminal-transition correctness issues resolved so a terminal status is authoritative and cannot be silently overwritten.
+- `li agent` resolves a bare model name to its provider from settings and surfaces total sub-agent failure instead of reporting a false success; `li agent --resume` and auto-resume no longer race the terminal-status guard.
+- The NLIP provider's retries route through `retry_with_backoff` (the two retry loops are deduplicated), and reactive `Pattern.load` errors list the valid roles and modes instead of failing opaquely.
+- Path-traversal checks across the codebase are consolidated onto a single `has_traversal` helper.
 
 ## [0.27.2] - 2026-07-02
 

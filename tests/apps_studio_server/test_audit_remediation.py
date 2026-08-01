@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from importlib import reload
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,13 +13,20 @@ import pytest
 fastapi = pytest.importorskip("fastapi", reason="studio extra not installed")
 from fastapi.testclient import TestClient  # noqa: E402
 
+import lionagi.state.db as state_db_mod
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _make_client(monkeypatch, fake_db: Path | None = None) -> TestClient:
-    """Reload app to pick up monkeypatched env vars."""
+    """Build a fresh app to pick up monkeypatched env vars.
+
+    create_app() (not importlib.reload) means a fresh app instance every
+    call, so the monkeypatched values are baked in without mutating the
+    shared lionagi.studio.app.app singleton other code still imports.
+    """
     import lionagi.studio.app as app_mod
     import lionagi.studio.services.stats as stats_mod
 
@@ -28,8 +34,8 @@ def _make_client(monkeypatch, fake_db: Path | None = None) -> TestClient:
         monkeypatch.setattr(stats_mod, "DEFAULT_DB_PATH", fake_db)
         monkeypatch.setattr(stats_mod, "_DB", str(fake_db))
 
-    reload(app_mod)
-    return TestClient(app_mod.app, raise_server_exceptions=False)
+    app = app_mod.create_app()
+    return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +229,7 @@ class TestBuildArgvValidation:
         assert "audit" in argv, f"playbook name not in argv: {argv}"
 
     def test_valid_kinds_do_not_raise(self):
-        """All four ADR-0027 action kinds must be accepted."""
+        """All four ADR-0070 action kinds must be accepted."""
         from lionagi.studio.scheduler.subprocess import build_argv
 
         for kind in ("agent", "flow", "fanout", "play"):
@@ -302,6 +308,18 @@ class TestFireBuildFailureRecorded:
         assert schedule["id"] not in engine._running
 
 
+class _BlockingStream:
+    """A pipe that never reaches EOF, standing in for a live child's output.
+
+    spawn_and_wait waits by draining both pipes, so this is where a process
+    doubling as "still running" has to block.
+    """
+
+    async def read(self, _n: int) -> bytes:
+        await asyncio.Event().wait()
+        return b""  # pragma: no cover - unreachable
+
+
 class TestSpawnAndWaitCancellation:
     """Cancelling spawn_and_wait must terminate the process GROUP, not just the direct
     child — `uv run li` forks the real worker, so signalling only the child orphans
@@ -316,9 +334,9 @@ class TestSpawnAndWaitCancellation:
                 self.terminated = False
                 self.killed = False
                 self.returncode = -15
-
-            async def communicate(self):
-                await asyncio.Event().wait()  # block until cancelled
+                # spawn_and_wait blocks reading these, not on communicate().
+                self.stdout = _BlockingStream()
+                self.stderr = _BlockingStream()
 
             def terminate(self):
                 self.terminated = True
@@ -368,9 +386,8 @@ class TestSpawnAndWaitCancellation:
             def __init__(self):
                 self.pid = 424243
                 self.terminated = False
-
-            async def communicate(self):
-                await asyncio.Event().wait()
+                self.stdout = _BlockingStream()
+                self.stderr = _BlockingStream()
 
             def terminate(self):
                 self.terminated = True
@@ -412,7 +429,14 @@ class TestFireCancellationRecorded:
 
         started = asyncio.Event()
 
-        async def blocking_spawn(argv, inv_id, *, tmp_path=None, cwd=None):
+        async def blocking_spawn(
+            argv, inv_id, *, tmp_path=None, cwd=None, action_kind=None, on_launched=None
+        ):
+            # The real spawn_and_wait confirms the child exists before it waits
+            # on it. That confirmation is what makes this the in-flight case:
+            # something is running, so cancelling it has to be recorded.
+            if on_launched is not None:
+                await on_launched()
             started.set()
             await asyncio.Event().wait()  # block until the _fire task is cancelled
 
@@ -531,9 +555,8 @@ class TestInvocationReasonAggregation:
 
 
 # ---------------------------------------------------------------------------
-# Codex round-2 Low — router-level PATCH validation (HTTP 400 for invalid
-# flow_yaml transitions), covering the ValueError→HTTPException translation
-# added to services/schedules.py.
+# Router-level PATCH validation (HTTP 400 for invalid flow_yaml transitions),
+# covering the ValueError→HTTPException translation in services/schedules.py.
 # ---------------------------------------------------------------------------
 
 
@@ -555,7 +578,7 @@ class TestSchedulePatchRouterValidation:
         from lionagi.studio.app import app
 
         monkeypatch.setattr(sched_svc, "update_schedule", mock_fn)
-        return TestClient(app, raise_server_exceptions=False)
+        return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
     def test_patch_flow_yaml_without_yaml_returns_400(self, monkeypatch):
         """PATCH action_kind=flow_yaml with no yaml body → HTTP 400."""
@@ -621,7 +644,7 @@ class TestScheduleArgvInjectionRouterValidation:
         from lionagi.studio.app import app
 
         monkeypatch.setattr(sched_svc, "update_schedule", mock_fn)
-        return TestClient(app, raise_server_exceptions=False)
+        return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
     @staticmethod
     def _client_post(monkeypatch, mock_fn):
@@ -632,7 +655,7 @@ class TestScheduleArgvInjectionRouterValidation:
         from lionagi.studio.app import app
 
         monkeypatch.setattr(sched_svc, "create_schedule", mock_fn)
-        return TestClient(app, raise_server_exceptions=False)
+        return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
     # -- PATCH action_model injection --
 
@@ -744,7 +767,7 @@ class TestScheduleArgvInjectionRouterValidation:
 
 
 # ---------------------------------------------------------------------------
-# CWE-88 argument injection — real-service router tests (round 2)
+# CWE-88 argument injection — real-service router tests
 #
 # These tests use the REAL service layer (no mock) with a temp SQLite DB to
 # validate that flag-injection rejections propagate through the router as 400.
@@ -755,14 +778,13 @@ def _real_svc_client(monkeypatch, tmp_path: Path) -> TestClient:
     """Return a TestClient backed by the real service layer + temp DB."""
     from fastapi.testclient import TestClient
 
-    import lionagi.state.db as state_db_mod
     import lionagi.studio.services.schedules as sched_svc_mod
     from lionagi.studio.app import app
 
     db_file = tmp_path / "test_state.db"
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_file)
-    monkeypatch.setattr(sched_svc_mod, "DEFAULT_DB_PATH", db_file)
-    return TestClient(app, raise_server_exceptions=False)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_file)
+    return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
 
 class TestScheduleArgvInjectionRealService:
@@ -1184,17 +1206,16 @@ class TestGithubRepoRealServiceValidation:
 
         # 1. Build the temp DB and wire the app to it.
         db_file = tmp_path / "test_state.db"
-        import lionagi.state.db as state_db_mod
         import lionagi.studio.services.schedules as sched_svc_mod
         from lionagi.studio.app import app
 
         monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_file)
-        monkeypatch.setattr(sched_svc_mod, "DEFAULT_DB_PATH", db_file)
+        monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_file)
 
         # 2. Use the real service to create the schema (create a throw-away schedule).
         from fastapi.testclient import TestClient
 
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
         setup_r = client.post(
             "/api/schedules/",
             json={

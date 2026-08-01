@@ -1,0 +1,71 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
+import { useTranslations } from "use-intl";
+import TabBar from "@/components/shell/TabBar";
+import { firstSearchString, preserveRetiredSearch } from "@/lib/retiredRoutes";
+import type { RetiredSearch, RetiredSearchValue } from "@/lib/retiredRoutes";
+
+const FleetView = lazy(() => import("@/components/fleet/FleetView"));
+
+// Fleet is the redirect target for every retired route (/playfield, /runs,
+// /invocations, and their siblings), so its search contract must keep
+// whatever filters those old URLs carried instead of only understanding `s`.
+export type FleetSearch = RetiredSearch & {
+  s?: string;
+  status?: RetiredSearchValue;
+  playbook?: RetiredSearchValue;
+  project?: RetiredSearchValue;
+  page?: RetiredSearchValue;
+  skill?: RetiredSearchValue;
+  sessions?: RetiredSearchValue;
+  invocation?: RetiredSearchValue;
+};
+
+export function validateFleetSearch(search: Record<string, unknown>): FleetSearch {
+  const preserved = preserveRetiredSearch(search);
+  const s = firstSearchString(search.s);
+  if (!s) {
+    delete preserved.s;
+    return preserved;
+  }
+  return { ...preserved, s };
+}
+
+export const Route = createFileRoute("/fleet")({
+  validateSearch: validateFleetSearch,
+  component: FleetPage,
+});
+
+function FleetPage() {
+  const t = useTranslations("shell");
+  return (
+    <div className="flex h-full w-full flex-col">
+      <div className="px-6 pt-4">
+        <TabBar
+          ariaLabel={t("tabs.homeAria")}
+          tabs={[
+            { id: "overview", label: t("tabs.overview"), to: "/", active: false },
+            { id: "fleet", label: t("tabs.fleet"), to: "/fleet", active: true },
+          ]}
+        />
+      </div>
+      <Suspense
+        fallback={
+          <div className="flex min-h-0 flex-1">
+            <div className="w-[25rem] shrink-0 space-y-2 border-e border-edge p-4">
+              <div className="skeleton h-6 w-28 rounded" />
+              {Array.from({ length: 7 }, (_, index) => (
+                <div key={index} className="skeleton h-10 rounded" />
+              ))}
+            </div>
+            <div className="hidden min-w-0 flex-1 place-items-center p-8 sm:grid">
+              <div className="skeleton h-44 w-full max-w-xl rounded-lg" />
+            </div>
+          </div>
+        }
+      >
+        <FleetView />
+      </Suspense>
+    </div>
+  );
+}

@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import re
 import signal
 import sys
@@ -15,6 +17,7 @@ from typing import Any
 
 from ._project import detect_project
 from ._runs import RUNS_ROOT
+from ._util import AmbiguousIdError, fetch_unique_row, resolve_entity
 from ._util import pid_alive as _pid_alive_int
 
 __all__ = (
@@ -66,6 +69,7 @@ _STATUS_COLOUR = {
     "running": _green,
     "active": _green,
     "completed": _dim,
+    "completed_empty": _yellow,
     "merged": _dim,
     "failed": _red,
     "aborted": _red,
@@ -179,13 +183,7 @@ async def _query_active_shows(
     since: float | None = None,
 ) -> list[dict[str, Any]]:
     """Active only by default; with since, all statuses in the window.
-
-    Unlike sessions and plays, `repo` on a show is a filesystem path (or a
-    path with a trailing remote annotation) copied verbatim from the play's
-    `_show.md`, not a project slug — so it cannot be matched against
-    `--project` in SQL. Project-scoping for shows happens in Python, in
-    _gather_table_rows, via the same detect_project() cascade sessions use.
-    """
+    `repo` is a path, not a project slug; scoped in Python via _show_project_matches."""
     query = "SELECT * FROM shows WHERE 1=1"  # noqa: S608
     params: list[Any] = []
     if since is not None:
@@ -205,12 +203,7 @@ async def _query_running_plays(
     project: str | None = None,
 ) -> list[dict[str, Any]]:
     """In-flight statuses only by default; with since, all statuses in the window.
-
-    The plays table has no project column, so project-scoping matches
-    against the project of the play's linked session (session_id) — the
-    same source of truth _query_running_sessions filters on. A play with
-    no linked session has no project to match and is excluded.
-    """
+    Plays have no project column; scoping joins through the linked session."""
     query = (
         "SELECT plays.*, "  # noqa: S608
         "(SELECT COUNT(*) FROM branches WHERE session_id = plays.session_id) AS branch_count, "
@@ -222,7 +215,14 @@ async def _query_running_plays(
         query += " AND updated_at >= ?"
         params.append(since)
     else:
-        running_statuses = ("running", "running_complete", "gated", "redoing", "prepared")
+        # `gated` is deliberately absent: a play parked on a gate decision is
+        # not in flight. It has stopped, and nothing it does can move it — only
+        # a decision can. Counting it here left every undecided play on the
+        # live view indefinitely, which is the one thing the default view is
+        # supposed to rule out. Such a play is still reachable through
+        # `--since`, through `li monitor <id>`, and through the show detail
+        # view, which marks it as waiting.
+        running_statuses = ("running", "running_complete", "redoing", "prepared")
         placeholders = ",".join("?" * len(running_statuses))
         query += f" AND status IN ({placeholders})"
         params.extend(running_statuses)
@@ -243,58 +243,20 @@ async def _query_plays_for_show(db: Any, show_id: str) -> list[dict[str, Any]]:
 
 
 async def _find_entity(db: Any, entity_id: str) -> tuple[str, dict[str, Any]] | None:
-    """Resolve entity_id across all entity tables; returns (entity_type, row) or None."""
-    searches = [
-        ("session", "sessions"),
-        ("invocation", "invocations"),
-        ("show", "shows"),
-        ("play", "plays"),
-    ]
-    for entity_type, table in searches:
-        # Exact match
-        row = await db.fetch_one(
-            f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608
-            (entity_id,),
-        )
-        if row:
-            return entity_type, row
-        # Prefix match (user might type short prefix)
-        row = await db.fetch_one(
-            f"SELECT * FROM {table} WHERE id LIKE ?",  # noqa: S608
-            (entity_id + "%",),
-        )
-        if row:
-            return entity_type, row
-    return None
+    """Resolve entity_id across all entity tables; returns (entity_type, row) or None.
 
-
-# ── Run manifest helpers ──────────────────────────────────────────────────────
-
-
-def _load_run_manifests(*, since: float | None = None) -> list[dict[str, Any]]:
-    """Read run.json files from RUNS_ROOT, newest first."""
-    if not RUNS_ROOT.exists():
-        return []
-    results: list[dict[str, Any]] = []
-    for run_dir in sorted(RUNS_ROOT.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        if not run_dir.is_dir():
-            continue
-        manifest_path = run_dir / "run.json"
-        if not manifest_path.exists():
-            continue
-        try:
-            import json as _json
-
-            manifest = _json.loads(manifest_path.read_text())
-        except (OSError, ValueError):
-            continue
-        mtime = run_dir.stat().st_mtime
-        if since is not None and mtime < since:
-            continue
-        manifest["_mtime"] = mtime
-        manifest["_run_dir"] = str(run_dir)
-        results.append(manifest)
-    return results
+    Raises `AmbiguousIdError` when a short prefix matches more than one row,
+    whether the rows are of one kind or several, so a detail view can never be
+    rendered for an arbitrarily chosen run. Kinds are searched together for
+    that reason: taking the first kind that matches would answer a collision
+    across kinds by search order, which says where to look first and nothing
+    about which record the caller meant.
+    """
+    hit = await resolve_entity(db, entity_id, tables=("sessions", "invocations", "shows", "plays"))
+    if hit is None:
+        return None
+    _table, entity_type, row = hit
+    return entity_type, row
 
 
 def _stream_tail(run_dir: Path, branch_id: str, n_lines: int = 5) -> list[str]:
@@ -331,16 +293,24 @@ def _trunc(s: str, n: int) -> str:
     return s[: n - 1] + "…"
 
 
-def _format_table(rows: list[dict[str, Any]]) -> str:
-    """Render a fixed-width table of entity rows.
+def _stdout_is_tty() -> bool:
+    """Evaluated at call time, not cached, so it reflects stdout redirection after import."""
+    return sys.stdout.isatty()
 
-    Expected keys per row: id, type, project, status, phase, elapsed, agents.
-    """
+
+# Ceiling on a non-TTY column's *layout* width — caps padding, not the
+# value itself (a pathological value still prints in full, unaligned).
+_NON_TTY_MAX_COL_WIDTH = 200
+
+
+def _format_table(rows: list[dict[str, Any]]) -> str:
+    """Render entity rows as a table. TTY truncates columns; piped output
+    never truncates (grep-safe)."""
     if not rows:
         return _dim("(no running entities)")
 
     # Column widths — uppercase name is intentional (table layout constant)
-    col = {  # noqa: N806
+    col_min = {  # noqa: N806
         "id": 16,
         "type": 11,
         "project": 14,
@@ -349,33 +319,72 @@ def _format_table(rows: list[dict[str, Any]]) -> str:
         "elapsed": 9,
         "agents": 7,
     }
+    headers = {  # noqa: N806
+        "id": "ID",
+        "type": "TYPE",
+        "project": "PROJECT",
+        "status": "STATUS",
+        "phase": "PHASE",
+        "elapsed": "ELAPSED",
+        "agents": "AGENTS",
+    }
+
+    raw_rows = [
+        {
+            "id": str(row.get("id", "")),
+            "type": str(row.get("type", "")),
+            "project": str(row.get("project", "-")),
+            "status": row.get("status", "") or "",
+            "phase": str(row.get("phase", "-")),
+            "elapsed": str(row.get("elapsed", "-")),
+            "agents": str(row.get("agents", "-")),
+        }
+        for row in rows
+    ]
+
+    if _stdout_is_tty():
+        col = dict(col_min)  # noqa: N806
+
+        def _field(key: str, value: str) -> str:
+            return _trunc(value, col[key])
+    else:
+        col = {  # noqa: N806
+            key: min(
+                max(width, len(headers[key]), max((len(r[key]) for r in raw_rows), default=0)),
+                _NON_TTY_MAX_COL_WIDTH,
+            )
+            for key, width in col_min.items()
+        }
+
+        def _field(key: str, value: str) -> str:
+            # Layout width is capped above; the value itself is never clipped.
+            return value
 
     header_parts = [
-        _bold(f"{'ID':<{col['id']}}"),
-        _bold(f"{'TYPE':<{col['type']}}"),
-        _bold(f"{'PROJECT':<{col['project']}}"),
-        _bold(f"{'STATUS':<{col['status']}}"),
-        _bold(f"{'PHASE':<{col['phase']}}"),
-        _bold(f"{'ELAPSED':>{col['elapsed']}}"),
-        _bold(f"{'AGENTS':>{col['agents']}}"),
+        _bold(f"{headers['id']:<{col['id']}}"),
+        _bold(f"{headers['type']:<{col['type']}}"),
+        _bold(f"{headers['project']:<{col['project']}}"),
+        _bold(f"{headers['status']:<{col['status']}}"),
+        _bold(f"{headers['phase']:<{col['phase']}}"),
+        _bold(f"{headers['elapsed']:>{col['elapsed']}}"),
+        _bold(f"{headers['agents']:>{col['agents']}}"),
     ]
     header = "  ".join(header_parts)
     separator = _dim("-" * (sum(col.values()) + 2 * (len(col) - 1)))
 
     lines = [header, separator]
-    for row in rows:
-        eid = _trunc(str(row.get("id", "")), col["id"])
-        etype = _trunc(str(row.get("type", "")), col["type"])
-        eproject = _trunc(str(row.get("project", "-")), col["project"])
-        estatus = row.get("status", "")
-        ephase = _trunc(str(row.get("phase", "-")), col["phase"])
-        eelapsed = _trunc(str(row.get("elapsed", "-")), col["elapsed"])
-        eagents = str(row.get("agents", "-"))
+    for raw in raw_rows:
+        eid = _field("id", raw["id"])
+        etype = _field("type", raw["type"])
+        eproject = _field("project", raw["project"])
+        estatus = raw["status"]
+        ephase = _field("phase", raw["phase"])
+        eelapsed = _field("elapsed", raw["elapsed"])
+        eagents = raw["agents"]
 
         coloured_status = _colour_status(estatus)
         # Pad status accounting for invisible ANSI codes
-        visible_status = estatus
-        pad = col["status"] - len(visible_status)
+        pad = col["status"] - len(estatus)
         padded_status = coloured_status + " " * max(0, pad)
 
         line = "  ".join(
@@ -452,11 +461,35 @@ def _play_to_row(play: dict[str, Any]) -> dict[str, Any]:
 # ── Detail views ──────────────────────────────────────────────────────────────
 
 
+async def _fetch_branches(db: Any, session_id: str) -> list[dict[str, Any]]:
+    """Every branch (agent leg) on a session, oldest-started first."""
+    return await db.fetch_all(
+        "SELECT name, status, started_at, ended_at FROM branches "
+        "WHERE session_id = ? ORDER BY started_at",
+        (session_id,),
+    )
+
+
+def _render_branch_lines(rows: list[dict[str, Any]], *, indent: str = "  ") -> list[str]:
+    """One line per branch (agent leg), named after its role (e.g. "reviewer")."""
+    if not rows:
+        return []
+    lines = [_dim(f"{indent}-- branches --")]
+    for r in rows:
+        bname = r.get("name") or "-"
+        bstatus = _colour_status(r.get("status") or "?")
+        belapsed = _elapsed(r.get("started_at"), r.get("ended_at"))
+        lines.append(f"{indent}  {bname:<20}  {bstatus}  {belapsed}")
+    return lines
+
+
 async def _detail_session(db: Any, sess: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append(_bold(f"SESSION  {sess['id']}"))
     lines.append(f"  status:    {_colour_status(sess.get('status') or '?')}")
     lines.append(f"  kind:      {sess.get('invocation_kind') or '-'}")
+    if sess.get("playbook_name"):
+        lines.append(f"  playbook:  {sess['playbook_name']}")
     lines.append(f"  project:   {sess.get('project') or '-'}")
     lines.append(f"  model:     {sess.get('model') or '-'}")
     lines.append(f"  provider:  {sess.get('provider') or '-'}")
@@ -469,13 +502,44 @@ async def _detail_session(db: Any, sess: dict[str, Any]) -> str:
     if last_msg:
         lines.append(f"  last_msg:  {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_msg))}")
 
-    # Branch count
-    row = await db.fetch_one(
-        "SELECT COUNT(*) AS n FROM branches WHERE session_id = ?", (sess["id"],)
-    )
-    lines.append(f"  branches:  {row['n'] if row else 0}")
+    node_metadata = _parse_json_field(sess.get("node_metadata"))
+    injection = (node_metadata or {}).get("khive_injection")
+    if isinstance(injection, dict):
+        injection_line = _format_khive_injection_line(injection)
+        if injection_line:
+            lines.append("")
+            lines.append(_dim("  -- khive injection --"))
+            lines.append(f"    {injection_line}")
 
-    # Stream tail from run dir
+    # Completion-trust evidence: surface why the status landed, so trusting
+    # it doesn't require a manual git read.
+    if sess.get("status") in ("completed", "completed_empty"):
+        reason_summary = sess.get("status_reason_summary")
+        if reason_summary:
+            lines.append(f"  reason:    {reason_summary}")
+        evidence_refs = sess.get("status_evidence_refs")
+        if isinstance(evidence_refs, str):
+            import json as _json_ev
+
+            try:
+                evidence_refs = _json_ev.loads(evidence_refs)
+            except (ValueError, TypeError):
+                evidence_refs = None
+        if evidence_refs:
+            lines.append(_dim("  -- evidence --"))
+            for ev in evidence_refs:
+                if isinstance(ev, dict):
+                    ev_label = ev.get("label") or ev.get("kind") or "evidence"
+                    lines.append(f"    {ev_label}")
+                else:
+                    lines.append(f"    {ev}")
+
+    branch_rows = await _fetch_branches(db, sess["id"])
+    lines.append(f"  branches:  {len(branch_rows)}")
+    if branch_rows:
+        lines.append("")
+        lines.extend(_render_branch_lines(branch_rows))
+
     run_dir = RUNS_ROOT / sess["id"]
     if run_dir.exists():
         branches_dir = run_dir / "branches"
@@ -495,6 +559,77 @@ async def _detail_session(db: Any, sess: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _parse_json_field(value: Any) -> dict[str, Any] | None:
+    """Best-effort JSON-object decode for a column that may come back as a
+    dict (Postgres) or a raw string (SQLite)."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _as_number(value: Any) -> int | float:
+    """Coerce *value* to a count, treating anything non-numeric as 0 —
+    persisted telemetry is untrusted and must never crash the monitor."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def _as_counter(value: Any) -> int:
+    """Return a finite, nonnegative integral counter.
+
+    Invalid numeric telemetry is treated as absent.
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value if value >= 0 else 0
+    if isinstance(value, float) and math.isfinite(value) and value >= 0 and value.is_integer():
+        return int(value)
+    return 0
+
+
+def _format_khive_injection_line(telemetry: dict[str, Any]) -> str | None:
+    """Render persisted aggregate injection counters.
+
+    Empty or malformed counter sets are omitted from the session detail.
+    """
+    counter_names = (
+        "recall_turns",
+        "blocks_injected",
+        "failed",
+        "writeback_records",
+        "writeback_failed",
+    )
+    counters = {name: _as_counter(telemetry.get(name)) for name in counter_names}
+    if not any(counters.values()):
+        return None
+    return " ".join(f"{name}={value}" for name, value in counters.items())
+
+
+def _format_coordination_line(telemetry: dict[str, Any]) -> str | None:
+    """One-liner rendering of coordination telemetry; returns None when zero.
+    See docs/internals/cli.md for the telemetry shape contract."""
+    signals = telemetry.get("signals")
+    signals = signals if isinstance(signals, dict) else {}
+    emitted = signals.get("emitted")
+    emitted = emitted if isinstance(emitted, dict) else {}
+    emitted_total = sum(_as_number(v) for v in emitted.values())
+    received = _as_number(signals.get("received"))
+    acted_on = _as_number(signals.get("acted_on"))
+    overlap = telemetry.get("files_overlap")
+    overlap = overlap if isinstance(overlap, dict) else {}
+    overlap_count = _as_number(overlap.get("count"))
+    if not (emitted_total or received or acted_on or overlap_count):
+        return None
+    return (
+        f"emitted={emitted_total} received={received} "
+        f"acted_on={acted_on} files_overlap={overlap_count}"
+    )
+
+
 async def _detail_invocation(db: Any, inv: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append(_bold(f"INVOCATION  {inv['id']}"))
@@ -509,7 +644,21 @@ async def _detail_invocation(db: Any, inv: dict[str, Any]) -> str:
             f"  started:       {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(started))}"
         )
 
-    # List child sessions
+    node_metadata = _parse_json_field(inv.get("node_metadata"))
+    coordination = (node_metadata or {}).get("coordination")
+    if isinstance(coordination, dict):
+        coord_line = _format_coordination_line(coordination)
+        if coord_line:
+            lines.append("")
+            lines.append(_dim("  -- coordination --"))
+            lines.append(f"    {coord_line}")
+            files_overlap = coordination.get("files_overlap")
+            top = files_overlap.get("top") if isinstance(files_overlap, dict) else None
+            top = top if isinstance(top, list) else []
+            for entry in top:
+                if isinstance(entry, dict) and entry.get("path"):
+                    lines.append(f"      {entry['path']}  (workers={entry.get('workers', '?')})")
+
     child_rows = await db.fetch_all(
         "SELECT id, status, model, started_at FROM sessions WHERE invocation_id = ? ORDER BY created_at",
         (inv["id"],),
@@ -527,6 +676,8 @@ async def _detail_invocation(db: Any, inv: dict[str, Any]) -> str:
 
 
 async def _detail_show(db: Any, show: dict[str, Any]) -> str:
+    from lionagi.state.db import PLAY_ACTIVE_STATUSES, PLAY_TERMINAL_STATUSES
+
     lines: list[str] = []
     lines.append(_bold(f"SHOW  {show['id']}"))
     lines.append(f"  topic:   {show.get('topic') or '-'}")
@@ -535,21 +686,42 @@ async def _detail_show(db: Any, show: dict[str, Any]) -> str:
     lines.append(f"  branch:  {show.get('base_branch') or '-'}")
     lines.append(f"  goal:    {(show.get('goal') or '-')[:80]}")
 
-    # Plays breakdown
     plays = await _query_plays_for_show(db, show["id"])
     if plays:
         lines.append("")
         lines.append(_dim("  -- plays --"))
-        terminal = {"merged", "escalated", "gate_failed", "aborted_after_finish"}
-        active = {"running", "running_complete", "gated", "redoing"}
+        # Every terminal play status the lifecycle declares. A play here has
+        # finished and cannot move again without an override, so it reads
+        # [done] even when it finished badly. Read from the lifecycle
+        # vocabulary rather than restated as a literal here: the policy owns
+        # which statuses are terminal, and a copy of it in this view goes
+        # stale silently — the day the policy grows a terminal status this
+        # view keeps calling a finished play [wait].
+        terminal = PLAY_TERMINAL_STATUSES
+        # Executing right now, which is narrower than "not finished". `gated`
+        # and `pending` fall through to [wait] because waiting is what they are
+        # doing. This set is also narrower than the default listing's in-flight
+        # filter, which counts `prepared`: there the question is whether a run
+        # is under way at all, here it is whether this play is the one moving.
+        live = {"running", "running_complete", "redoing"}
         for play in plays:
             pstatus = play.get("status") or "?"
             if pstatus in terminal:
                 marker = _dim("  [done]  ")
-            elif pstatus in active:
+            elif pstatus in live:
                 marker = _green("  [live]  ")
-            else:
+            elif pstatus in PLAY_ACTIVE_STATUSES:
                 marker = _yellow("  [wait]  ")
+            else:
+                # Neither terminal, nor executing, nor a status the lifecycle
+                # declares in-flight at all. It is not [wait]: waiting claims
+                # the play will continue and nothing here can support that
+                # claim for a status this view does not know. It is not
+                # [done] either: reading an unknown status as terminal is how
+                # live work gets swept. It gets its own marker so the row
+                # reads as a data problem instead of being sorted into a
+                # bucket that answers a question nobody can answer.
+                marker = _red("  [????]  ")
             pelapsed = _elapsed(play.get("started_at"), play.get("ended_at"))
             pname = _trunc(play.get("name") or play["id"][:12], 24)
             pstatus_col = _colour_status(pstatus)
@@ -571,7 +743,6 @@ async def _detail_play(db: Any, play: dict[str, Any]) -> str:
     if started:
         lines.append(f"  started:  {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(started))}")
 
-    # Gate result
     gp = play.get("gate_passed")
     if gp is not None:
         gate_str = _green("PASS") if gp else _red("FAIL")
@@ -580,7 +751,6 @@ async def _detail_play(db: Any, play: dict[str, Any]) -> str:
         if feedback:
             lines.append(f"  feedback: {_trunc(str(feedback), 80)}")
 
-    # Linked session details
     session_id = play.get("session_id")
     if session_id:
         srow = await db.fetch_one(
@@ -596,7 +766,11 @@ async def _detail_play(db: Any, play: dict[str, Any]) -> str:
             lines.append(f"    provider: {srow['provider'] or '-'}")
             lines.append(f"    effort:   {srow['effort'] or '-'}")
 
-            # Stream tail
+            branch_rows = await _fetch_branches(db, session_id)
+            if branch_rows:
+                lines.append("")
+                lines.extend(_render_branch_lines(branch_rows, indent="    "))
+
             run_dir = RUNS_ROOT / session_id
             if run_dir.exists():
                 branches_dir = run_dir / "branches"
@@ -626,28 +800,18 @@ _TRAILING_ANNOTATION_RE = re.compile(r"\s*\([^)]*\)\s*$")
 
 @cache
 def _cached_detect_project(repo: str) -> tuple[str | None, str | None]:
-    """Cache detect_project() results by bare repo path — the derivation is
-    stable for the lifetime of a monitor process, and this is called per
-    active show per render tick under --watch."""
+    """Cache detect_project() results by bare repo path (stable per monitor process)."""
     return detect_project(Path(repo))
 
 
 def _show_project_matches(show: dict[str, Any], project: str) -> bool:
-    """A show's `repo` column is a filesystem path (sometimes with a
-    trailing remote annotation), not a project slug, so it cannot be
-    compared to `--project` directly — derive its slug via the same
-    detect_project() cascade sessions use and compare that. A show with a
-    missing, empty, or unresolvable repo path derives (None, None) and is
-    excluded under --project — the same orphan semantics as a play with no
-    linked session.
-    """
+    """Derive the show's project slug via detect_project() and compare;
+    a missing/unresolvable repo path excludes the show under --project."""
     repo = show.get("repo")
     if not repo:
         return False
     # Strip a trailing "(remote, ...)" annotation some _show.md authors
-    # append after the path so the bare path is what gets resolved. Anchored
-    # to the end of the string so a legitimate path segment containing
-    # " (something)" mid-path is left untouched.
+    # append after the path; anchored to end-of-string only.
     repo = _TRAILING_ANNOTATION_RE.sub("", repo)
     if not repo:
         return False
@@ -658,15 +822,20 @@ def _show_project_matches(show: dict[str, Any], project: str) -> bool:
     return derived == project
 
 
-async def _gather_table_rows(
+async def _gather_entities(
     db: Any,
     *,
     since: float | None,
     entity_type: str | None,
     project: str | None,
-) -> list[dict[str, Any]]:
-    """Collect entity rows across all tables and convert to table-row dicts."""
-    rows: list[dict[str, Any]] = []
+) -> list[tuple[str, dict[str, Any]]]:
+    """Every in-flight row the views draw from, each paired with its kind.
+
+    Selection lives here and rendering lives in the callers, so the table and
+    the machine result answer with the same set of entities rather than with two
+    independently maintained ideas of what is running.
+    """
+    rows: list[tuple[str, dict[str, Any]]] = []
 
     sessions: list[dict[str, Any]] = []
     if entity_type in (None, "session", "agent", "play_session", "play"):
@@ -681,28 +850,45 @@ async def _gather_table_rows(
     if entity_type in (None, "play"):
         plays = await _query_running_plays(db, since=since, project=project)
         # A play row is the canonical rendering of its backing session, so
-        # drop that session only when the play row itself is being shown —
-        # dedup against what this view actually fetched, never in SQL, so a
-        # session view or a play row outside the window still renders the
-        # session once.
+        # drop that session only when the play row itself is being shown.
         play_session_ids = {p["session_id"] for p in plays if p.get("session_id")}
         sessions = [s for s in sessions if s["id"] not in play_session_ids]
 
-    rows.extend(_session_to_row(s) for s in sessions)
+    rows.extend(("session", s) for s in sessions)
 
     if entity_type in (None, "invocation"):
         invocations = await _query_running_invocations(db, since=since)
-        rows.extend(_invocation_to_row(i) for i in invocations)
+        rows.extend(("invocation", i) for i in invocations)
 
     if entity_type in (None, "show"):
         shows = await _query_active_shows(db, since=since)
         if project:
             shows = [s for s in shows if _show_project_matches(s, project)]
-        rows.extend(_show_to_row(s) for s in shows)
+        rows.extend(("show", s) for s in shows)
 
-    rows.extend(_play_to_row(p) for p in plays)
+    rows.extend(("play", p) for p in plays)
 
     return rows
+
+
+_ROW_BUILDERS = {
+    "session": _session_to_row,
+    "invocation": _invocation_to_row,
+    "show": _show_to_row,
+    "play": _play_to_row,
+}
+
+
+async def _gather_table_rows(
+    db: Any,
+    *,
+    since: float | None,
+    entity_type: str | None,
+    project: str | None,
+) -> list[dict[str, Any]]:
+    """Collect entity rows across all tables and convert to table-row dicts."""
+    entities = await _gather_entities(db, since=since, entity_type=entity_type, project=project)
+    return [_ROW_BUILDERS[kind](row) for kind, row in entities]
 
 
 # ── Async main routines ───────────────────────────────────────────────────────
@@ -715,9 +901,9 @@ async def _run_table(
     project: str | None,
 ) -> str:
     try:
-        from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+        from lionagi.state.db import StateDB, state_db_known_absent
 
-        if not DEFAULT_DB_PATH.exists():
+        if state_db_known_absent():
             return _dim("(no state.db — run `li agent` at least once)")
         async with StateDB() as db:
             rows = await _gather_table_rows(
@@ -730,9 +916,9 @@ async def _run_table(
 
 async def _run_detail(entity_id: str) -> str:
     try:
-        from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+        from lionagi.state.db import StateDB, state_db_known_absent
 
-        if not DEFAULT_DB_PATH.exists():
+        if state_db_known_absent():
             return _red(f"state.db not found — cannot look up {entity_id!r}")
         async with StateDB() as db:
             result = await _find_entity(db, entity_id)
@@ -748,6 +934,10 @@ async def _run_detail(entity_id: str) -> str:
             if entity_type == "play":
                 return await _detail_play(db, entity_row)
             return _red(f"unknown entity type {entity_type!r}")
+    except AmbiguousIdError:
+        # Propagate: an ambiguous id is a user-input error the caller has to
+        # turn into a non-success exit code, not a rendered detail body.
+        raise
     except Exception as exc:  # noqa: BLE001
         return _red(f"error: {exc}")
 
@@ -769,13 +959,11 @@ def _watch_loop(
     entity_type: str | None,
     project: str | None,
 ) -> int:
-    """Repeatedly clear screen and reprint; exit cleanly on SIGINT/SIGTERM.
+    """Repeatedly clear screen and reprint; exit cleanly on SIGINT/SIGTERM."""
+    from lionagi.ln.concurrency import SigtermInterrupt, run_async
 
-    The since cutoff is re-derived from the window string every tick so the
-    window slides with the clock; a cutoff frozen at launch would accumulate
-    terminal rows for the life of the watch.
-    """
-    from lionagi.ln.concurrency import run_async
+    from ._logging import log_error
+    from .status import EXIT_UNKNOWN
 
     interrupted = False
 
@@ -783,66 +971,82 @@ def _watch_loop(
         nonlocal interrupted
         interrupted = True
 
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
+    def _install(signum):
+        """Take over *signum* only if the handler can be given back.
 
-    while not interrupted:
-        since = _since_timestamp(since_window) if since_window else None
-        if entity_id:
-            output = run_async(_run_detail(entity_id))
-        else:
-            output = run_async(_run_table(since=since, entity_type=entity_type, project=project))
-        _clear_screen()
-        ts = time.strftime("%H:%M:%S")
-        print(f"{_dim(f'Updated: {ts}  (refresh every {refresh_seconds}s, Ctrl-C to exit)')}")
-        print()
-        print(output)
-        # Sleep in small increments so SIGINT is responsive
-        for _ in range(refresh_seconds * 10):
-            if interrupted:
+        A handler installed outside Python is reported as None and cannot be
+        reinstalled, so replacing one means keeping it forever. Leaving it
+        alone costs this loop its clean exit on that signal; taking it would
+        cost the whole process its handler, which is the larger harm.
+        """
+        prior = signal.getsignal(signum)
+        if prior is None:
+            return None
+        signal.signal(signum, _handle_signal)
+        return prior
+
+    prior_sigint = _install(signal.SIGINT)
+    prior_sigterm = _install(signal.SIGTERM)
+    exit_code = 0
+
+    try:
+        while not interrupted:
+            since = _since_timestamp(since_window) if since_window else None
+            try:
+                if entity_id:
+                    output = run_async(_run_detail(entity_id))
+                else:
+                    output = run_async(
+                        _run_table(since=since, entity_type=entity_type, project=project)
+                    )
+            except (KeyboardInterrupt, SigtermInterrupt):
+                # run_async installs its own signal handlers for the duration
+                # of the refresh, so a signal arriving inside that window
+                # surfaces as an exception here instead of setting the flag
+                # above. Both derive from BaseException, so they must be named.
+                interrupted = True
                 break
-            time.sleep(0.1)
+            except AmbiguousIdError as exc:
+                # A longer prefix is the only fix; refreshing cannot resolve it.
+                log_error(str(exc))
+                exit_code = EXIT_UNKNOWN
+                break
+            _clear_screen()
+            ts = time.strftime("%H:%M:%S")
+            print(f"{_dim(f'Updated: {ts}  (refresh every {refresh_seconds}s, Ctrl-C to exit)')}")
+            print()
+            print(output)
+            # Sleep in small increments so SIGINT is responsive
+            for _ in range(refresh_seconds * 10):
+                if interrupted:
+                    break
+                time.sleep(0.1)
+    finally:
+        # The loop's handlers must not outlive the loop. None here means the
+        # signal was never taken over, so there is nothing to give back.
+        if prior_sigint is not None:
+            signal.signal(signal.SIGINT, prior_sigint)
+        if prior_sigterm is not None:
+            signal.signal(signal.SIGTERM, prior_sigterm)
 
     if _IS_TTY:
         print()  # newline after Ctrl-C
-    return 0
+    return exit_code
 
 
 # ── Wait-for-terminal primitive (li monitor run / li monitor --run) ───────────
-#
-# A scripting primitive, not a view: append-only stdout lines (no screen
-# clearing, no table), meant for a harness to poll `li monitor run <id>` as a
-# background task rather than hand-rolling raw sqlite polling against the
-# live WAL-mode state.db. Separate code path from _watch_loop above — that
-# one is a human dashboard; this one blocks until specific schedule_runs go
-# terminal, then exits with a meaningful code.
-#
-# Chain-following (default on; opt out with --no-chain): the scheduler can
-# fire a child run from a terminal run's schedule on_success/on_fail (engine
-# records chain_parent_id/chain_depth on the child — see
-# lionagi/studio/scheduler/engine.py's _fire). A watched run going terminal
-# is not necessarily the end of its chain, so once it lands we extend the
-# watch frontier with any already-fired children and keep watching. A
-# schedule that declares a chain action for the outcome but whose child
-# hasn't fired yet gets a bounded grace window (_CHAIN_GRACE_TICKS poll
-# ticks) before the chain is concluded on the parent's own exit code — a
-# schedule with no matching chain action needs no grace wait at all. The
-# aggregate exit code is final-link-wins: each chain's *last* link decides,
-# not every link along the way (an on_fail recovery child that succeeds
-# means the chain as a whole succeeded).
+# Scripting primitive; see docs/internals/cli.md for the full contract.
 
-_TERMINAL_SCHEDULE_RUN_STATUSES = frozenset({"completed", "failed", "cancelled", "skipped"})
+# Default wait bound so a stuck run can't hang forever; pass max_wait=0 to opt
+# into unbounded waiting explicitly.
+_DEFAULT_MAX_WAIT_SECONDS = 900.0
 _CHAIN_GRACE_TICKS = 2
-# Mirrors the scheduler engine's own chain-depth cap (lionagi/studio/scheduler/engine.py
-# _MAX_CHAIN_DEPTH) -- the engine never fires a chain child at or past this depth, so a
-# grace window here would just burn ticks waiting on a child that is never coming.
+# Mirrors the scheduler engine's own chain-depth cap (engine.py _MAX_CHAIN_DEPTH).
 _MAX_CHAIN_DEPTH = 10
 
 
 def _split_watched_ids(raw: list[str]) -> list[str]:
-    """Flatten comma-separated and/or space-separated id tokens into one
-    ordered, deduped list — `li monitor run a,b` and `li monitor run a b`
-    (and any mix) must resolve identically."""
+    """Flatten comma/space-separated id tokens into one ordered, deduped list."""
     seen: dict[str, None] = {}
     for token in raw:
         for piece in token.split(","):
@@ -853,38 +1057,148 @@ def _split_watched_ids(raw: list[str]) -> list[str]:
 
 
 async def _resolve_schedule_run(db: Any, raw_id: str) -> dict[str, Any] | None:
-    """Exact match then prefix match, mirroring _find_entity's convention.
-    schedule_run ids are 12-char hex (uuid4().hex[:12]), not 36-char UUIDs,
-    so the length-36 prefix heuristic used elsewhere in this codebase
-    (resolve_entity in _util.py) does not apply here.
-    """
+    """Exact match then unique-prefix match. schedule_run ids are 12-char hex,
+    not 36-char UUIDs, so any id length can be a prefix here."""
     row = await db.get_schedule_run(raw_id)
     if row:
         return row
-    return await db.fetch_one(
-        "SELECT * FROM schedule_runs WHERE id LIKE ?",
-        (raw_id + "%",),
-    )
+    return await fetch_unique_row(db, "schedule_runs", raw_id)
+
+
+async def _resolve_session_run(db: Any, raw_id: str) -> dict[str, Any] | None:
+    """Exact match then unique-prefix match against the sessions table
+    (agent/li agent run ids)."""
+    row = await db.get_session(raw_id)
+    if row:
+        return row
+    return await fetch_unique_row(db, "sessions", raw_id)
+
+
+def _format_session_wait_line(row: dict[str, Any]) -> str:
+    name = row.get("agent_name") or row.get("invocation_kind") or "session"
+    artifacts = row.get("artifacts_path") or "-"
+    return f"{row['id']}  name={name}  status={row['status']}  artifacts={artifacts}"
+
+
+async def _effective_session_status(db: Any, row: dict[str, Any]) -> dict[str, Any]:
+    """Reconcile a profile session's status against its linked engine session.
+    See docs/internals/cli.md for the CAS/terminal-guard contract (ADR-0035)."""
+    from lionagi.state.db import SESSION_TERMINAL_STATUSES, TransitionRejectedError
+    from lionagi.state.reasons import RunReasons
+
+    if row["status"] in SESSION_TERMINAL_STATUSES:
+        return row
+
+    node_metadata = row.get("node_metadata") or {}
+    if isinstance(node_metadata, str):
+        node_metadata = json.loads(node_metadata)
+    linked_id = node_metadata.get("linked_engine_session_id")
+    if not linked_id:
+        return row
+    linked = await db.get_session(linked_id)
+    if linked is None or linked["status"] == row["status"]:
+        return row
+    if linked["status"] in SESSION_TERMINAL_STATUSES:
+        reason_by_status = {
+            "completed": RunReasons.COMPLETED_OK,
+            "completed_empty": RunReasons.COMPLETED_EMPTY_NO_EVIDENCE,
+            "failed": RunReasons.FAILED_EXCEPTION,
+            "timed_out": RunReasons.TIMED_OUT_DEADLINE,
+            "aborted": RunReasons.CANCELLED_SIGINT,
+            "cancelled": RunReasons.CANCELLED_SYSTEM,
+        }
+        try:
+            updated = await db.update_status(
+                "session",
+                row["id"],
+                new_status=linked["status"],
+                reason_code=reason_by_status.get(linked["status"], RunReasons.FAILED_EXCEPTION),
+                reason_summary=(
+                    f"reconciled to linked engine session {linked_id} terminal status "
+                    f"{linked['status']!r}"
+                ),
+                evidence_refs=[{"kind": "session", "id": linked_id, "label": linked["status"]}],
+                source="executor",
+                actor=row["id"],
+                expected_statuses={row["status"]},
+            )
+        except TransitionRejectedError:
+            # Raced with another writer that took the row terminal first —
+            # the persisted row is authoritative, not the synthesized status.
+            persisted = await db.get_session(row["id"])
+            return persisted if persisted is not None else row
+        if not updated:
+            # CAS mismatch: the write never landed, so the persisted row —
+            # not the synthesized value below — is authoritative.
+            persisted = await db.get_session(row["id"])
+            return persisted if persisted is not None else row
+    return {**row, "status": linked["status"]}
+
+
+async def _poll_pending_sessions_once(
+    db: Any,
+    pending: dict[str, dict[str, Any]],
+    done: list[dict[str, Any]],
+) -> None:
+    """Session analogue of _poll_pending_once: no schedule chain, just terminal-status polling."""
+    from lionagi.state.db import SESSION_TERMINAL_STATUSES
+
+    for run_id in list(pending):
+        row = await db.get_session(run_id)
+        if row is None:
+            row = {**pending[run_id], "status": "failed"}
+            from ._logging import log_error
+
+            log_error(f"session {run_id!r} disappeared from state.db while waiting")
+        else:
+            row = await _effective_session_status(db, row)
+            if row["status"] not in SESSION_TERMINAL_STATUSES:
+                continue
+        print(_format_session_wait_line(row))
+        done.append(row)
+        del pending[run_id]
+
+
+# fire_now() hands the run_id back to its HTTP/CLI caller before the fired
+# occurrence row is durably written (_fire runs as a background task) -- an
+# id resolved immediately after a manual trigger can race that insert. Retry
+# unresolved ids within this bounded grace period instead of giving up on a
+# single up-front lookup.
+_RESOLVE_GRACE_SECONDS = 1.0
+_RESOLVE_GRACE_POLL_SECONDS = 0.2
 
 
 async def _resolve_watched_runs(
-    db: Any, ids: list[str]
-) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """Resolve every requested id once, up front. schedule_run ids are
-    already-fired-run identifiers a caller obtained elsewhere (e.g. `li
-    schedule trigger`), not something that might come into existence later,
-    so — unlike the --follow discovery scan below — resolution itself is
-    not retried on every poll tick.
-    """
+    db: Any, ids: list[str], *, grace_seconds: float | None = None
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
+    """Resolve every requested id, retrying not-yet-found ones for a bounded
+    grace period. Ids that aren't schedule_runs are also tried against
+    sessions (`li monitor run <session_id>` support)."""
+    import asyncio
+
+    if grace_seconds is None:
+        grace_seconds = _RESOLVE_GRACE_SECONDS
     pending: dict[str, dict[str, Any]] = {}
-    unresolved: list[str] = []
-    for raw_id in ids:
-        row = await _resolve_schedule_run(db, raw_id)
-        if row is None:
-            unresolved.append(raw_id)
-        else:
-            pending[row["id"]] = row  # canonical id as key: dedupes prefix collisions
-    return pending, unresolved
+    session_pending: dict[str, dict[str, Any]] = {}
+    remaining = list(ids)
+    deadline = time.monotonic() + grace_seconds if grace_seconds > 0 else None
+    while remaining:
+        still_missing: list[str] = []
+        for raw_id in remaining:
+            row = await _resolve_schedule_run(db, raw_id)
+            if row is not None:
+                pending[row["id"]] = row  # canonical id as key: dedupes prefix collisions
+                continue
+            session_row = await _resolve_session_run(db, raw_id)
+            if session_row is not None:
+                session_pending[session_row["id"]] = session_row
+            else:
+                still_missing.append(raw_id)
+        remaining = still_missing
+        if not remaining or deadline is None or time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(_RESOLVE_GRACE_POLL_SECONDS)
+    return pending, session_pending, remaining
 
 
 async def _schedule_name(db: Any, schedule_id: str, *, cache: dict[str, str]) -> str:
@@ -909,38 +1223,37 @@ async def _poll_pending_once(
     schedule_names: dict[str, str],
     done: list[dict[str, Any]],
 ) -> None:
-    """Check every still-pending run once; print, record into `done`, and
-    drop from `pending` any that are now terminal. Printing happens
-    immediately per row, not batched, so a harness tailing stdout sees each
-    result the moment it lands rather than waiting for the whole watched
-    set to finish.
+    """Check every still-pending run once; print, record, and drop terminal
+    ones. See docs/internals/cli.md for the cancellation-atomicity contract."""
+    # Shared schema vocabulary — a hand-listed subset here once omitted
+    # timed_out, leaving timed-out occurrences waiting forever.
+    from lionagi.state.db import SCHEDULE_RUN_TERMINAL_STATUSES
 
-    `done` is mutated in place rather than returned: a coroutine only ever
-    suspends at an `await`, and there is no `await` between the print/
-    append/delete below, so that trio is atomic with respect to task
-    cancellation — a row can never leave `pending` without also landing in
-    `done`, even if the caller (run_async, see _dispatch_wait) discards
-    this coroutine's actual return value because a SIGINT raced its
-    completion.
-
-    This is the primitive's testable inner tick: exercising "terminal
-    across different poll iterations" only needs two direct calls to this
-    function with a DB row mutated in between — no real sleeping required.
-    """
     from ._logging import log_error
 
     for run_id in list(pending):
         row = await db.get_schedule_run(run_id)
         if row is None:
-            # Existed at resolution time but is gone now (e.g. its parent
-            # schedule was deleted, cascading the run) — resolve it as a
-            # failure so the wait can't hang on state that never comes back.
+            # Gone now (e.g. parent schedule deleted, cascading the run) —
+            # resolve as failure so the wait can't hang on state that never returns.
             row = {**pending[run_id], "status": "failed", "exit_code": None}
             log_error(f"schedule_run {run_id!r} disappeared from state.db while waiting")
-        elif row["status"] not in _TERMINAL_SCHEDULE_RUN_STATUSES:
+        elif row["status"] not in SCHEDULE_RUN_TERMINAL_STATUSES:
             continue
         name = await _schedule_name(db, row["schedule_id"], cache=schedule_names)
+        # Resolved before the print/append/delete trio below (not between
+        # them) so that trio stays await-free and atomic wrt cancellation.
+        coord_line = None
+        invocation_id = row.get("invocation_id")
+        if invocation_id:
+            invocation = await db.get_invocation(invocation_id)
+            node_metadata = _parse_json_field((invocation or {}).get("node_metadata"))
+            coordination = (node_metadata or {}).get("coordination")
+            if isinstance(coordination, dict):
+                coord_line = _format_coordination_line(coordination)
         print(_format_wait_line(row, name))
+        if coord_line:
+            print(f"  coordination: {coord_line}")
         done.append(row)
         del pending[run_id]
 
@@ -962,9 +1275,7 @@ async def _schedule_declares_chain_action(
     cache: dict[str, dict[str, Any] | None],
 ) -> bool:
     """True if `schedule_id` declares an on_success/on_fail action matching
-    the outcome that just landed — i.e. the engine *will* attempt to fire a
-    chain child, so a grace wait for it is warranted. A schedule with no
-    matching action needs no grace wait at all."""
+    the outcome that just landed, i.e. a grace wait for the chain child is warranted."""
     if schedule_id not in cache:
         cache[schedule_id] = await db.get_schedule(schedule_id)
     sched = cache[schedule_id] or {}
@@ -972,11 +1283,8 @@ async def _schedule_declares_chain_action(
 
 
 def _new_chain_state(pending: dict[str, dict[str, Any]], *, chain: bool) -> dict[str, Any]:
-    """Build the bookkeeping dict `_advance_chains` mutates tick over tick —
-    each originally-watched id in `pending` starts out owning itself as its
-    own root. Factored out so tests can drive `_advance_chains` directly the
-    same way they drive `_poll_pending_once`, without duplicating its
-    internal shape."""
+    """Build the bookkeeping dict `_advance_chains` mutates tick over tick;
+    each originally-watched id in `pending` starts out owning itself as its own root."""
     return {
         "root_of": {rid: {rid} for rid in pending},
         "chain_tail_exit": {},
@@ -984,18 +1292,8 @@ def _new_chain_state(pending: dict[str, dict[str, Any]], *, chain: bool) -> dict
         "resolved_roots": set(),
         "schedule_cache": {},
         "chain": chain,
-        # run ids that have already gone terminal and been folded once below
-        # (printed by _poll_pending_once) — lets discovery tell an
-        # already-processed child apart from one still in `pending`.
         "done_ids": set(),
-        # run id -> exit_code observed when that run was folded — unlike
-        # chain_tail_exit (keyed by root), this answers "what did run X
-        # itself exit with" for any folded run, watched root or not.
         "exit_of": {},
-        # parent run id -> the chain child its grace window handed off to.
-        # Lets a later-discovering ancestor follow an already-processed
-        # link forward to wherever the chain currently lives instead of
-        # stopping at that link's own exit.
         "handoff": {},
     }
 
@@ -1008,34 +1306,8 @@ async def _advance_chains(
     chain_state: dict[str, Any],
     processed: int,
 ) -> int:
-    """Fold the newly-terminal tail of `done` (index `processed` onward)
-    into chain bookkeeping: extend `pending` with any already-fired
-    children, resolve roots whose schedule has no matching chain action
-    immediately, and start/advance a grace countdown for roots that do
-    declare one but whose child hasn't fired yet. Returns the new
-    `processed` index.
-
-    Mutates `pending` in place exactly like `_poll_pending_once` mutates
-    `done` — so a caller (the real dispatch loop, or a test) can drive this
-    function tick-by-tick with direct DB mutations in between, no real
-    sleeping required, the same way `_poll_pending_once` is tested above.
-
-    `chain_state` keys: root_of (run_id -> set of originally-watched roots
-    that run currently accounts for — a run can own more than one root when
-    an overlapping watch set passes both a run and one of its own chain
-    descendants as separate roots, see below), chain_tail_exit (root id ->
-    most recent terminal exit_code seen for that chain), awaiting_grace
-    (run_id -> {roots, ticks_left}), resolved_roots (root ids whose chain
-    has concluded), schedule_cache (memoized `db.get_schedule` lookups),
-    chain (bool — chain-following on/off; when off, every terminal row
-    resolves its root immediately, matching --no-chain's "watch only the
-    literal ids given"), done_ids (run ids already folded into the above
-    once — lets discovery tell an already-processed child apart from one
-    still waiting in `pending`), exit_of (run id -> its own folded
-    exit_code), handoff (parent run id -> the chain child its grace window
-    handed off to — followed forward when an ancestor discovers an
-    already-processed link, see below).
-    """
+    """Fold the newly-terminal tail of `done` into chain bookkeeping; returns
+    the new `processed` index. See docs/internals/cli.md for the algorithm."""
     root_of = chain_state["root_of"]
     chain_tail_exit = chain_state["chain_tail_exit"]
     awaiting_grace = chain_state["awaiting_grace"]
@@ -1052,16 +1324,8 @@ async def _advance_chains(
         roots = root_of.get(row["id"]) or {row["id"]}
         for root in roots:
             chain_tail_exit[root] = row.get("exit_code")
-        # The engine only ever fires a chain child when chain_depth is still
-        # under its cap AND the run actually completed its fire path: its
-        # chain block sits after the subprocess returns a real exit code, so
-        # a cancelled run (the CancelledError branch sets status="cancelled"),
-        # a skipped run (created terminal by create_skipped_run, never fired),
-        # and a run that failed before spawning (argv build error or internal
-        # exception; status="failed" with exit_code=None) all bypass it
-        # entirely. A run past any of these gates can never get a child, no
-        # matter what its schedule declares, and opening a grace window for
-        # it would just burn the full window before falling back.
+        # A cancelled/skipped/no-exit-code run can never get a chain child —
+        # skip the grace window rather than burn it waiting on nothing.
         if (
             chain
             and row.get("chain_depth", 0) < _MAX_CHAIN_DEPTH
@@ -1083,54 +1347,32 @@ async def _advance_chains(
             if children:
                 for child in children:
                     child_id = child["id"]
-                    # A discovered child can itself already own a root — it
-                    # may be a directly-watched id in an overlapping watch
-                    # set (e.g. `li monitor run parent child` where child is
-                    # parent's own chain_parent_id link). Union the parent's
-                    # root(s) into whatever the child already owns instead
-                    # of overwriting, so the child's own root still resolves
-                    # once the child (now the chain's tail) goes terminal.
+                    # Union rather than overwrite: the child may already own
+                    # a root if it's also a directly-watched id.
                     root_of.setdefault(child_id, set()).update(info["roots"])
                     handoff[parent_id] = child_id
                     if child_id in done_ids:
-                        # The child already went terminal (possibly in the
-                        # very same tick as its parent) and was already
-                        # printed once by _poll_pending_once. Re-adding it
-                        # to `pending` would print it again on the next
-                        # tick, so fold the parent's root(s) into whatever
-                        # bookkeeping the chain currently lives in instead —
-                        # never touch `pending` for an already-printed run.
-                        # The child's own grace window may itself have
-                        # already handed off to a deeper link, so follow the
-                        # handoff trail to the chain's current carrier
-                        # first; stopping at this child would resolve the
-                        # parent's root(s) with an intermediate exit code
-                        # instead of the final link's.
+                        # Already printed once — never re-add to `pending`.
+                        # Follow the handoff trail to resolve on the final link.
                         carrier = child_id
                         seen = {carrier}
                         while carrier in handoff and handoff[carrier] not in seen:
                             carrier = handoff[carrier]
                             seen.add(carrier)
                         if carrier not in done_ids:
-                            # The chain's tail is a still-live descendant in
-                            # `pending` — the parent's root(s) ride on it and
-                            # resolve when it goes terminal, like any other
-                            # handed-off root.
+                            # Still-live descendant in `pending` — ride on it.
                             root_of.setdefault(carrier, set()).update(info["roots"])
                         else:
                             carrier_exit = exit_of.get(carrier)
                             for root in info["roots"]:
                                 chain_tail_exit[root] = carrier_exit
                             if carrier in awaiting_grace:
-                                # The carrier's own schedule also declares a
-                                # matching chain action — join its still-open
-                                # grace window rather than spinning up
-                                # separate bookkeeping for the same run.
+                                # Join the carrier's own still-open grace
+                                # window instead of separate bookkeeping.
                                 awaiting_grace[carrier]["roots"].update(info["roots"])
                             else:
-                                # The carrier resolved outright (no matching
-                                # chain action of its own) — the parent's
-                                # root(s) resolve right along with it.
+                                # Carrier resolved outright with no matching
+                                # chain action of its own.
                                 resolved_roots.update(info["roots"])
                     else:
                         pending[child_id] = child
@@ -1146,52 +1388,30 @@ async def _advance_chains(
 
 async def _query_schedule_runs_since(db: Any, baseline: float) -> list[dict[str, Any]]:
     """--follow discovery query: schedule_runs created strictly after
-    `baseline`, oldest first. Strict '>' (not '>=') is the same
-    baseline-first, anti-backlog-replay discipline used by any other
-    "watch for new stuff" loop in this codebase — a row already seen at
-    exactly `baseline` must never be re-reported on the next tick.
-    """
+    `baseline` (exclusive), oldest first — anti-backlog-replay discipline."""
     return await db.fetch_all(
         "SELECT * FROM schedule_runs WHERE created_at > ? ORDER BY created_at ASC",
         (baseline,),
     )
 
 
-def _dispatch_wait(ids: list[str], *, interval: float, follow: bool, chain: bool = True) -> int:
-    """Block until every id in `ids` reaches a terminal schedule_run status,
-    printing one line per run the moment it lands; with --follow, keep
-    watching (tail -f style) for newly created runs after the initial set
-    drains, exiting only on SIGINT/SIGTERM.
-
-    Chain-following (default on; `chain=False` for --no-chain): a watched
-    run going terminal extends the watch frontier with any scheduler
-    on_success/on_fail chain children (see module comment above
-    _TERMINAL_SCHEDULE_RUN_STATUSES and _advance_chains). The aggregate exit
-    code is final-link-wins per chain, not every link along the way — with
-    chain-following off, that collapses back to the original one-run-one-
-    link behavior.
-
-    Shaped like _watch_loop above (own signal handlers on the main thread,
-    run_async per discrete tick, chunked time.sleep for cadence) rather
-    than one run_async call wrapping a long-lived asyncio.sleep loop:
-    run_async installs its own SIGINT handler for the duration of any call
-    it wraps and never touches SIGTERM at all, so a single all-encompassing
-    call cannot give this command the dual-signal clean exit it needs —
-    per-tick calls, exactly like the dashboard's --watch, can. Unlike
-    _watch_loop's default multi-second refresh, --interval is often
-    sub-second here, so a much larger share of wall-clock time is spent
-    inside individual run_async() calls rather than between them — a SIGINT
-    landing mid-call surfaces as KeyboardInterrupt at the call site (see
-    _run_tick below) far more often than it does for the dashboard, so that
-    case is folded into the same clean-exit path instead of left to crash.
-    """
+def _dispatch_wait(
+    ids: list[str],
+    *,
+    interval: float,
+    follow: bool,
+    chain: bool = True,
+    max_wait: float | None = None,
+) -> int:
+    """Block until every id in `ids` reaches a terminal schedule_run status;
+    see docs/internals/cli.md for chain-following and max_wait semantics."""
     from lionagi.ln.concurrency import run_async
-    from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+    from lionagi.state.db import StateDB, state_db_known_absent
 
     from ._logging import log_error
     from .status import EXIT_RUNNING, EXIT_UNKNOWN
 
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         log_error("state.db not found — no schedule runs recorded yet")
         return EXIT_UNKNOWN
 
@@ -1213,11 +1433,8 @@ def _dispatch_wait(ids: list[str], *, interval: float, follow: bool, chain: bool
             time.sleep(0.1)
 
     def _run_tick(coro: Any) -> Any:
-        # run_async raises bare KeyboardInterrupt when SIGINT lands during
-        # its own call (it installs a temporary handler for that duration —
-        # see run_async's docstring in ln/concurrency/utils.py). Treat that
-        # exactly like `interrupted` being set between ticks: no traceback,
-        # no half-updated state, just the same clean stop.
+        # run_async raises bare KeyboardInterrupt on SIGINT during its own
+        # call (see run_async's docstring in ln/concurrency/utils.py).
         nonlocal interrupted
         try:
             return run_async(coro)
@@ -1227,22 +1444,28 @@ def _dispatch_wait(ids: list[str], *, interval: float, follow: bool, chain: bool
 
     schedule_names: dict[str, str] = {}
 
-    async def _resolve() -> tuple[dict[str, dict[str, Any]], list[str]]:
+    async def _resolve() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
         async with StateDB() as db:
             return await _resolve_watched_runs(db, ids)
 
-    resolved = _run_tick(_resolve())
+    try:
+        resolved = _run_tick(_resolve())
+    except AmbiguousIdError as exc:
+        # Nothing to wait on: the caller named a prefix, not a run.
+        log_error(str(exc))
+        return EXIT_UNKNOWN
     if resolved is None:
-        # Interrupted before resolving even completed — we don't yet know
-        # which ids exist or what state they're in, so there is no aggregate
-        # to report. This is "still in progress", not success or failure.
+        # Interrupted before resolving completed — "still in progress",
+        # not success or failure.
         return EXIT_RUNNING
-    pending, unresolved = resolved
+    pending, session_pending, unresolved = resolved
     for raw_id in unresolved:
-        log_error(f"schedule_run {raw_id!r} not found")
+        log_error(f"run id {raw_id!r} not found (checked schedule_runs and sessions)")
 
     total_watched = len(pending)
+    total_sessions = len(session_pending)
     done: list[dict[str, Any]] = []
+    session_done: list[dict[str, Any]] = []
     chain_state = _new_chain_state(pending, chain=chain)
     processed = 0
 
@@ -1250,31 +1473,39 @@ def _dispatch_wait(ids: list[str], *, interval: float, follow: bool, chain: bool
         nonlocal processed
         async with StateDB() as db:
             await _poll_pending_once(db, pending, schedule_names, done)
+            await _poll_pending_sessions_once(db, session_pending, session_done)
             processed = await _advance_chains(
                 db, pending, done, chain_state=chain_state, processed=processed
             )
 
     def _chain_open() -> bool:
-        return bool(pending or chain_state["awaiting_grace"])
+        return bool(pending or session_pending or chain_state["awaiting_grace"])
 
-    while _chain_open() and not interrupted:
+    # max_wait bounds total wall-clock so a stuck session can't hang forever;
+    # None falls back to the bounded default, 0/negative opts into unbounded.
+    effective_max_wait = _DEFAULT_MAX_WAIT_SECONDS if max_wait is None else max_wait
+    deadline = time.monotonic() + effective_max_wait if effective_max_wait > 0 else None
+
+    def _wait_expired() -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
+    while _chain_open() and not interrupted and not _wait_expired():
         _run_tick(_tick())
-        if not _chain_open() or interrupted:
+        if not _chain_open() or interrupted or _wait_expired():
             break
         _sleep_interval(interval)
 
     resolved_roots = chain_state["resolved_roots"]
     chain_tail_exit = chain_state["chain_tail_exit"]
+    from ._util import EXIT_CODE_BY_STATUS
+
+    session_ok = all(EXIT_CODE_BY_STATUS.get(r["status"], 1) == 0 for r in session_done)
     if unresolved:
         exit_code = EXIT_UNKNOWN
-    elif len(resolved_roots) < total_watched:
-        # Some watched chain never concluded before we had to stop — either
-        # still pending outright or still inside its grace window. `done`
-        # (mutated in _poll_pending_once) and `chain_state` (mutated in
-        # _advance_chains, see above) are the ground truth that survives a
-        # tick being interrupted mid-flight.
+    elif len(resolved_roots) < total_watched or len(session_done) < total_sessions:
+        # Some watched chain (or session) never concluded before we stopped.
         exit_code = EXIT_RUNNING
-    elif all(chain_tail_exit.get(root) == 0 for root in resolved_roots):
+    elif all(chain_tail_exit.get(root) == 0 for root in resolved_roots) and session_ok:
         # Final-link-wins: each resolved chain's most recently seen terminal
         # exit_code decides, not every link along the way.
         exit_code = 0
@@ -1303,10 +1534,8 @@ def _dispatch_wait(ids: list[str], *, interval: float, follow: bool, chain: bool
             if interrupted:
                 break
             _sleep_interval(interval)
-        # --follow has no natural end, so its exit code is whatever the
-        # *initial* bounded set already resolved to (see exit_code above)
-        # — new runs discovered during the tail print their own lines but
-        # don't feed the final aggregate.
+        # --follow has no natural end; exit code stays whatever the initial
+        # bounded set resolved to — new runs print but don't feed the aggregate.
 
     return exit_code
 
@@ -1318,19 +1547,25 @@ def run_monitor_wait(argv: list[str]) -> int:
     parser.add_argument(
         "ids",
         nargs="+",
-        help="schedule_run ID(s) (or short prefixes) to wait for. Comma- or space-separated.",
+        help=(
+            "schedule_run ids to wait for, full or by unique prefix, comma- or space-separated. "
+            "An id matching nothing is reported as unresolved rather than holding up the wait."
+        ),
     )
     parser.add_argument(
         "--interval",
         type=float,
         default=3.0,
         metavar="SECS",
-        help="Poll interval in seconds (default 3).",
+        help="Seconds between state.db polls while waiting (default 3). Must be positive.",
     )
     parser.add_argument(
         "--follow",
         action="store_true",
-        help="Keep watching for new schedule_runs after the initial set drains.",
+        help=(
+            "Keep discovering schedule_runs created after the initial set drains, instead of "
+            "exiting once it is empty. Never ends on its own — pair it with --max-wait."
+        ),
     )
     parser.add_argument(
         "--no-chain",
@@ -1344,14 +1579,30 @@ def run_monitor_wait(argv: list[str]) -> int:
             "its final link instead of exiting on the first terminal run."
         ),
     )
+    parser.add_argument(
+        "--max-wait",
+        type=float,
+        default=None,
+        metavar="SECS",
+        help=(
+            "Give up waiting after this many seconds and exit EXIT_RUNNING "
+            "for whatever is still pending, instead of blocking forever on a "
+            f"stuck session or run. Default: {_DEFAULT_MAX_WAIT_SECONDS:g}s. "
+            "Pass 0 for unlimited."
+        ),
+    )
     args = parser.parse_args(argv)
     watched_ids = _split_watched_ids(args.ids)
     if not watched_ids:
-        # nargs="+" only guarantees argv had at least one token, not that any
-        # of them survive comma-splitting (e.g. a lone "," or ""). Without
-        # this check that degenerates into a silent, instant, exit-0 no-op.
+        # Tokens can survive nargs="+" but not comma-splitting (e.g. a lone ",").
         parser.error("no schedule_run ids given (only empty/comma-only tokens)")
-    return _dispatch_wait(watched_ids, interval=args.interval, follow=args.follow, chain=args.chain)
+    return _dispatch_wait(
+        watched_ids,
+        interval=args.interval,
+        follow=args.follow,
+        chain=args.chain,
+        max_wait=args.max_wait,
+    )
 
 
 # ── CLI registration ──────────────────────────────────────────────────────────
@@ -1373,20 +1624,26 @@ def add_monitor_subparser(subparsers: argparse._SubParsersAction) -> None:
         "id",
         nargs="?",
         default=None,
-        help="Entity ID (or prefix) to show detail view for. Omit for table view.",
+        help=(
+            "Run, session, play or show to open in the detail view — full id, or an unambiguous "
+            "prefix. Omit it for the table of everything in flight."
+        ),
     )
     mon.add_argument(
         "--watch",
         "-w",
         action="store_true",
-        help="Live-refresh the view every REFRESH seconds (default 2).",
+        help=(
+            "Redraw the view every --refresh seconds until interrupted, instead of printing one "
+            "snapshot and exiting."
+        ),
     )
     mon.add_argument(
         "--refresh",
         type=int,
         default=2,
         metavar="SECS",
-        help="Refresh interval for --watch mode (default 2).",
+        help="Seconds between redraws under --watch (default 2). Ignored without it.",
     )
     mon.add_argument(
         "--since",
@@ -1403,13 +1660,16 @@ def add_monitor_subparser(subparsers: argparse._SubParsersAction) -> None:
         dest="entity_type",
         default=None,
         choices=["session", "invocation", "show", "play"],
-        help="Filter table to a single entity type.",
+        help="Narrow the table to one kind of entity: session, invocation, show or play.",
     )
     mon.add_argument(
         "--project",
         "-p",
         default=None,
-        help="Filter sessions and plays by project name.",
+        help=(
+            "Filter sessions and plays to one project name, matched exactly — the same name the "
+            "table's project column shows."
+        ),
     )
     mon.add_argument(
         "--run",
@@ -1429,12 +1689,18 @@ def add_monitor_subparser(subparsers: argparse._SubParsersAction) -> None:
         type=float,
         default=3.0,
         metavar="SECS",
-        help="Poll interval in seconds for --run mode (default 3). Independent of --refresh.",
+        help=(
+            "Seconds between state.db polls in --run mode (default 3). Independent of --refresh, "
+            "which paces the table redraw."
+        ),
     )
     mon.add_argument(
         "--follow",
         action="store_true",
-        help="With --run: keep watching for new schedule_runs after the initial set drains.",
+        help=(
+            "With --run: keep discovering schedule_runs created after the initial set drains, "
+            "instead of exiting once it is empty. Never ends on its own — pair with --max-wait."
+        ),
     )
     mon.add_argument(
         "--no-chain",
@@ -1444,6 +1710,18 @@ def add_monitor_subparser(subparsers: argparse._SubParsersAction) -> None:
         help=(
             "With --run: watch only the literal id(s) given, instead of "
             "following scheduler on_success/on_fail chain children by default."
+        ),
+    )
+    mon.add_argument(
+        "--max-wait",
+        type=float,
+        default=None,
+        metavar="SECS",
+        help=(
+            "With --run: give up waiting after this many seconds and exit "
+            "EXIT_RUNNING for whatever is still pending, instead of blocking "
+            f"forever on a stuck session or run. Default: {_DEFAULT_MAX_WAIT_SECONDS:g}s. "
+            "Pass 0 for unlimited."
         ),
     )
 
@@ -1462,7 +1740,11 @@ def run_monitor(args: argparse.Namespace) -> int:
             log_error("no schedule_run ids given (only empty/comma-only tokens)")
             return 2
         return _dispatch_wait(
-            watched_ids, interval=args.interval, follow=args.follow, chain=args.chain
+            watched_ids,
+            interval=args.interval,
+            follow=args.follow,
+            chain=args.chain,
+            max_wait=args.max_wait,
         )
 
     since: float | None = None
@@ -1489,9 +1771,107 @@ def run_monitor(args: argparse.Namespace) -> int:
         )
 
     if entity_id:
-        output = run_async(_run_detail(entity_id))
+        try:
+            output = run_async(_run_detail(entity_id))
+        except AmbiguousIdError as exc:
+            from ._logging import log_error
+            from .status import EXIT_UNKNOWN
+
+            log_error(str(exc))
+            return EXIT_UNKNOWN
     else:
         output = run_async(_run_table(since=since, entity_type=entity_type, project=project))
 
     print(output)
     return 0
+
+
+# ── machine result ────────────────────────────────────────────────────────────
+
+# Every entity carries these; a caller reads `kind` and knows which of the
+# per-kind blocks below it also has. Timestamps are epoch seconds exactly as the
+# store holds them — an elapsed string would be this module's arithmetic against
+# a clock the caller cannot see, and `observed_at` lets the caller do that sum
+# itself against a moment it was told.
+_ENTITY_CORE = ("id", "status", "started_at", "ended_at", "updated_at")
+
+_ENTITY_EXTRA: dict[str, tuple[str, ...]] = {
+    "session": (
+        "project",
+        "invocation_kind",
+        "agent_name",
+        "playbook_name",
+        "current_phase",
+        "branch_count",
+    ),
+    "invocation": ("skill", "plugin"),
+    "show": ("repo", "topic"),
+    "play": ("name", "session_id", "show_id", "session_project", "branch_count"),
+}
+
+
+def _machine_entity(kind: str, row: dict[str, Any]) -> dict[str, Any]:
+    entity: dict[str, Any] = {"kind": kind}
+    for field in (*_ENTITY_CORE, *_ENTITY_EXTRA[kind]):
+        entity[field] = row.get(field)
+    return entity
+
+
+async def _machine_monitor_data(
+    *, since_window: str | None, entity_type: str | None, project: str | None
+) -> dict[str, Any]:
+    from .machine import available as _available
+    from .machine import readonly_state_db
+
+    since = _since_timestamp(since_window) if since_window else None
+    filters = {
+        "since": since_window,
+        "since_epoch": since,
+        "type": entity_type,
+        "project": project,
+    }
+    async with readonly_state_db() as (db, why):
+        if db is None:
+            return {
+                "entities": why,
+                "filters": filters,
+                "observed_at": time.time(),
+            }
+        entities = await _gather_entities(db, since=since, entity_type=entity_type, project=project)
+    return {
+        "entities": _available([_machine_entity(kind, row) for kind, row in entities]),
+        "filters": filters,
+        "observed_at": time.time(),
+    }
+
+
+def machine_result(argv: list[str]) -> dict[str, Any]:
+    """`li monitor --machine` — the in-flight table, one entity per entry.
+
+    The detail view is not reachable here: it answers about one entity with a
+    different shape entirely, and a payload whose fields depend on whether an id
+    was passed is one a caller cannot branch on. It stays a separate decision.
+    """
+    from lionagi.ln.concurrency import run_async
+
+    from .machine import MachineError, machine_parser, parse_machine_argv
+
+    parser = machine_parser("li monitor")
+    parser.add_argument("--since", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--type", dest="entity_type", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--project", "-p", default=None, help=argparse.SUPPRESS)
+    args = parse_machine_argv(parser, argv)
+
+    if args.entity_type is not None and args.entity_type not in _ENTITY_EXTRA:
+        raise MachineError(
+            "invalid_input",
+            f"--type must be one of {', '.join(sorted(_ENTITY_EXTRA))}; got {args.entity_type!r}",
+        )
+    try:
+        return run_async(
+            _machine_monitor_data(
+                since_window=args.since, entity_type=args.entity_type, project=args.project
+            )
+        )
+    except ValueError as exc:
+        raise MachineError("invalid_input", str(exc)) from exc

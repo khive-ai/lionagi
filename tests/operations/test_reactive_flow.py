@@ -5,6 +5,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from typing import Any
+
 import pytest
 
 from lionagi.casts.emission import SpawnRequest
@@ -60,6 +64,7 @@ async def test_spawn_injects_node_into_running_graph():
     assert "spawner" in executed
     assert "follow_up" in executed  # injected node actually ran
     assert result["spawned_operations"] == 1
+    assert result["dropped_spawns"] == []
     # both the original and injected op are in the results
     assert len(result["completed_operations"]) == 2
 
@@ -110,6 +115,11 @@ async def test_spawn_cap_enforced():
 
     # exactly the cap is honored — 1 initial + 5 injected, then refused
     assert result["spawned_operations"] == 5
+    dropped = [d for d in result["dropped_spawns"] if d["reason"] == "max_spawn_exceeded"]
+    assert len(dropped) == 1
+    assert dropped[0]["op_id"]  # the rejected child's id is traceable
+    # pin the exact entry shape so a regression dropping/adding a key is caught
+    assert set(dropped[0]) == {"reason", "assignee", "emitter_id", "op_id"}
 
 
 @pytest.mark.asyncio
@@ -138,6 +148,166 @@ async def test_dependent_spawn_runs_after_emitter():
 
     assert order == ["lead", "downstream"]
     assert result["spawned_operations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_spawn_branch_setup_fires_with_operation_and_cloned_branch():
+    """spawn_branch_setup(operation, cloned_branch) must run for every reactively-spawned node right after its branch clone is created -- the seam cli/orchestrate/flow.py uses to retarget a CLI-backed chat_model's writable workspace to the spawn's own artifact dir. The stamped spawn_id must already be on the operation's metadata by the time the callback fires."""
+    from lionagi.session.branch import Branch
+
+    async def spawner(**kw):
+        return SpawnRequest(instruction="follow-up", independent=True)
+
+    async def follow_up(**kw):
+        return "did the follow-up work"
+
+    session = _session_with_ops(spawner=spawner, follow_up=follow_up)
+
+    def node_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        op = create_operation("follow_up", parameters={})
+        op.metadata["spawn_id"] = "spawn-1"
+        return op
+
+    seen: list[tuple[str | None, Branch]] = []
+
+    def spawn_branch_setup(operation: Operation, branch: Branch) -> None:
+        seen.append((operation.metadata.get("spawn_id"), branch))
+
+    builder = OperationGraphBuilder()
+    builder.add_operation("spawner")
+    graph = builder.get_graph()
+
+    result = await flow(
+        session,
+        graph,
+        reactive=True,
+        node_builder=node_builder,
+        spawn_branch_setup=spawn_branch_setup,
+    )
+
+    assert result["spawned_operations"] == 1
+    assert len(seen) == 1
+    spawn_id, branch = seen[0]
+    assert spawn_id == "spawn-1"
+    assert isinstance(branch, Branch)
+
+
+@pytest.mark.asyncio
+async def test_reactive_flow_notifies_for_preallocated_clone():
+    """A preallocated branch clone fires on_branch_created exactly once."""
+
+    # A dependent two-node graph — the second node has no explicit branch, so
+    # the executor preallocates a clone of the default branch.
+    async def dependent_step(**kw):
+        return "done"
+
+    dep_session = _session_with_ops(dependent_step=dependent_step)
+    dep_builder = OperationGraphBuilder()
+    n1 = dep_builder.add_operation("dependent_step")
+    dep_builder.add_operation("dependent_step", depends_on=[n1])
+    dep_graph = dep_builder.get_graph()
+
+    preallocated_created: list = []
+    await flow(dep_session, dep_graph, reactive=True, on_branch_created=preallocated_created.append)
+
+    assert len(preallocated_created) == 1
+
+
+@pytest.mark.asyncio
+async def test_reactive_flow_notifies_for_injected_clone():
+    """A reactively injected branch clone fires on_branch_created exactly once."""
+
+    # A spawner node injects a follow-up node via SpawnRequest — the injected
+    # node's branch is cloned by _assign_injected_branch.
+    async def spawner(**kw):
+        return SpawnRequest(instruction="follow-up", independent=True)
+
+    async def follow_up(**kw):
+        return "did the follow-up work"
+
+    inj_session = _session_with_ops(spawner=spawner, follow_up=follow_up)
+
+    def node_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        return create_operation("follow_up", parameters={})
+
+    inj_builder = OperationGraphBuilder()
+    inj_builder.add_operation("spawner")
+    inj_graph = inj_builder.get_graph()
+
+    injected_created: list = []
+    await flow(
+        inj_session,
+        inj_graph,
+        reactive=True,
+        node_builder=node_builder,
+        on_branch_created=injected_created.append,
+    )
+
+    assert len(injected_created) == 1
+
+
+@pytest.mark.asyncio
+async def test_on_op_complete_can_inject_before_task_group_closes():
+    """A single-node graph finishing in one turn (no sleep) still gets its
+    on_op_complete-driven follow-up injected and run — a poll loop
+    checking on a later tick would lose this race."""
+    ran: list[str] = []
+
+    async def alice_turn(**kw):
+        ran.append("alice_turn")
+        return "done fast"
+
+    async def alice_followup(**kw):
+        ran.append("alice_followup")
+        return "followup ran"
+
+    session = _session_with_ops(alice_turn=alice_turn, alice_followup=alice_followup)
+    builder = OperationGraphBuilder()
+    builder.add_operation("alice_turn")
+    graph = builder.get_graph()
+
+    executor_ref: dict[str, Any] = {}
+    injected_once = {"done": False}
+
+    def on_op_complete(node):
+        if injected_once["done"]:
+            return
+        injected_once["done"] = True
+        followup = create_operation("alice_followup", parameters={})
+        assert executor_ref["executor"].inject(followup, independent=True) is True
+
+    result = await flow(
+        session,
+        graph,
+        reactive=True,
+        executor_ref=executor_ref,
+        on_op_complete=on_op_complete,
+    )
+
+    assert ran == ["alice_turn", "alice_followup"]
+    assert len(result["completed_operations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_on_op_complete_exception_does_not_break_the_flow(caplog):
+    """A raising on_op_complete callback must not take down the run."""
+
+    async def alice_turn(**kw):
+        return "ok"
+
+    session = _session_with_ops(alice_turn=alice_turn)
+    builder = OperationGraphBuilder()
+    builder.add_operation("alice_turn")
+    graph = builder.get_graph()
+
+    def on_op_complete(node):
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.WARNING):
+        result = await flow(session, graph, reactive=True, on_op_complete=on_op_complete)
+
+    assert len(result["completed_operations"]) == 1
+    assert "on_op_complete" in caplog.text
 
 
 def test_inject_rejected_when_not_running():
@@ -178,6 +348,79 @@ def test_cycle_injection_rejected():
     assert executor.inject(a, after=b, independent=False) is False
     assert graph.is_acyclic()  # graph left clean (edge reverted)
 
+    dropped = [d for d in executor._dropped_spawns if d["reason"] == "cycle"]
+    assert len(dropped) == 1
+    assert dropped[0]["op_id"] == str(a.id)
+    assert set(dropped[0]) == {"reason", "assignee", "emitter_id", "op_id"}
+
+
+def test_builder_error_recorded_as_dropped_spawn():
+    """A node_builder exception is recorded with reason + error, not just logged."""
+    from lionagi.operations.flow import ReactiveExecutor
+    from lionagi.protocols.graph.graph import Graph
+
+    def raising_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        raise ValueError("unknown assignee: ghost")
+
+    session = _session_with_ops()
+    executor = ReactiveExecutor(session, Graph(), node_builder=raising_builder)
+    req = SpawnRequest(instruction="x", assignee="ghost")
+
+    assert executor._inject_request(req, emitter=None) is False
+    assert executor._dropped_spawns == [
+        {
+            "reason": "builder_error",
+            "assignee": "ghost",
+            "emitter_id": None,
+            "error": "unknown assignee: ghost",
+        }
+    ]
+
+
+def test_null_child_recorded_as_dropped_spawn():
+    """A node_builder returning None is recorded, no op_id (no child was built)."""
+    from lionagi.operations.flow import ReactiveExecutor
+    from lionagi.protocols.graph.graph import Graph
+
+    def none_builder(req: SpawnRequest, emitter: Operation) -> Operation | None:
+        return None
+
+    session = _session_with_ops()
+    executor = ReactiveExecutor(session, Graph(), node_builder=none_builder)
+    req = SpawnRequest(instruction="x")
+
+    assert executor._inject_request(req, emitter=None) is False
+    assert executor._dropped_spawns == [
+        {"reason": "null_child", "assignee": None, "emitter_id": None}
+    ]
+
+
+def test_duplicate_request_recorded_as_dropped_spawn():
+    """The same SpawnRequest object seen twice: first succeeds, second is a de-dup."""
+    from lionagi.operations.flow import ReactiveExecutor
+    from lionagi.protocols.graph.graph import Graph
+
+    class _DummyTG:
+        def start_soon(self, *a, **k):
+            pass
+
+    def node_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        return create_operation("op", parameters={})
+
+    session = _session_with_ops()
+    executor = ReactiveExecutor(session, Graph(), node_builder=node_builder)
+    executor._running = True
+    executor._tg = _DummyTG()
+    req = SpawnRequest(instruction="x", independent=True)
+
+    assert executor._inject_request(req, emitter=None) is True
+    assert executor._inject_request(req, emitter=None) is False  # same object: duplicate
+
+    dropped = [d for d in executor._dropped_spawns if d["reason"] == "duplicate"]
+    assert len(dropped) == 1
+    assert "op_id" not in dropped[0]  # dropped before a child was built
+    assert set(dropped[0]) == {"reason", "assignee", "emitter_id"}
+
 
 @pytest.mark.asyncio
 async def test_no_spawn_behaves_like_normal_flow():
@@ -208,16 +451,7 @@ async def test_no_spawn_behaves_like_normal_flow():
 
 @pytest.mark.asyncio
 async def test_execute_subscribes_via_public_observer_not_private():
-    """ReactiveExecutor.execute() must reach the bus via session.observer (public property).
-
-    Strategy: after normal session construction (which initialises _observer via
-    the model_validator), we forcibly clear _observer back to None to simulate
-    the scenario where the private attr is uninitialised.  If execute() still
-    used getattr(session, '_observer', None) it would see None and skip
-    subscribing, causing SpawnRequests to be silently dropped.  With the fix,
-    execute() calls session.observer (the property) which re-creates the
-    observer and the spawn is received.
-    """
+    """ReactiveExecutor.execute() must reach the bus via session.observer (the public property), not the private `_observer` attr: after construction, `_observer` is forced back to None to simulate an uninitialized private attr -- if execute() used `getattr(session, '_observer', None)` it would see None and silently drop SpawnRequests, whereas the property re-creates the observer and the spawn is received."""
     executed: list[str] = []
 
     async def spawner(**kw):
@@ -284,3 +518,89 @@ async def test_execute_stream_subscribes_via_public_observer_not_private():
         "follow_up did not run — execute_stream() did not subscribe via the public observer property"
     )
     assert any(e.spawned for e in events)
+
+
+# ---------------------------------------------------------------------------
+# NodeSpawned signal: exactly one emission per accepted spawn, correct payload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_node_spawned_emitted_once_with_matching_payload():
+    from lionagi.session.signal import NodeSpawned
+
+    async def spawner(**kw):
+        return SpawnRequest(instruction="follow-up", independent=True)
+
+    async def follow_up(**kw):
+        return "done"
+
+    session = _session_with_ops(spawner=spawner, follow_up=follow_up)
+    spawned_signals: list[NodeSpawned] = []
+    session.observe(NodeSpawned, handler=lambda s, _ctx: spawned_signals.append(s))
+
+    def node_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        return create_operation("follow_up", parameters={})
+
+    builder = OperationGraphBuilder()
+    builder.add_operation("spawner")
+    graph = builder.get_graph()
+
+    result = await flow(session, graph, reactive=True, node_builder=node_builder)
+    await asyncio.sleep(0)
+
+    assert result["spawned_operations"] == 1
+    assert len(spawned_signals) == 1
+    sig = spawned_signals[0]
+    assert sig.independent is True
+    assert sig.op_id  # traceable to the injected child operation
+
+
+# ---------------------------------------------------------------------------
+# Fire-and-forget signal delivery: observer failure never changes the flow
+# result, and the executor's detached-task set drains after the run.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spawn_observer_failure_does_not_change_flow_result(caplog, monkeypatch):
+    """A raising session.emit() (NodeSpawned observer) is consumed and logged;
+    the spawn/injection outcome is unaffected."""
+
+    async def failing_emit(self, event):
+        raise RuntimeError("observer boom")
+
+    async def spawner(**kw):
+        return SpawnRequest(instruction="follow-up", independent=True)
+
+    async def follow_up(**kw):
+        return "done"
+
+    session = _session_with_ops(spawner=spawner, follow_up=follow_up)
+    monkeypatch.setattr(Session, "emit", failing_emit)
+
+    def node_builder(req: SpawnRequest, emitter: Operation) -> Operation:
+        return create_operation("follow_up", parameters={})
+
+    builder = OperationGraphBuilder()
+    builder.add_operation("spawner")
+    graph = builder.get_graph()
+
+    executor_ref: dict[str, Any] = {}
+    with caplog.at_level(logging.WARNING, logger="lionagi.operations.flow"):
+        result = await flow(
+            session,
+            graph,
+            reactive=True,
+            node_builder=node_builder,
+            executor_ref=executor_ref,
+        )
+        for _ in range(50):
+            if not executor_ref["executor"]._signal_tasks:
+                break
+            await asyncio.sleep(0.01)
+
+    assert result["spawned_operations"] == 1
+    assert len(result["completed_operations"]) == 2
+    assert executor_ref["executor"]._signal_tasks == set()
+    assert any("emission failed" in r.message for r in caplog.records)

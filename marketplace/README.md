@@ -23,7 +23,7 @@ claude /plugin install orchestrate@lionagi
 
 | Name | Skills | Agents | Description |
 |------|--------|--------|-------------|
-| `orchestrate` | orchestrate, show, playbook | orchestrator, critic | Multi-agent orchestration: DAG workflows, playbooks, shows with quality gates |
+| `orchestrate` | orchestrate, show, playbook, pr-review, review, security-review, debug, summarize, tdd | orchestrator, critic | Multi-agent orchestration: DAG workflows, playbooks, shows with quality gates |
 
 ## Sample Playbooks
 
@@ -42,4 +42,4 @@ li play feature "add OAuth login"
 
 ## Decision Record
 
-See ADR-0003 (`docs/adrs/ADR-0003-claude-code-marketplace.md`).
+See ADR-0003 (`docs/_archive/v0/ADR-0003-claude-code-marketplace.md`).

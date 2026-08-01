@@ -44,11 +44,11 @@ def test_preamble_deadline_iso_format():
     )
 
 
-def test_preamble_deadline_approximately_correct():
-    """Deadline timestamp is within a few seconds of now + timeout."""
-    before = time.time()
+def test_preamble_deadline_approximately_correct(monkeypatch: pytest.MonkeyPatch):
+    """Deadline timestamp is exactly now + timeout, truncated to seconds."""
+    now = 1_700_000_000.75
+    monkeypatch.setattr(time, "time", lambda: now)
     preamble = build_deadline_preamble(300)
-    after = time.time()
 
     # Extract the ISO timestamp
     m = re.search(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", preamble)
@@ -60,11 +60,7 @@ def test_preamble_deadline_approximately_correct():
         datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
     )
 
-    # Allow 1 s below because strftime truncates sub-second fractions;
-    # allow 5 s above for slow test machines.
-    assert before + 300 - 1 <= deadline_ts <= after + 300 + 5, (
-        f"Deadline {deadline_ts} not in expected range [{before + 299}, {after + 305}]"
-    )
+    assert deadline_ts == int(now + 300)
 
 
 def test_preamble_contains_date_command_hint():
@@ -128,7 +124,15 @@ def _make_agent_mocks(monkeypatch, tmp_path, captured_instruction):
     async def fake_setup(*a, **kw):
         return None
 
-    async def fake_teardown(ctx, *, status="completed", exception=None):
+    async def fake_teardown(
+        ctx,
+        *,
+        status="completed",
+        exception=None,
+        cwd=None,
+        engine_session_uid=None,
+        defer_terminal=False,
+    ):
         return status
 
     monkeypatch.setattr(agent_mod, "setup_agent_persist", fake_setup)

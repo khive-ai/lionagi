@@ -13,6 +13,8 @@ import pytest
 fastapi = pytest.importorskip("fastapi", reason="studio extra not installed")
 from fastapi.testclient import TestClient  # noqa: E402
 
+import lionagi.state.db as state_db_mod
+
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
 # ---------------------------------------------------------------------------
@@ -20,7 +22,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 def _make_client(tmp_path, monkeypatch):
     """Return (client, db_path) with all relevant service modules pointed at db_path."""
-    import lionagi.state.db as state_db_mod
     import lionagi.studio.services.admin as admin_mod
     import lionagi.studio.services.db_maintenance as maint_mod
     import lionagi.studio.services.sessions as sessions_mod
@@ -31,11 +32,11 @@ def _make_client(tmp_path, monkeypatch):
     monkeypatch.setattr(admin_mod, "_DB", str(db_path))
     monkeypatch.setattr(sessions_mod, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(sessions_mod, "_DB", str(db_path))
-    monkeypatch.setattr(maint_mod, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     from lionagi.studio.app import app
 
-    return TestClient(app, raise_server_exceptions=False), db_path
+    return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765"), db_path
 
 
 # ---------------------------------------------------------------------------

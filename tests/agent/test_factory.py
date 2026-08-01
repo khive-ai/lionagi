@@ -3,8 +3,11 @@
 
 """Tests for create_agent: wiring tools, permissions, hooks."""
 
+import json
+
 import pytest
 
+from lionagi._errors import ConfigurationError
 from lionagi.agent.factory import create_agent
 from lionagi.agent.spec import AgentSpec
 from lionagi.session.branch import Branch
@@ -50,9 +53,9 @@ async def test_create_agent_default_no_coding_tools():
 # ---------------------------------------------------------------------------
 
 
-# Lean default — context/sandbox/subagent are opt-in, not registered by default.
-_CODING_TOOLS = {"reader", "editor", "bash", "search"}
-_EXTRA_CODING_TOOLS = {"context", "sandbox", "subagent"}
+# Lean default plus context — sandbox/subagent are opt-in, not registered by default.
+_CODING_TOOLS = {"reader", "editor", "bash", "search", "context"}
+_EXTRA_CODING_TOOLS = {"sandbox", "subagent"}
 
 
 async def test_create_agent_coding_preset_registers_core_tools():
@@ -92,7 +95,10 @@ async def test_create_agent_with_permissions_sets_preprocessor():
     config.permissions = PermissionPolicy.read_only()
     branch = await _make(config)
 
-    # Only coding tools get permission preprocessors (MCP tools from ambient env are unaffected)
+    # No MCP servers are configured/resolvable in this test, so only the
+    # statically-registered coding tools exist to check here; MCP-discovered
+    # tools get the same preprocessor chain applied (see
+    # test_mcp_discovered_tool_gets_permission_preprocessor below).
     for name in _CODING_TOOLS:
         tool = branch.acts.registry.get(name)
         assert tool is not None, f"Coding tool '{name}' not registered"
@@ -113,6 +119,95 @@ async def test_create_agent_permission_deny_all_preprocessor_raises():
         await reader_tool.preprocessor(
             {"action": "read", "path": "/tmp/x.py"},
         )
+
+
+async def test_mcp_discovered_tool_gets_permission_preprocessor(tmp_path, monkeypatch):
+    """ADR-0041 delta row 2: a permission rule that blocks a static tool must
+    equally block a same-shaped MCP-discovered tool. MCP registration happens
+    after built-in tool interception (_register_tools) and must not bypass
+    the resolved permission/interceptor chain -- _load_mcp applies the same
+    _attach_hooks() used for static tools to every tool name MCP discovery
+    reports, not a copied/parallel chain."""
+    from lionagi.agent.permissions import PermissionPolicy
+    from lionagi.protocols.action.manager import ActionManager
+    from lionagi.protocols.action.tool import Tool
+
+    mcp_file = tmp_path / "custom.mcp.json"
+    mcp_file.write_text('{"mcpServers": {"demo": {"command": "true"}}}')
+
+    async def fake_load_mcp_config(
+        self, config_path, server_names=None, update=False, mcp_security=None
+    ):
+        # Mimic what register_mcp_server does after real discovery: put a
+        # plain Tool straight into the registry, bypassing hook attachment
+        # entirely -- exactly the gap this fix closes.
+        async def demo_tool(**kwargs):
+            return "ok"
+
+        demo_tool.__name__ = "demo_tool"
+        self.register_tool(Tool(func_callable=demo_tool), update=update)
+        return {"demo": ["demo_tool"]}
+
+    monkeypatch.setattr(ActionManager, "load_mcp_config", fake_load_mcp_config)
+
+    config = AgentSpec.compose("implementer")
+    config.mcp_config_path = str(mcp_file)
+    config.permissions = PermissionPolicy.deny_all()
+    branch = await create_agent(config, load_settings=False)
+
+    mcp_tool = branch.acts.registry["demo_tool"]
+    assert mcp_tool.preprocessor is not None, "MCP-discovered tool missing the spec's hook chain"
+    with pytest.raises(PermissionError):
+        await mcp_tool.preprocessor({"action": "call", "foo": "bar"})
+
+
+async def test_mcp_discovered_tool_composes_existing_preprocessor(tmp_path, monkeypatch):
+    """_attach_hooks() must compose with a pre-existing tool preprocessor
+    instead of replacing it outright: an MCP-discovered Tool that already
+    carries one (e.g. an arg normalizer wired at construction) must still
+    run it, and the spec's permission gate must still block."""
+    from lionagi.agent.permissions import PermissionPolicy
+    from lionagi.protocols.action.manager import ActionManager
+    from lionagi.protocols.action.tool import Tool
+
+    mcp_file = tmp_path / "custom.mcp.json"
+    mcp_file.write_text('{"mcpServers": {"demo": {"command": "true"}}}')
+
+    calls = []
+
+    async def existing_preprocessor(args, **kw):
+        calls.append(dict(args))
+        return args
+
+    async def fake_load_mcp_config(
+        self, config_path, server_names=None, update=False, mcp_security=None
+    ):
+        async def demo_tool(**kwargs):
+            return "ok"
+
+        demo_tool.__name__ = "demo_tool"
+        self.register_tool(
+            Tool(func_callable=demo_tool, preprocessor=existing_preprocessor),
+            update=update,
+        )
+        return {"demo": ["demo_tool"]}
+
+    monkeypatch.setattr(ActionManager, "load_mcp_config", fake_load_mcp_config)
+
+    config = AgentSpec.compose("implementer")
+    config.mcp_config_path = str(mcp_file)
+    config.permissions = PermissionPolicy.deny_all()
+    branch = await create_agent(config, load_settings=False)
+
+    mcp_tool = branch.acts.registry["demo_tool"]
+    assert mcp_tool.preprocessor is not existing_preprocessor, (
+        "the spec's hook chain must be composed in, not left as a bare passthrough"
+    )
+    with pytest.raises(PermissionError):
+        await mcp_tool.preprocessor({"action": "call", "foo": "bar"})
+
+    # The tool's own preprocessor ran before the permission gate raised.
+    assert calls == [{"action": "call", "foo": "bar"}]
 
 
 async def test_create_agent_coding_permissions_recheck_user_mutated_args(tmp_path):
@@ -189,7 +284,9 @@ async def test_create_agent_does_not_autoload_project_mcp_without_trust(tmp_path
 
     calls = []
 
-    async def fake_load_mcp_config(self, config_path, server_names=None, update=False):
+    async def fake_load_mcp_config(
+        self, config_path, server_names=None, update=False, mcp_security=None
+    ):
         calls.append((config_path, server_names, update))
         return {}
 
@@ -214,9 +311,13 @@ async def test_create_agent_autoloads_project_mcp_when_trusted(tmp_path, monkeyp
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
     calls = []
+    security_seen = []
 
-    async def fake_load_mcp_config(self, config_path, server_names=None, update=False):
+    async def fake_load_mcp_config(
+        self, config_path, server_names=None, update=False, mcp_security=None
+    ):
         calls.append((config_path, server_names, update))
+        security_seen.append(mcp_security)
         return {}
 
     monkeypatch.setattr(ActionManager, "load_mcp_config", fake_load_mcp_config)
@@ -228,6 +329,11 @@ async def test_create_agent_autoloads_project_mcp_when_trusted(tmp_path, monkeyp
     )
 
     assert calls == [(str(mcp_path), None, False)]
+    # _load_mcp makes the transport-trust decision explicit at its one call
+    # site (ADR-0011 delta row 3) rather than relying on an implicit default.
+    from lionagi.service.connections.mcp_wrapper import MCPSecurityConfig
+
+    assert security_seen == [MCPSecurityConfig.trusted()]
 
 
 # ---------------------------------------------------------------------------
@@ -351,12 +457,20 @@ async def test_agent_post_hooks_ignore_non_dict_results_and_keep_previous_result
 
 
 # ---------------------------------------------------------------------------
-# model spec without "/" — provider = model_name = ms.model (line 75)
+# model spec without "/" — provider resolves from settings default, not the
+# bare model string (a bare model used to become its own garbage provider,
+# which construction never rejected — it silently fell through to a generic
+# Endpoint and only failed later with a missing-API-key error).
 # ---------------------------------------------------------------------------
 
 
-async def test_create_agent_model_without_slash_uses_model_as_provider(monkeypatch):
+async def test_create_agent_model_without_slash_uses_settings_default_provider(monkeypatch):
+    import lionagi.config as config_mod
     import lionagi.service.imodel as imodel_mod
+
+    monkeypatch.setattr(
+        config_mod, "settings", config_mod.AppSettings(LIONAGI_CHAT_PROVIDER="anthropic")
+    )
 
     captured = {}
     real_init = imodel_mod.iModel.__init__
@@ -370,8 +484,96 @@ async def test_create_agent_model_without_slash_uses_model_as_provider(monkeypat
     config = AgentSpec.compose("implementer", model="gpt-4o")
     await create_agent(config, load_settings=False)
 
-    assert captured.get("provider") == "gpt-4o"
+    assert captured.get("provider") == "anthropic"
     assert captured.get("model") == "gpt-4o"
+
+
+async def test_create_agent_model_with_slash_provider_unchanged(monkeypatch):
+    import lionagi.service.imodel as imodel_mod
+
+    captured = {}
+    real_init = imodel_mod.iModel.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(imodel_mod.iModel, "__init__", spy_init)
+
+    config = AgentSpec.compose("implementer", model="anthropic/claude-sonnet-4")
+    await create_agent(config, load_settings=False)
+
+    assert captured.get("provider") == "anthropic"
+    assert captured.get("model") == "claude-sonnet-4"
+
+
+async def test_create_agent_backends_alias_unaffected(monkeypatch):
+    """BACKENDS aliases (e.g. 'claude') are already expanded to provider/model by
+    parse_model_spec, so they keep hitting the '/' branch untouched."""
+    import lionagi.service.imodel as imodel_mod
+
+    captured = {}
+    real_init = imodel_mod.iModel.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(imodel_mod.iModel, "__init__", spy_init)
+
+    config = AgentSpec.compose("implementer", model="claude")
+    await create_agent(config, load_settings=False)
+
+    assert captured.get("provider") == "claude_code"
+    assert captured.get("model") == "sonnet"
+
+
+# ---------------------------------------------------------------------------
+# spec.cwd forwarded into the CLI provider request's repo/workspace field —
+# every CLI provider's request model runs its subprocess against `repo`
+# (defaults to the calling process cwd), so a workspace assigned via
+# spec.cwd must reach it or the agent silently runs in the host cwd instead.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["codex/gpt-5.5", "claude_code/sonnet", "gemini_code/gemini-3.5-flash"],
+)
+async def test_create_agent_forwards_spec_cwd_to_provider_repo_kwarg(monkeypatch, tmp_path, model):
+    import lionagi.service.imodel as imodel_mod
+
+    captured = {}
+    real_init = imodel_mod.iModel.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(imodel_mod.iModel, "__init__", spy_init)
+
+    config = AgentSpec.compose("implementer", model=model, cwd=str(tmp_path))
+    await create_agent(config, load_settings=False)
+
+    assert captured.get("repo") == str(tmp_path)
+
+
+async def test_create_agent_no_cwd_does_not_set_repo_kwarg(monkeypatch):
+    import lionagi.service.imodel as imodel_mod
+
+    captured = {}
+    real_init = imodel_mod.iModel.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(imodel_mod.iModel, "__init__", spy_init)
+
+    config = AgentSpec.compose("implementer", model="claude_code/sonnet")
+    await create_agent(config, load_settings=False)
+
+    assert "repo" not in captured
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +721,7 @@ async def test_load_mcp_explicit_config_path_used(tmp_path, monkeypatch):
 
     calls = []
 
-    async def fake_load_mcp(self, config_path, server_names=None, update=False):
+    async def fake_load_mcp(self, config_path, server_names=None, update=False, mcp_security=None):
         calls.append(config_path)
         return {}
 
@@ -550,7 +752,7 @@ async def test_load_mcp_breaks_at_lionagi_dir(tmp_path, monkeypatch):
 
     calls = []
 
-    async def fake_load_mcp(self, config_path, server_names=None, update=False):
+    async def fake_load_mcp(self, config_path, server_names=None, update=False, mcp_security=None):
         calls.append(config_path)
         return {}
 
@@ -570,13 +772,739 @@ async def test_load_mcp_breaks_at_lionagi_dir(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_search_tool_gets_workspace_root_from_cwd(tmp_path):
-    """tools=["search"] must wire spec.cwd into SearchTool.workspace_root.
+# ---------------------------------------------------------------------------
+# Forwarding AgentSpec MCP fields into the claude_code CLI's own request
+# ---------------------------------------------------------------------------
 
-    Regression: the standalone search branch registered SearchTool() with no
-    workspace_root, so normal agents got no containment. Here a search outside
-    the configured cwd must be rejected fail-closed.
-    """
+
+@pytest.fixture(autouse=True)
+def _isolate_mcp_pool_state():
+    """MCPConnectionPool accumulates configs process-globally; snapshot and restore its class-level state around tests that load real config files through create_agent, so loads don't leak into other test files on the same worker."""
+    from lionagi.service.connections.mcp_wrapper import MCPConnectionPool
+
+    saved_configs = dict(MCPConnectionPool._configs)
+    yield
+    MCPConnectionPool._configs.clear()
+    MCPConnectionPool._configs.update(saved_configs)
+
+
+def _write_mcp_config(tmp_path, servers: dict) -> str:
+    import json
+
+    p = tmp_path / ".mcp.json"
+    p.write_text(json.dumps({"mcpServers": servers}))
+    return str(p)
+
+
+async def test_forward_mcp_populates_claude_code_request_mcp_servers(tmp_path):
+    """Test plan item 5: claude_code leg + mcp_config_path -> ClaudeCodeRequest
+    carries the same servers, and --mcp-config shows up in as_cmd_args()."""
+    from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
+
+    mcp_path = _write_mcp_config(tmp_path, {"khive": {"command": "kkernel"}})
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config.mcp_config_path = mcp_path
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    assert kwargs.get("mcp_servers") == {"khive": {"command": "kkernel"}}
+
+    payload, _ = branch.chat_model.endpoint.create_payload({"prompt": "hi"})
+    request = payload["request"]
+    assert isinstance(request, ClaudeCodeRequest)
+    args = request.as_cmd_args()
+    assert "--mcp-config" in args
+    assert json.loads(args[args.index("--mcp-config") + 1]) == {
+        "mcpServers": {"khive": {"command": "kkernel"}}
+    }
+
+
+async def test_forward_mcp_filters_by_spec_mcp_servers(tmp_path):
+    """spec.mcp_servers is a name filter, consistent with island 1's server_names."""
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel"}, "other": {"command": "other-mcp"}},
+    )
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config.mcp_config_path = mcp_path
+    config.mcp_servers = ["khive"]
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    assert kwargs.get("mcp_servers") == {"khive": {"command": "kkernel"}}
+
+
+async def test_forward_mcp_noop_when_spec_has_no_mcp_fields(tmp_path, monkeypatch):
+    """No explicit mcp fields and nothing auto-resolvable (isolated HOME/cwd
+    with no .mcp.json anywhere) -> no forwarding, no warning."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    config = AgentSpec.compose(
+        "reviewer", model="claude_code/sonnet", cwd=str(tmp_path / "elsewhere")
+    )
+    branch = await create_agent(config, load_settings=False)
+    assert "mcp_servers" not in branch.chat_model.endpoint.config.kwargs
+
+
+async def test_forward_mcp_noop_for_non_claude_code_when_no_mcp_fields(tmp_path, monkeypatch):
+    """Provider without MCP passthrough + nothing auto-resolvable: no warning fires
+    (mirrors _load_mcp's own no-op — nothing to forward at all, not a passthrough gap)."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5", cwd=str(tmp_path / "elsewhere"))
+    branch = await create_agent(config, load_settings=False)
+    assert "mcp_servers" not in branch.chat_model.endpoint.config.kwargs
+
+
+async def test_forward_mcp_codex_provider_flattens_to_config_overrides(tmp_path):
+    """codex provider + MCP fields set -> each server forwarded as
+    `mcp_servers.<name>.<field>` config overrides (the codex CLI's `-c` form);
+    server shapes the CLI cannot express are skipped, not emitted broken."""
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {
+            "khive": {"command": "kkernel", "args": ["mcp"]},
+            "shapeless": {"transport": "mystery"},
+        },
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    assert "mcp_servers" not in kwargs
+    assert kwargs.get("config_overrides") == {
+        "mcp_servers.khive.command": "kkernel",
+        "mcp_servers.khive.args": ["mcp"],
+    }
+
+
+def test_codex_request_serializes_mcp_server_overrides():
+    """The flattened override keys survive into `-c key=value` CLI args,
+    serialized as valid TOML (codex parses the `-c` value as TOML, not
+    JSON -- see test_codex_request_serializes_config_override_values_as_toml
+    for the dict/env case this distinction matters for)."""
+    from lionagi.providers.openai.codex import CodexCodeRequest
+
+    req = CodexCodeRequest(
+        prompt="hi",
+        config_overrides={
+            "mcp_servers.khive.command": "kkernel",
+            "mcp_servers.khive.args": ["mcp"],
+        },
+    )
+    args = req.as_cmd_args()
+    assert 'mcp_servers.khive.command="kkernel"' in args
+    assert 'mcp_servers.khive.args=["mcp"]' in args
+
+
+def test_codex_request_serializes_config_override_values_as_toml():
+    """codex's `-c key=value` parses `value` as TOML, not JSON. A dict
+    override (e.g. an MCP server's `env` map) must render as a TOML inline
+    table -- json.dumps(...) produces `:`-separated pairs that are not valid
+    TOML and either mis-parse into a raw-string fallback or hard-fail config
+    loading (confirmed against the installed codex CLI: `-c
+    mcp_servers.x.env={"K": "v"}` raises `invalid type: string ... expected
+    a map`). Round-trip the produced value string through the `toml` parser
+    to prove it is valid TOML, not just string-matched."""
+    import toml
+
+    from lionagi.providers.openai.codex import CodexCodeRequest
+
+    req = CodexCodeRequest(
+        prompt="hi",
+        config_overrides={
+            "mcp_servers.khive.env": {"API_KEY": "sekret", "OTHER_VAR": "value"},
+        },
+    )
+    args = req.as_cmd_args()
+    idx = args.index("-c")
+    override_arg = args[idx + 1]
+    key, _, value_str = override_arg.partition("=")
+    assert key == "mcp_servers.khive.env"
+
+    parsed = toml.loads(f"x = {value_str}")
+    assert parsed == {"x": {"API_KEY": "sekret", "OTHER_VAR": "value"}}
+
+    # The old json.dumps behavior is NOT valid TOML for a dict value -- guard
+    # against regressing back to it.
+    assert ":" not in value_str
+
+
+async def test_forward_mcp_codex_forwards_extended_server_fields(tmp_path):
+    """codex's MCP server schema supports more than command/args/env/url
+    (verified against the installed CLI's `codex mcp list --json` output
+    field names). Every field present in the source config gets forwarded,
+    not silently dropped. `http_headers` is exercised separately (it's a
+    secret-carrying field routed to the profile file, not argv overrides --
+    see test_forward_mcp_codex_http_headers_routed_to_profile_file_not_argv)."""
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {
+            "khive": {
+                "command": "kkernel",
+                "cwd": "/tmp/khive",
+                "startup_timeout_ms": 5000,
+                "enabled": True,
+                "required": False,
+                "env_vars": ["PATH"],
+                "bearer_token_env_var": "KHIVE_TOKEN",
+                "env_http_headers": {"Authorization": "KHIVE_AUTH_ENV"},
+            }
+        },
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+    branch = await create_agent(config, load_settings=False)
+
+    overrides = branch.chat_model.endpoint.config.kwargs.get("config_overrides")
+    assert overrides["mcp_servers.khive.cwd"] == "/tmp/khive"
+    assert overrides["mcp_servers.khive.startup_timeout_ms"] == 5000
+    assert overrides["mcp_servers.khive.enabled"] is True
+    assert overrides["mcp_servers.khive.required"] is False
+    assert overrides["mcp_servers.khive.env_vars"] == ["PATH"]
+    assert overrides["mcp_servers.khive.bearer_token_env_var"] == "KHIVE_TOKEN"
+    # env_http_headers values are env-var *names* the codex process resolves
+    # locally, not secret literals -- safe to stay on the `-c` override path.
+    assert overrides["mcp_servers.khive.env_http_headers"] == {"Authorization": "KHIVE_AUTH_ENV"}
+
+
+async def test_forward_mcp_codex_unsupported_field_raises(tmp_path):
+    """A field the codex CLI's MCP server schema does not support must be a
+    loud ConfigurationError, not a silent drop."""
+    from lionagi._errors import ConfigurationError
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel", "totally_unsupported_field": "x"}},
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+
+    with pytest.raises(ConfigurationError, match="totally_unsupported_field"):
+        await create_agent(config, load_settings=False)
+
+
+async def test_forward_mcp_codex_env_routed_to_profile_file_not_argv(tmp_path, monkeypatch):
+    """MCP server `env` maps may carry secrets (API keys/tokens) and must
+    never land on the codex command line (visible via `ps`, persisted
+    request records, etc). They're routed through a private, 0600 on-disk
+    profile file that codex layers in via `-p <profile>`."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home"))
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel", "env": {"API_KEY": "top-secret-value"}}},
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    overrides = kwargs.get("config_overrides") or {}
+    assert "mcp_servers.khive.env" not in overrides
+    assert all("top-secret-value" not in str(v) for v in overrides.values())
+
+    profile_name = kwargs.get("profile")
+    assert profile_name
+
+    payload, _ = branch.chat_model.endpoint.create_payload({"prompt": "hi"})
+    request = payload["request"]
+    args = request.as_cmd_args()
+    assert not any("top-secret-value" in arg for arg in args)
+    assert "-p" in args
+    assert args[args.index("-p") + 1] == profile_name
+
+    import stat
+
+    profile_path = tmp_path / "codex_home" / f"{profile_name}.config.toml"
+    assert profile_path.exists()
+    mode = stat.S_IMODE(profile_path.stat().st_mode)
+    assert mode == 0o600
+
+    import toml as toml_lib
+
+    doc = toml_lib.loads(profile_path.read_text())
+    assert doc == {"mcp_servers": {"khive": {"env": {"API_KEY": "top-secret-value"}}}}
+
+
+async def test_forward_mcp_codex_env_conflicts_with_explicit_profile(tmp_path, monkeypatch):
+    """If the caller already pinned an explicit codex profile, silently
+    overwriting it to smuggle in MCP env secrets would drop whatever the
+    caller's profile was for -- fail loudly instead."""
+    from lionagi._errors import ConfigurationError
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home"))
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel", "env": {"API_KEY": "top-secret-value"}}},
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+
+    branch = Branch(chat_model="codex/gpt-5.5")
+    branch.chat_model.endpoint.config.kwargs["profile"] = "my-existing-profile"
+
+    with pytest.raises(ConfigurationError, match="profile"):
+        await create_agent(config, load_settings=False, chat_model=branch.chat_model)
+
+
+async def test_forward_mcp_codex_http_headers_routed_to_profile_file_not_argv(
+    tmp_path, monkeypatch
+):
+    """A literal `http_headers` value (e.g. a static `Authorization: Bearer
+    ...` header) may itself be a secret and must never land on the codex
+    command line -- routed through the same private, 0600 profile file as
+    `env`. `env_http_headers` (env-var *names*, not secret values) stays on
+    the `-c` override path, unaffected."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home"))
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {
+            "khive": {
+                "command": "kkernel",
+                "http_headers": {"Authorization": "Bearer top-secret-bearer-value"},
+                "env_http_headers": {"X-Other": "SOME_ENV_VAR_NAME"},
+            }
+        },
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    overrides = kwargs.get("config_overrides") or {}
+    assert "mcp_servers.khive.http_headers" not in overrides
+    assert overrides.get("mcp_servers.khive.env_http_headers") == {"X-Other": "SOME_ENV_VAR_NAME"}
+
+    profile_name = kwargs.get("profile")
+    assert profile_name
+
+    payload, _ = branch.chat_model.endpoint.create_payload({"prompt": "hi"})
+    request = payload["request"]
+    args = request.as_cmd_args()
+    full_arg_string = " ".join(args)
+    assert "top-secret-bearer-value" not in full_arg_string
+
+    import stat
+
+    profile_path = tmp_path / "codex_home" / f"{profile_name}.config.toml"
+    assert profile_path.exists()
+    mode = stat.S_IMODE(profile_path.stat().st_mode)
+    assert mode == 0o600
+
+    import toml as toml_lib
+
+    doc = toml_lib.loads(profile_path.read_text())
+    assert doc == {
+        "mcp_servers": {
+            "khive": {"http_headers": {"Authorization": "Bearer top-secret-bearer-value"}}
+        }
+    }
+
+
+async def test_forward_mcp_codex_stale_profile_files_reaped_on_write(tmp_path, monkeypatch):
+    """A profile file from a killed-not-terminated prior process (SIGKILL,
+    crash skips the `atexit` cleanup) must not accumulate forever under
+    $CODEX_HOME -- the next write reaps anything older than 24h."""
+    import os
+    import time
+
+    codex_home = tmp_path / "codex_home"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    stale = codex_home / "lionagi-mcp-deadbeefdeadbeefdeadbeefdeadbeef.config.toml"
+    stale.write_text('[mcp_servers.old]\nenv = {SECRET = "leftover"}\n')
+    old_time = time.time() - (25 * 60 * 60)
+    os.utime(stale, (old_time, old_time))
+
+    fresh = codex_home / "lionagi-mcp-fresh0000fresh0000fresh0000fresh0.config.toml"
+    fresh.write_text('[mcp_servers.recent]\nenv = {SECRET = "still-live"}\n')
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel", "env": {"API_KEY": "new-secret"}}},
+    )
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+    await create_agent(config, load_settings=False)
+
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+async def test_forward_mcp_codex_empty_allowlist_disables_discovered_servers(tmp_path, monkeypatch):
+    """spec.mcp_servers=[] is an explicit "zero servers" allowlist, distinct
+    from spec.mcp_servers=None ("not configured"). codex has no wholesale
+    `mcp_servers` clear override (`-c mcp_servers={}` merges rather than
+    replaces, confirmed against the installed CLI), so each server the
+    .mcp.json would otherwise have exposed must be disabled by name.
+
+    CODEX_HOME points at an isolated dir with a config.toml carrying no
+    ambient `[mcp_servers.*]` tables, so ambient ecosystem discovery
+    contributes nothing here and the exact-override assertion below stays
+    scoped to just the two lionagi-resolved servers (ambient-union coverage
+    is test_forward_mcp_codex_empty_allowlist_disables_ambient_servers_too)."""
+    codex_home = tmp_path / "codex_home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text('model = "gpt-5"\n')
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel"}, "other": {"command": "other-mcp"}},
+    )
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+    config.mcp_config_path = mcp_path
+    config.mcp_servers = []
+    branch = await create_agent(config, load_settings=False)
+
+    overrides = branch.chat_model.endpoint.config.kwargs.get("config_overrides")
+    assert overrides == {
+        "mcp_servers.khive.enabled": False,
+        "mcp_servers.other.enabled": False,
+    }
+
+
+async def test_forward_mcp_codex_empty_allowlist_disables_ambient_servers_too(
+    tmp_path, monkeypatch
+):
+    """The bug this closes: an explicit allowlist that disables nothing
+    because no lionagi MCP config file resolves at all (mcp_config_path
+    unset, nothing auto-discovered) must still disable servers codex would
+    load on its own from its ambient/profile config -- otherwise
+    mcp_servers=[] is a no-op and every ambient server stays enabled."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    codex_home = tmp_path / "codex_home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        '[mcp_servers.ambient-one]\ncommand = "one"\n\n'
+        '[mcp_servers.ambient-two]\nurl = "https://two.example/mcp"\n'
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5", cwd=str(tmp_path / "elsewhere"))
+    config.mcp_servers = []  # explicit empty allowlist; no lionagi MCP config resolves
+    branch = await create_agent(config, load_settings=False)
+
+    overrides = branch.chat_model.endpoint.config.kwargs.get("config_overrides")
+    assert overrides == {
+        "mcp_servers.ambient-one.enabled": False,
+        "mcp_servers.ambient-two.enabled": False,
+    }
+
+
+async def test_forward_mcp_codex_allowlist_enforcement_fails_closed_on_double_discovery_failure(
+    tmp_path, monkeypatch
+):
+    """If both discovery paths fail (no readable/parseable CODEX_HOME
+    config.toml, and `codex mcp list --json` also fails), an explicit
+    allowlist that can no longer be verified must raise rather than silently
+    leave whatever ambient servers exist enabled."""
+    from lionagi._errors import ConfigurationError
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home_missing"))  # no config.toml
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("codex CLI not found")
+
+    monkeypatch.setattr("subprocess.run", _boom)
+
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5", cwd=str(tmp_path / "elsewhere"))
+    config.mcp_servers = []
+
+    with pytest.raises(ConfigurationError, match="allowlist"):
+        await create_agent(config, load_settings=False)
+
+
+async def test_forward_mcp_codex_none_allowlist_is_still_a_noop(tmp_path, monkeypatch):
+    """spec.mcp_servers=None (never touched) must stay a true no-op for
+    codex too -- only an explicit (possibly empty) allowlist triggers the
+    disabling behavior, so ambient discovery (which would raise/behave
+    unpredictably against this test's unpatched environment) must never even
+    be attempted. Isolated HOME/cwd so no ambient .mcp.json resolves
+    (mirrors test_forward_mcp_noop_when_spec_has_no_mcp_fields)."""
+    import lionagi.agent.factory as factory_mod
+
+    def _fail_if_called():
+        raise AssertionError("ambient discovery must not run for a None allowlist")
+
+    monkeypatch.setattr(factory_mod, "_discover_ambient_codex_mcp_server_names", _fail_if_called)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    config = AgentSpec.compose("reviewer", model="codex/gpt-5.5", cwd=str(tmp_path / "elsewhere"))
+    branch = await create_agent(config, load_settings=False)
+    assert "config_overrides" not in branch.chat_model.endpoint.config.kwargs
+
+
+@pytest.mark.parametrize(
+    "provider",
+    ["gemini-cli", "gemini_cli", "gemini-code", "gemini_code"],
+)
+async def test_forward_mcp_gemini_provider_rejects_explicit_config(tmp_path, provider):
+    mcp_path = _write_mcp_config(tmp_path, {"khive": {"command": "kkernel"}})
+
+    config = AgentSpec.compose("reviewer", model=f"{provider}/gemini-3.5-flash")
+    config.mcp_config_path = mcp_path
+
+    with pytest.raises(ConfigurationError, match="Antigravity.*does not support MCP"):
+        await create_agent(config, load_settings=False)
+
+
+async def test_forward_mcp_gated_by_trust_project_settings_for_project_scope(tmp_path, monkeypatch):
+    """LC3: a project-scoped .mcp.json only forwards when trust_project_settings=True
+    (mirrors _load_mcp's own gate); the global ~/.lionagi/.mcp.json candidate is
+    trusted by default and forwards unconditionally."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_mcp_config(project, {"proj-server": {"command": "x"}})
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet", cwd=str(project))
+    branch_untrusted = await create_agent(config, load_settings=False, trust_project_settings=False)
+    assert "mcp_servers" not in branch_untrusted.chat_model.endpoint.config.kwargs
+
+    config2 = AgentSpec.compose("reviewer", model="claude_code/sonnet", cwd=str(project))
+    branch_trusted = await create_agent(config2, load_settings=False, trust_project_settings=True)
+    assert branch_trusted.chat_model.endpoint.config.kwargs.get("mcp_servers") == {
+        "proj-server": {"command": "x"}
+    }
+
+
+async def test_forward_mcp_global_candidate_trusted_by_default(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    lionagi_dir = home / ".lionagi"
+    lionagi_dir.mkdir(parents=True)
+    _write_mcp_config(lionagi_dir, {"global-server": {"command": "y"}})
+    monkeypatch.setenv("HOME", str(home))
+
+    config = AgentSpec.compose(
+        "reviewer", model="claude_code/sonnet", cwd=str(tmp_path / "elsewhere")
+    )
+    branch = await create_agent(config, load_settings=False, trust_project_settings=False)
+    assert branch.chat_model.endpoint.config.kwargs.get("mcp_servers") == {
+        "global-server": {"command": "y"}
+    }
+
+
+async def test_forward_mcp_explicit_empty_allowlist_forces_zero_servers(tmp_path):
+    """spec.mcp_servers=[] is an EXPLICIT empty selection, not 'no filter' -- the old `if spec.mcp_servers:` check treated an empty list like None and forwarded every server; it must forward zero and still emit `--mcp-config {"mcpServers": {}}` rather than silently omit the flag."""
+    from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel"}, "other": {"command": "other-mcp"}},
+    )
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config.mcp_config_path = mcp_path
+    config.mcp_servers = []  # explicit empty allowlist, distinct from None
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    assert kwargs.get("mcp_servers") == {}, (
+        "explicit empty allowlist must forward zero servers, not every configured server"
+    )
+
+    payload, _ = branch.chat_model.endpoint.create_payload({"prompt": "hi"})
+    request = payload["request"]
+    assert isinstance(request, ClaudeCodeRequest)
+    args = request.as_cmd_args()
+    assert "--mcp-config" in args, (
+        "an explicit empty selection must still emit --mcp-config (forcing zero "
+        "servers), not fall back to the CLI's own MCP discovery"
+    )
+    assert json.loads(args[args.index("--mcp-config") + 1]) == {"mcpServers": {}}
+
+
+async def test_forward_mcp_explicit_empty_allowlist_enforced_with_no_resolvable_config(
+    tmp_path, monkeypatch
+):
+    """spec.mcp_servers=[] must be enforced even when no config file resolves -- previously an unresolvable mcp_path made `_forward_mcp_to_cli_request` return early, leaving mcp_servers unset and letting the claude CLI fall back to its own MCP discovery instead of honoring the explicit zero-server allowlist."""
+    from lionagi.providers.anthropic.claude_code import ClaudeCodeRequest
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    config = AgentSpec.compose(
+        "reviewer", model="claude_code/sonnet", cwd=str(tmp_path / "elsewhere")
+    )
+    config.mcp_servers = []  # explicit zero-server allowlist, no config file exists anywhere
+    branch = await create_agent(config, load_settings=False)
+
+    kwargs = branch.chat_model.endpoint.config.kwargs
+    assert kwargs.get("mcp_servers") == {}, (
+        "an explicit empty allowlist must be enforced even with no resolvable "
+        "MCP config file, not silently left unset"
+    )
+
+    payload, _ = branch.chat_model.endpoint.create_payload({"prompt": "hi"})
+    request = payload["request"]
+    assert isinstance(request, ClaudeCodeRequest)
+    args = request.as_cmd_args()
+    assert "--mcp-config" in args, (
+        "with no config file present, an explicit empty allowlist must still "
+        "emit --mcp-config (forcing zero servers) rather than omitting the "
+        "flag and letting the claude CLI fall back to its own MCP discovery"
+    )
+    assert json.loads(args[args.index("--mcp-config") + 1]) == {"mcpServers": {}}
+
+
+async def test_forward_mcp_does_not_mutate_shared_chat_model_across_branches(tmp_path):
+    """Two create_agent calls sharing one iModel must get independent MCP filters: Branch.__init__ keeps a caller-supplied chat_model by reference, so mutating its config.kwargs in place would leak one branch's MCP selection into the other's payload."""
+    from lionagi.service.imodel import iModel
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel"}, "other": {"command": "other-mcp"}},
+    )
+
+    shared_chat_model = iModel(provider="claude_code", model="sonnet", api_key="dummy")
+
+    config_a = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config_a.mcp_config_path = mcp_path
+    config_a.mcp_servers = ["khive"]
+    branch_a = await create_agent(config_a, load_settings=False, chat_model=shared_chat_model)
+
+    config_b = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config_b.mcp_config_path = mcp_path
+    config_b.mcp_servers = ["other"]
+    branch_b = await create_agent(config_b, load_settings=False, chat_model=shared_chat_model)
+
+    assert branch_a.chat_model.endpoint.config.kwargs.get("mcp_servers") == {
+        "khive": {"command": "kkernel"}
+    }, "branch_a's filter must not have been overwritten by branch_b's create_agent call"
+    assert branch_b.chat_model.endpoint.config.kwargs.get("mcp_servers") == {
+        "other": {"command": "other-mcp"}
+    }
+    # The original caller-supplied iModel itself must be untouched — both
+    # branches must have been given their own copy before mutation.
+    assert "mcp_servers" not in shared_chat_model.endpoint.config.kwargs
+
+
+async def test_forward_mcp_preserves_shared_executor_and_session(tmp_path):
+    """Branch-local MCP filtering must not silently drop the caller-supplied iModel's shared rate limiter or CLI session_id -- the old `chat_model.copy()` (no share_session/share_executor) always built a fresh executor and dropped any pre-existing session_id, changing the runtime semantics of an iModel two branches were meant to share."""
+    from lionagi.service.imodel import iModel
+
+    mcp_path = _write_mcp_config(
+        tmp_path,
+        {"khive": {"command": "kkernel"}, "other": {"command": "other-mcp"}},
+    )
+
+    shared_chat_model = iModel(provider="claude_code", model="sonnet", api_key="dummy")
+    shared_chat_model.endpoint.session_id = "session-abc"
+    original_executor = shared_chat_model.executor
+
+    config_a = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config_a.mcp_config_path = mcp_path
+    config_a.mcp_servers = ["khive"]
+    branch_a = await create_agent(config_a, load_settings=False, chat_model=shared_chat_model)
+
+    config_b = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config_b.mcp_config_path = mcp_path
+    config_b.mcp_servers = ["other"]
+    branch_b = await create_agent(config_b, load_settings=False, chat_model=shared_chat_model)
+
+    # (a) independent mcp_servers kwargs per branch, sharing one caller iModel.
+    assert branch_a.chat_model.endpoint.config.kwargs.get("mcp_servers") == {
+        "khive": {"command": "kkernel"}
+    }
+    assert branch_b.chat_model.endpoint.config.kwargs.get("mcp_servers") == {
+        "other": {"command": "other-mcp"}
+    }
+
+    # (b) the branch's model retains the caller's executor (shared rate
+    # limiter/queue) and the caller's CLI session_id.
+    assert branch_a.chat_model.executor is original_executor
+    assert branch_b.chat_model.executor is original_executor
+    assert branch_a.chat_model.endpoint.session_id == "session-abc"
+    assert branch_b.chat_model.endpoint.session_id == "session-abc"
+
+
+async def test_forward_mcp_explicit_path_read_failure_raises(tmp_path):
+    """An explicit mcp_config_path that fails to read/parse is a configuration error, not a silent skip -- exercises `_forward_mcp_to_cli_request` directly rather than through create_agent, since island 1's `_load_mcp` would otherwise raise its own JSONDecodeError first and mask the intended regression."""
+    from lionagi._errors import ConfigurationError
+    from lionagi.agent.factory import _forward_mcp_to_cli_request
+    from lionagi.service.imodel import iModel
+    from lionagi.session.branch import Branch
+
+    bad_path = tmp_path / "not-json.mcp.json"
+    bad_path.write_text("{not valid json")
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config.mcp_config_path = str(bad_path)
+
+    branch = Branch(chat_model=iModel(provider="claude_code", model="sonnet", api_key="dummy"))
+
+    with pytest.raises(ConfigurationError):
+        _forward_mcp_to_cli_request(branch, config)
+
+
+async def test_forward_mcp_auto_discovered_path_read_failure_soft_skips(tmp_path, monkeypatch):
+    """An auto-discovered (not explicitly configured) MCP candidate that fails
+    to read/parse must soft-skip (no forwarding), not raise — only an
+    explicit spec.mcp_config_path carries enough caller intent to escalate."""
+    from lionagi.agent.factory import _forward_mcp_to_cli_request
+    from lionagi.service.imodel import iModel
+    from lionagi.session.branch import Branch
+
+    home = tmp_path / "home"
+    lionagi_dir = home / ".lionagi"
+    lionagi_dir.mkdir(parents=True)
+    (lionagi_dir / ".mcp.json").write_text("{not valid json")
+    monkeypatch.setenv("HOME", str(home))
+
+    config = AgentSpec.compose(
+        "reviewer", model="claude_code/sonnet", cwd=str(tmp_path / "elsewhere")
+    )
+    branch = Branch(chat_model=iModel(provider="claude_code", model="sonnet", api_key="dummy"))
+
+    _forward_mcp_to_cli_request(branch, config)  # must not raise
+    assert "mcp_servers" not in branch.chat_model.endpoint.config.kwargs
+
+
+async def test_explicit_mcp_config_path_missing_file_raises_configuration_error(tmp_path):
+    """An explicit spec.mcp_config_path pointing at a nonexistent path is a configuration error, not a silent no-op -- previously `_resolve_mcp_path` returned None for any unresolved path, indistinguishable from 'no path configured', so both islands silently no-opped despite the caller's declared intent."""
+    from lionagi._errors import ConfigurationError
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config.mcp_config_path = "/nonexistent/mcp.json"
+
+    with pytest.raises(ConfigurationError):
+        await create_agent(config, load_settings=False)
+
+
+async def test_explicit_empty_string_mcp_config_path_raises_not_autodiscovers(
+    tmp_path, monkeypatch
+):
+    """An explicit empty-string mcp_config_path is a declared malformed path, not absence -- it must raise, never fall through to auto-discovery; presence is checked with `is not None`, not truthiness, so `mcp_config_path=""` can't silently auto-discover an unrelated config."""
+    from lionagi._errors import ConfigurationError
+    from lionagi.agent.factory import _resolve_mcp_path
+
+    # A discoverable home candidate that MUST NOT be returned.
+    home = tmp_path / "home"
+    (home / ".lionagi").mkdir(parents=True)
+    (home / ".lionagi" / ".mcp.json").write_text('{"mcpServers": {}}')
+    monkeypatch.setenv("HOME", str(home))
+
+    config = AgentSpec.compose("reviewer", model="claude_code/sonnet")
+    config.mcp_config_path = ""
+
+    with pytest.raises(ConfigurationError):
+        _resolve_mcp_path(config)
+
+
+async def test_search_tool_gets_workspace_root_from_cwd(tmp_path):
+    """tools=['search'] must wire spec.cwd into SearchTool.workspace_root -- previously the standalone search branch registered SearchTool() with no workspace_root, so normal agents got no containment and a search outside the configured cwd wasn't rejected."""
     ws = tmp_path / "workspace"
     ws.mkdir()
     outside = tmp_path / "outside"
@@ -591,3 +1519,40 @@ async def test_search_tool_gets_workspace_root_from_cwd(tmp_path):
     result = await tool.func_callable(action="grep", pattern="x", path=str(outside))
     assert result["success"] is False
     assert "workspace root" in (result.get("error") or "")
+
+
+async def test_forward_mcp_codex_profile_created_0600_without_chmod_window(tmp_path, monkeypatch):
+    """The secret-bearing profile must be 0600 from the moment it exists.
+    A write-then-chmod sequence leaves a umask-permission window where the
+    secrets are world/group-readable (and a wrong-mode file if the write is
+    interrupted), so the file has to be created with mode 0600 directly —
+    proven here by a permissive umask plus asserting no chmod ever ran on it."""
+    import os as os_mod
+    import stat
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex_home"))
+
+    chmodded: list = []
+    real_chmod = os_mod.chmod
+    monkeypatch.setattr(
+        os_mod, "chmod", lambda p, m, **kw: (chmodded.append(str(p)), real_chmod(p, m, **kw))
+    )
+
+    old_umask = os_mod.umask(0)
+    try:
+        mcp_path = _write_mcp_config(
+            tmp_path,
+            {"khive": {"command": "kkernel", "env": {"API_KEY": "top-secret-value"}}},
+        )
+        config = AgentSpec.compose("reviewer", model="codex/gpt-5.5")
+        config.mcp_config_path = mcp_path
+        branch = await create_agent(config, load_settings=False)
+    finally:
+        os_mod.umask(old_umask)
+
+    profile_name = branch.chat_model.endpoint.config.kwargs["profile"]
+    profile_path = tmp_path / "codex_home" / f"{profile_name}.config.toml"
+    assert profile_path.exists()
+    # 0600 despite umask 0: the mode came from creation, not a later chmod.
+    assert stat.S_IMODE(profile_path.stat().st_mode) == 0o600
+    assert str(profile_path) not in chmodded

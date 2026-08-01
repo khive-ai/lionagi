@@ -171,7 +171,15 @@ async def test_fresh_run_unaffected_by_reapply_effort(monkeypatch, tmp_path):
     async def fake_setup(*a, **kw):
         return None
 
-    async def fake_teardown(ctx, *, status="completed", exception=None):
+    async def fake_teardown(
+        ctx,
+        *,
+        status="completed",
+        exception=None,
+        cwd=None,
+        engine_session_uid=None,
+        defer_terminal=False,
+    ):
         return status
 
     monkeypatch.setattr(agent_mod, "setup_agent_persist", fake_setup)
@@ -267,6 +275,7 @@ async def test_resume_mixed_case_profile_effort_reapplies_correct_agy_tier(monke
             system_prompt=None,
             artifact_defaults=None,
             timeout=None,
+            bypass=False,
             resume_on_timeout=False,
         ),
     )

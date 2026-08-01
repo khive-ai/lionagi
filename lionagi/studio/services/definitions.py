@@ -10,19 +10,15 @@ import anyio
 from fastapi import HTTPException, Query
 from pydantic import BaseModel
 
-from lionagi._paths import LIONAGI_HOME
+from lionagi._paths import LIONAGI_HOME, ensure_lionagi_dir
 from lionagi.state.db import DEFAULT_DB_PATH
 
 from ..registry import studio_route
 from ._db import open_db as _open_db
 from ._path_safety import validate_name_component
 
-# ---------------------------------------------------------------------------
-# Per-(kind, name) concurrency lock — shared across all requests in this
-# process.  Spans the DB write inside StateDB.save_definition() AND the
-# subsequent disk write so that both operations are atomic from the service's
-# perspective.  See "HIGH: definition save current-file race" in ADR-0016.
-# ---------------------------------------------------------------------------
+# Per-(kind, name) concurrency lock, shared across all requests in this process.
+# Spans both the DB write and the disk write so a crash between them cannot leave disk ahead of history.
 
 _DEFINITION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 _DEFINITION_LOCKS_GUARD = asyncio.Lock()
@@ -42,6 +38,15 @@ PLAYBOOKS_DIR = LIONAGI_HOME / "playbooks"
 KIND_DIRS: dict[str, Path] = {
     "agent": AGENTS_DIR,
     "playbook": PLAYBOOKS_DIR,
+}
+
+# Extension used when creating a new definition of a given kind (i.e. no
+# existing on-disk file to infer it from). Must match what each kind's
+# catalog scans for -- playbooks.py's list_playbooks() only globs
+# *.playbook.yaml, so a new playbook has to land with that suffix.
+_DEFAULT_EXT: dict[str, str] = {
+    "agent": ".md",
+    "playbook": ".playbook.yaml",
 }
 
 
@@ -205,13 +210,7 @@ async def save_definition(
     content: str,
     message: str | None = None,
 ) -> dict[str, Any]:
-    """Persist a definition version: DB write first, then disk (ADR-0016 §"Save semantics").
-
-    DB write must succeed before the file is written — propagate any exception
-    rather than returning success without a row.  Per-(kind, name) asyncio.Lock
-    spans both operations so concurrent saves for the same definition are
-    serialised.  Returns the new version info.
-    """
+    """Persist a definition version: DB write first, then disk (ADR-0077 D2); per-(kind, name) lock serialises concurrent saves."""
     # Validate at the service boundary — reject traversal sequences, path
     # separators, NUL, and glob metacharacters.
     validate_name_component(kind, label="kind")
@@ -227,7 +226,7 @@ async def save_definition(
     async with lock:
         disk_file = await anyio.to_thread.run_sync(partial(_find_definition_file, base, name))
         if not disk_file:
-            disk_file = base / f"{name}.md"
+            disk_file = base / f"{name}{_DEFAULT_EXT.get(kind, '.md')}"
 
         now = time.time()
 
@@ -241,12 +240,12 @@ async def save_definition(
             )
 
         def _write_disk() -> None:
-            disk_file.parent.mkdir(parents=True, exist_ok=True)
+            ensure_lionagi_dir(disk_file.parent)
             disk_file.write_text(content)
 
         await anyio.to_thread.run_sync(_write_disk)
 
-    # ADR-0016 §"Save semantics": response field is "saved_at", not "created_at"
+    # ADR-0077 D2: response field is "saved_at", not "created_at"
     return {
         "kind": kind,
         "name": name,
@@ -257,11 +256,7 @@ async def save_definition(
 
 
 async def rollback_definition(kind: str, name: str, target_version: int) -> dict[str, Any] | None:
-    """Restore a previous version: read old content from DB, write to disk, record as new version.
-
-    ADR-0016 §"Rollback semantics": returns
-        { version: N+1, rolled_back_from: current_version, rolled_back_to: N }
-    """
+    """Restore a previous version by reading it from DB and saving it as a new version."""
     validate_name_component(kind, label="kind")
     validate_name_component(name, label="name")
 
@@ -297,10 +292,7 @@ async def rollback_definition(kind: str, name: str, target_version: int) -> dict
 
 
 async def snapshot_current(kind: str | None = None) -> int:
-    """Snapshot all current disk files that don't have a matching version in DB.
-
-    Returns count of new versions recorded.
-    """
+    """Snapshot all current disk files that don't have a matching version in DB; returns count recorded."""
     count = 0
     defs = await list_definitions(kind)
 
@@ -328,15 +320,7 @@ _EXTENSIONS = (".md", ".playbook.yaml", ".yaml")
 
 
 def _find_definition_file(base: Path, name: str) -> Path | None:
-    """Locate the on-disk file for a definition.
-
-    ``name`` MUST be pre-validated by ``validate_name_component`` (callers'
-    responsibility).  Candidates are literal-path joins — not glob patterns —
-    so metacharacters in *name* cannot expand across the filesystem.  Symlinks
-    may target outside ``base`` (e.g. ``~/.lionagi/agents/*.md`` → ``firm/agents/``);
-    we intentionally do not resolve-and-restrict, as that breaks every symlinked
-    agent definition.
-    """
+    """Locate the on-disk file for a definition via literal-path joins (not glob). Symlinks outside ``base`` are intentionally left unrestricted -- restricting them would break symlinked agent definitions."""
     # Fast path 1: direct child (base/<name><ext>)
     for ext in _EXTENSIONS:
         candidate = base / f"{name}{ext}"
@@ -344,10 +328,22 @@ def _find_definition_file(base: Path, name: str) -> Path | None:
             return candidate
 
     # Fast path 2: nested subdir (base/<name>/<name><ext>)
+    subdir = base / name
     for ext in _EXTENSIONS:
-        candidate = base / name / f"{name}{ext}"
+        candidate = subdir / f"{name}{ext}"
         if candidate.exists():
             return candidate
+
+    # Fast path 3: nested subdir whose definition file doesn't share the
+    # directory's name. list_definitions() names such a definition after its
+    # containing directory, so fetching must resolve the same way: fall back
+    # to the file that listing would have picked (same extension priority,
+    # alphabetical tiebreak).
+    if subdir.is_dir():
+        for ext in _EXTENSIONS:
+            matches = sorted(p for p in subdir.iterdir() if p.is_file() and p.name.endswith(ext))
+            if matches:
+                return matches[0]
 
     # Slow path: scan one level of subdirectories with literal candidates —
     # NOT Path.glob() with untrusted input so no metacharacter expansion occurs.
@@ -371,9 +367,7 @@ class SaveBody(BaseModel):
 
 @studio_route("/definitions/", method="GET", area="definitions", name="list_definitions")
 async def list_definitions_route(
-    # ADR-0016: "skill" removed — KIND_DIRS excludes it and ADR-0016
-    # §"What is editable" explicitly marks skills as not editable/not in the
-    # definitions write path.
+    # ADR-0077: "skill" removed -- KIND_DIRS excludes it as not editable.
     kind: str | None = Query(default=None, description="Filter by kind: agent, playbook"),
 ) -> dict[str, Any]:
     return {"definitions": await list_definitions(kind)}
@@ -402,12 +396,12 @@ async def get_version_route(kind: str, name: str, version: int) -> dict[str, Any
     return v
 
 
-# ADR-0016 §"Save semantics": POST /api/definitions/{kind}/{name}
+# POST /api/definitions/{kind}/{name}
 @studio_route(
     "/definitions/{kind}/{name}", method="POST", area="definitions", name="save_definition"
 )
 async def save_definition_route(kind: str, name: str, body: SaveBody) -> dict[str, Any]:
-    # ADR-0016: unknown kind (e.g. "skill") raises ValueError in the
+    # ADR-0077: unknown kind (e.g. "skill") raises ValueError in the
     # service layer; catch it and return 422 instead of propagating a 500.
     try:
         return await save_definition(kind, name, body.content, body.message)
@@ -415,7 +409,7 @@ async def save_definition_route(kind: str, name: str, body: SaveBody) -> dict[st
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
-# ADR-0016 §"Rollback semantics": version as query param, not path segment
+# version as query param, not path segment
 @studio_route(
     "/definitions/{kind}/{name}/rollback",
     method="POST",

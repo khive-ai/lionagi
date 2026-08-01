@@ -16,6 +16,34 @@ from lionagi.ln.concurrency import retry as _canonical_retry
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
+_default_retry_exceptions_cache: tuple[type[Exception], ...] | None = None
+
+
+def _default_retry_exceptions() -> tuple[type[Exception], ...]:
+    # aiohttp is lazily imported (matches connections/endpoint.py's convention)
+    # so module import stays cheap; aiohttp.ClientError covers the
+    # aiohttp.ClientResponseError(429/5xx) and connector errors that
+    # production code actually raises.
+    global _default_retry_exceptions_cache
+    if _default_retry_exceptions_cache is None:
+        import asyncio
+
+        import aiohttp
+
+        # asyncio.TimeoutError is a distinct class from the builtin
+        # TimeoutError before Python 3.11, and it is what timed-out awaits
+        # actually raise there — both are needed to match the native
+        # endpoint fallback's retry set on every supported runtime.
+        _default_retry_exceptions_cache = (
+            APIClientError,
+            CircuitBreakerOpenError,
+            ConnectionError,
+            TimeoutError,
+            asyncio.TimeoutError,
+            aiohttp.ClientError,
+        )
+    return _default_retry_exceptions_cache
+
 
 class APIClientError(Exception):
     """Base exception for API client errors."""
@@ -207,12 +235,7 @@ class RetryConfig:
         backoff_factor: float = 2.0,
         jitter: bool = True,
         jitter_factor: float = 0.2,
-        retry_exceptions: tuple[type[Exception], ...] = (
-            APIClientError,
-            CircuitBreakerOpenError,
-            ConnectionError,
-            TimeoutError,
-        ),
+        retry_exceptions: tuple[type[Exception], ...] | None = None,
         exclude_exceptions: tuple[type[Exception], ...] = (),
     ):
         if backoff_factor < 1.0:
@@ -223,7 +246,9 @@ class RetryConfig:
         self.backoff_factor = backoff_factor
         self.jitter = jitter
         self.jitter_factor = jitter_factor
-        self.retry_exceptions = retry_exceptions
+        self.retry_exceptions = (
+            retry_exceptions if retry_exceptions is not None else _default_retry_exceptions()
+        )
         self.exclude_exceptions = exclude_exceptions
 
     def to_dict(self) -> dict[str, Any]:
@@ -251,12 +276,7 @@ class RetryConfig:
 async def retry_with_backoff(
     func: Callable[..., Awaitable[T]],
     *args: Any,
-    retry_exceptions: tuple[type[Exception], ...] = (
-        APIClientError,
-        CircuitBreakerOpenError,
-        ConnectionError,
-        TimeoutError,
-    ),
+    retry_exceptions: tuple[type[Exception], ...] | None = None,
     exclude_exceptions: tuple[type[Exception], ...] = (),
     max_retries: int = 3,
     base_delay: float = 1.0,
@@ -266,14 +286,15 @@ async def retry_with_backoff(
     jitter_factor: float = 0.2,
     **kwargs: Any,
 ) -> T:
+    if retry_exceptions is None:
+        retry_exceptions = _default_retry_exceptions()
+
     async def _fn() -> T:
         return await func(*args, **kwargs)
 
     if exclude_exceptions:
-        # Runtime dispatch: exclude_exceptions must be checked per-instance,
-        # not per-type, to correctly handle subclass hierarchies (e.g.
-        # retry_on=(OSError,), exclude=(ConnectionError,) — ConnectionError
-        # IS-A OSError but must not be retried).
+        # Checked per-instance, not per-type, so subclass hierarchies exclude
+        # correctly (e.g. retry_on=(OSError,), exclude=(ConnectionError,)).
         class _Excluded(BaseException):
             def __init__(self, inner: Exception):
                 self.inner = inner
@@ -347,12 +368,7 @@ def with_retry(
     backoff_factor: float = 2.0,
     jitter: bool = True,
     jitter_factor: float = 0.2,
-    retry_exceptions: tuple[type[Exception], ...] = (
-        APIClientError,
-        CircuitBreakerOpenError,
-        ConnectionError,
-        TimeoutError,
-    ),
+    retry_exceptions: tuple[type[Exception], ...] | None = None,
     exclude_exceptions: tuple[type[Exception], ...] = (),
 ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """Decorator applying retry with exponential backoff to an async function."""

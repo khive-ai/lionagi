@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("fastapi", reason="studio extra not installed")
 
+import lionagi.state.db as state_db_mod
 from lionagi.state.db import StateDB  # noqa: E402
 
 from ._helpers import run_async  # noqa: E402
@@ -20,14 +21,13 @@ from ._helpers import run_async  # noqa: E402
 
 
 def _monkey_db(monkeypatch, db_path: Path) -> None:
-    import lionagi.state.db as state_db_mod
     import lionagi.studio.services.admin as admin_mod
     import lionagi.studio.services.lifecycle as lifecycle_mod
 
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(admin_mod, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(admin_mod, "_DB", str(db_path))
-    monkeypatch.setattr(lifecycle_mod, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
 
 async def _seed_session(
@@ -199,11 +199,11 @@ def test_1171_terminal_session_never_overwritten(tmp_path, monkeypatch):
 
     import lionagi.studio.services.lifecycle as lc_mod
 
-    monkeypatch.setattr(lc_mod, "_live_process_matches", lambda _s, _a: False)
+    monkeypatch.setattr(lc_mod, "process_liveness", lambda *_a, **_k: False)
 
     from lionagi.studio.services.lifecycle import reap_null_status_sessions
 
-    count = run_async(reap_null_status_sessions())
+    count = run_async(reap_null_status_sessions(stale_hours=1.0))
     assert count == 0
     assert run_async(_get_session_status(db_path, sid)) == "completed"
     assert run_async(_count_transitions(db_path, sid)) == 0
@@ -214,20 +214,23 @@ def test_1171_idempotent_double_call_no_double_write(tmp_path, monkeypatch):
     db_path = tmp_path / "state.db"
     _monkey_db(monkeypatch, db_path)
 
-    sid = run_async(_seed_session(db_path, status=None))
+    stale_time = time.time() - 7200  # past the 1h grace
+    sid = run_async(
+        _seed_session(db_path, status=None, started_at=stale_time, updated_at=stale_time)
+    )
 
     import lionagi.studio.services.lifecycle as lc_mod
 
-    monkeypatch.setattr(lc_mod, "_live_process_matches", lambda _s, _a: False)
+    monkeypatch.setattr(lc_mod, "process_liveness", lambda *_a, **_k: False)
 
     from lionagi.studio.services.lifecycle import reap_null_status_sessions
 
-    count1 = run_async(reap_null_status_sessions())
+    count1 = run_async(reap_null_status_sessions(stale_hours=1.0))
     assert count1 == 1
     assert run_async(_get_session_status(db_path, sid)) == "failed"
 
     # Second call — row is no longer NULL so it should be invisible
-    count2 = run_async(reap_null_status_sessions())
+    count2 = run_async(reap_null_status_sessions(stale_hours=1.0))
     assert count2 == 0
     # Exactly one transition written
     assert run_async(_count_transitions(db_path, sid)) == 1
@@ -246,11 +249,11 @@ def test_1171_neutralize_condition_null_session_stays_null(tmp_path, monkeypatch
     import lionagi.studio.services.lifecycle as lc_mod
 
     # Process appears alive → reaper must not touch it
-    monkeypatch.setattr(lc_mod, "_live_process_matches", lambda _s, _a: True)
+    monkeypatch.setattr(lc_mod, "process_liveness", lambda *_a, **_k: True)
 
     from lionagi.studio.services.lifecycle import reap_null_status_sessions
 
-    count = run_async(reap_null_status_sessions())
+    count = run_async(reap_null_status_sessions(stale_hours=1.0))
     assert count == 0
     assert run_async(_get_session_status(db_path, sid)) is None
 
@@ -350,10 +353,9 @@ def test_1173_prune_does_not_touch_running_old_sessions(tmp_path, monkeypatch):
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
-    import lionagi.state.db as state_db_mod
 
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     ancient = time.time() - 365 * 86400  # 1 year old
 
@@ -369,6 +371,7 @@ def test_1173_prune_does_not_touch_running_old_sessions(tmp_path, monkeypatch):
                     "name": "ancient-running",
                     "status": "running",
                     "started_at": ancient,
+                    "updated_at": ancient,
                 }
             )
             return sid
@@ -385,10 +388,9 @@ def test_1173_prune_status_transitions_cleanup(tmp_path, monkeypatch):
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
-    import lionagi.state.db as state_db_mod
 
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     old_ts = time.time() - 40 * 86400
 
@@ -404,6 +406,7 @@ def test_1173_prune_status_transitions_cleanup(tmp_path, monkeypatch):
                     "name": "old-completed",
                     "status": "completed",
                     "started_at": old_ts,
+                    "updated_at": old_ts,
                 }
             )
             # Insert a fake status_transition for this session
@@ -436,10 +439,9 @@ def test_1173_prune_preserves_recent_terminal_sessions(tmp_path, monkeypatch):
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
-    import lionagi.state.db as state_db_mod
 
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     recent_ts = time.time() - 5 * 86400  # 5 days ago, within 30-day keep window
 
@@ -455,6 +457,7 @@ def test_1173_prune_preserves_recent_terminal_sessions(tmp_path, monkeypatch):
                     "name": "recent-completed",
                     "status": "completed",
                     "started_at": recent_ts,
+                    "updated_at": recent_ts,
                 }
             )
             return sid

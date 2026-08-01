@@ -1,14 +1,146 @@
 # tests/conftest.py
-import json
+
+# ── Run directory isolation ─────────────────────────────────────────────
+#
+# Must stay above every other import in this file. ``lionagi._paths`` reads
+# ``LIONAGI_HOME`` once, at import, and derives ``RUNS_ROOT`` from it; seven
+# modules then bind those two constants into their own namespace by name. So
+# the value has to be in the environment before the first of those imports
+# runs, and this conftest is the earliest code the suite loads.
+#
+# Without it, isolating the run directory is opt-in per test file: a test that
+# calls ``allocate_run`` writes a manifest, branch snapshots and stream buffers
+# into whichever run directory the machine is actually using, interleaved with
+# the ones a person's own work depends on. Redirecting the root here makes
+# isolation the default, and covers modules added later for free — patching
+# the constants after import would have to name every consumer.
+#
+# ``LIONAGI_HOME`` is the ordinary production variable: it is what a person sets
+# to point their own work at a particular store, and it is set in plenty of
+# shells and CI environments for reasons that have nothing to do with the suite.
+# So it is overwritten unconditionally rather than only when absent. Deferring to
+# it would let an ambient value silently switch the suite back to writing into
+# somebody's real store, and the boundary a test suite draws around itself must
+# not be something the environment can turn off by accident.
+#
+# ``LIONAGI_TEST_HOME`` is the deliberate way through, for an integration case
+# that needs the suite pointed at a specific directory. Setting it means the
+# suite writes outside the root it owns and cleans up: whatever lands under that
+# directory stays there after the run, interleaved with anything already in it.
+import atexit
+import os
+import shutil
 import sys
+import tempfile
+
+
+def _remove_test_home(root):
+    """Delete the suite's temporary root, and say so on stderr if it survives.
+
+    Cleanup runs from ``atexit``, after the session pytest reported on is over,
+    so there is nothing left to fail: raising here would produce an unraisable
+    traceback attached to no test and could only confuse the result a reader
+    already has. Swallowing the error is worse — a permission problem, a busy
+    file or a full filesystem leaves a directory behind and the suite says
+    nothing, so a boundary the suite draws around itself is one it cannot
+    report on when it leaks.
+
+    So the failure is a message rather than an exception: it names the root
+    that is still on disk and the error that stopped the removal, which is what
+    a person needs to find it and clear it. Only the removal is guarded --
+    anything else escapes, because a bug in this function is not a cleanup
+    failure and should not be dressed up as one.
+
+    ``OSError`` is what the filesystem raises: permissions, a busy file, a full
+    disk. ``RecursionError`` is what the walk itself raises -- ``rmtree``
+    descends recursively, so a tree deep enough to exhaust the stack fails
+    without the filesystem objecting to anything. Both leave the root on disk
+    and both are the caller's to clear, so both get the message. Nothing wider:
+    a bare ``except Exception`` would also swallow a ``TypeError`` or a
+    ``NameError`` from this function itself and report a bug here as a
+    directory the machine refused to delete.
+    """
+    try:
+        shutil.rmtree(root)
+    except (OSError, RecursionError) as e:
+        sys.stderr.write(
+            f"\nlionagi tests: could not remove the temporary run directory {root}\n"
+            f"  {e}\n"
+            "  It is still on disk; remove it by hand.\n"
+        )
+
+
+if os.environ.get("LIONAGI_TEST_HOME"):
+    os.environ["LIONAGI_HOME"] = os.environ["LIONAGI_TEST_HOME"]
+else:
+    _TEST_LIONAGI_HOME = tempfile.mkdtemp(prefix="lionagi-tests-")
+    os.environ["LIONAGI_HOME"] = _TEST_LIONAGI_HOME
+    atexit.register(_remove_test_home, _TEST_LIONAGI_HOME)
+
+if "lionagi._paths" in sys.modules:
+    # The constants are already bound to the old value, so the redirect above
+    # did nothing and every run-directory write in this session lands in the
+    # real one. Fail here rather than let the suite report itself as isolated.
+    raise RuntimeError(
+        "lionagi._paths was imported before tests/conftest.py could redirect "
+        "LIONAGI_HOME; the run directory used by this session is not isolated."
+    )
+
+import json
 import types
 
 import pytest
+
+from scripts.quarantine import apply_quarantine_markers, load_manifest
 
 # Load shared scripted/mock fixtures from the library so any test under tests/
 # can ask for ``mocked_branch``, ``scripted_branch``, ``test_data_loader``, etc.
 # Sub-conftests can override specific fixtures (see tests/docs/conftest.py).
 pytest_plugins = ["lionagi.testing.pytest_plugin"]
+
+_QUARANTINE = load_manifest()
+
+
+def pytest_collection_modifyitems(items):
+    """Apply quarantine markers from the checked-in exact-nodeid manifest."""
+
+    apply_quarantine_markers(items, _QUARANTINE, pytest.mark.flaky_quarantine)
+
+
+@pytest.fixture(autouse=True)
+def _keep_the_interpreter_default_sigpipe():
+    """Stop one test's signal policy from following every later test.
+
+    The CLI sets ``SIGPIPE`` to ``SIG_DFL`` on entry, which is right for a
+    command in a pipeline: ``li ... | head`` should die quietly when head
+    leaves rather than spew a traceback. But ``signal.signal`` is
+    process-wide and permanent, and a test that drives the CLI in-process
+    hands that disposition to every test that runs after it in the same
+    worker.
+
+    Python's own default is ``SIG_IGN``, which turns a write to a broken pipe
+    into an ``OSError`` that the writer can catch. Several things running
+    under test rely on that, asyncio among them: closing an event loop
+    closes the read end of its self-pipe before the write end, so a thread
+    handing back a result in that window writes to a pipe whose peer is
+    already gone. Asyncio expects the ``OSError`` and swallows it. Under
+    ``SIG_DFL`` the kernel delivers the signal first and the process is gone
+    instead, taking its buffered output with it -- no traceback, no failing
+    assertion, just a worker that stopped, blamed on whichever test it
+    happened to be holding.
+
+    Restoring the disposition after each test costs nothing and keeps that
+    failure inside the test that actually changes the policy.
+    """
+    import signal
+
+    previous = signal.getsignal(signal.SIGPIPE)
+    try:
+        yield
+    finally:
+        if signal.getsignal(signal.SIGPIPE) is not previous:
+            signal.signal(signal.SIGPIPE, previous)
+
 
 # Hypothesis: coverage instrumentation (5-10x slowdown) makes the default
 # 200ms deadline trip on async property tests. Register a "ci" profile with
@@ -30,6 +162,64 @@ except ImportError:
     pass
 
 
+import os
+
+_RSS_LOG_DIR = os.environ.get("PYTEST_RSS_LOG")
+
+if _RSS_LOG_DIR:
+    # Peak-RSS tracker for hunting worker OOM kills ("node down: Not properly
+    # terminated" with no traceback). ru_maxrss is the process-lifetime PEAK,
+    # so a nonzero delta marks the tests that pushed the high-water mark up —
+    # exactly the ones to inspect when a CI worker is killed by memory
+    # pressure. Off (zero overhead) unless PYTEST_RSS_LOG names a directory.
+    import resource as _resource
+
+    # ru_maxrss unit: kilobytes on Linux, bytes on macOS.
+    _RSS_DIV = 1024 if sys.platform == "darwin" else 1
+
+    os.makedirs(_RSS_LOG_DIR, exist_ok=True)
+
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_protocol(item, nextitem):
+        worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+        log_path = os.path.join(_RSS_LOG_DIR, f"rss-{worker}.jsonl")
+        before = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+        # Write a "start" row before running the test: if the worker is killed
+        # mid-test (the exact OOM/SIGKILL crash this log exists for), the
+        # crashing test never reaches the "end" row below, so a plain
+        # after-only log would silently omit it. The start row is the only
+        # trace of which test the worker was actually executing when it died.
+        with open(log_path, "a") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "worker": worker,
+                        "test": item.nodeid,
+                        "phase": "start",
+                        "peak_kb": before // _RSS_DIV,
+                    }
+                )
+                + "\n"
+            )
+        yield
+        after = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+        delta_kb = (after - before) // _RSS_DIV
+        peak_kb = after // _RSS_DIV
+        with open(log_path, "a") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "worker": worker,
+                        "test": item.nodeid,
+                        "phase": "end",
+                        "peak_kb": peak_kb,
+                        "delta_kb": delta_kb,
+                    }
+                )
+                + "\n"
+            )
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--skip-missing-deps",
@@ -37,6 +227,52 @@ def pytest_addoption(parser):
         default=False,
         help="Skip (instead of fail) tests that error solely due to a missing optional dependency.",
     )
+
+
+@pytest.fixture
+def plugin_home(monkeypatch, tmp_path):
+    """Point HOME at a scratch dir and cd into it, so plugin discovery only sees test bundles."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def write_plugin(plugin_home):
+    """Factory: write_plugin(dir_name, manifest_yaml, files={"rel/path": "content"}) -> bundle dir.
+
+    Writes under the global ``~/.lionagi/plugins/<dir_name>/`` (== ``plugin_home``
+    since HOME and cwd are the same scratch dir here).
+    """
+
+    def _write(dir_name, manifest_yaml, files=None):
+        bundle = plugin_home / ".lionagi" / "plugins" / dir_name
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "plugin.yaml").write_text(manifest_yaml)
+        for rel, content in (files or {}).items():
+            p = bundle / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content)
+        return bundle
+
+    return _write
+
+
+@pytest.fixture(autouse=True)
+def _reset_plugin_registry():
+    """Reset PluginRegistry's process-lifetime scan cache around every test.
+
+    The registry caches its filesystem scan (keyed off HOME/.lionagi) for the
+    life of the process, mirroring EndpointRegistry's ``_ensure_loaded``
+    pattern. Tests routinely monkeypatch HOME per-test, so without a reset the
+    first test to touch plugin resolution would leak its cached snapshot into
+    every later test in the same worker.
+    """
+    from lionagi.plugins import PluginRegistry
+
+    PluginRegistry.reset()
+    yield
+    PluginRegistry.reset()
 
 
 _MISSING_DEP_HINTS = ("not installed", "is required for", "no module named")

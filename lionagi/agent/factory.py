@@ -3,14 +3,44 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+import logging
+import os
+import re
+from collections.abc import Callable, Collection
+from typing import TYPE_CHECKING, Any
 
+from lionagi._errors import ConfigurationError
+from lionagi.ln import Unset
+from lionagi.ln.concurrency import is_coro_func
+from lionagi.ln.types import UnsetType
+from lionagi.service.providers import _CLAUDE_PROVIDER_NAMES
 from lionagi.session.branch import Branch
 
 from .spec import AgentSpec
 
-__all__ = ("create_agent", "_chain_pre_hooks", "_chain_post_hooks")
+if TYPE_CHECKING:
+    from pathlib import Path
+
+__all__ = (
+    "create_agent",
+    "CREATE_AGENT_BRANCH_ORIGIN_KEY",
+    "_chain_pre_hooks",
+    "_chain_post_hooks",
+)
+
+# Stamped into `branch.metadata` for every Branch this factory produces. The
+# key's presence (not the current invocation's profile) is the durable,
+# immutable record that a branch's system message was composed via
+# create_agent (role header + policy block) rather than a bare profile body.
+# It round-trips through Branch.to_dict()/from_dict() with the rest of
+# `metadata`, so a later resume/continue-last leg can consult the PERSISTED
+# branch itself instead of re-deriving "was this create_agent-composed?"
+# from whatever profile happens to be supplied on the resuming invocation
+# (which may differ, or may have since dropped its `role:` key) — see
+# lionagi/cli/agent.py `_run_agent`'s system-prompt reapply guard.
+CREATE_AGENT_BRANCH_ORIGIN_KEY = "create_agent_origin"
+
+logger = logging.getLogger(__name__)
 
 
 async def create_agent(
@@ -22,8 +52,18 @@ async def create_agent(
     trusted_hook_modules: set[str] | frozenset[str] | None = None,
     chat_model: Any = None,
     log_config: Any = None,
+    resolved_mcp_servers: dict[str, Any] | None | UnsetType = Unset,
+    resolved_mcp_explicit: bool = False,
 ) -> Branch:
-    """Create a fully wired Branch from AgentSpec: settings → hooks → prompt → model → tools."""
+    """Create a fully wired Branch from AgentSpec: settings → hooks → prompt → model → tools.
+
+    ``resolved_mcp_servers`` is for a caller that already read a server set of
+    its own — it is handed to the CLI request verbatim and suppresses the
+    discovery this factory would otherwise do from the agent's own working
+    directory. ``None`` means "hand nothing over"; leaving it unset keeps the
+    discovery behaviour. ``resolved_mcp_explicit`` says that set was named by
+    the caller rather than found near its launch directory.
+    """
     spec = config
 
     if load_settings:
@@ -47,6 +87,7 @@ async def create_agent(
         from lionagi.service.providers import (
             CLI_PROVIDERS,
             PROVIDER_EFFORT_KWARG,
+            PROVIDER_REPO_KWARG,
             PROVIDER_YOLO_KWARGS,
             parse_model_spec,
         )
@@ -55,7 +96,10 @@ async def create_agent(
         if "/" in ms.model:
             provider, model_name = ms.model.split("/", 1)
         else:
-            provider = model_name = ms.model
+            from lionagi.config import settings
+
+            provider = settings.LIONAGI_CHAT_PROVIDER
+            model_name = ms.model
 
         extra = {}
         effort = spec.effort or ms.effort
@@ -66,12 +110,20 @@ async def create_agent(
         if spec.yolo:
             extra.update(PROVIDER_YOLO_KWARGS.get(provider, {}))
 
-        # CLI providers (codex/claude_code) auth via subprocess — a placeholder
-        # api_key is fine. API providers must resolve their real key from
-        # settings; forcing "dummy" there silently breaks auth (the model can
-        # never call out). So only pin the placeholder for CLI providers.
+        # CLI providers auth via subprocess, so a placeholder api_key is fine;
+        # API providers need their real key or auth silently breaks.
         if provider in CLI_PROVIDERS:
             extra["api_key"] = "dummy"
+
+        # CLI providers execute as a subprocess against a working directory;
+        # each request model's repo/workspace field defaults to the calling
+        # process cwd, so an agent assigned a workspace via spec.cwd would
+        # otherwise run against whatever directory the host process happens
+        # to be in.
+        if spec.cwd:
+            repo_kwarg = PROVIDER_REPO_KWARG.get(provider)
+            if repo_kwarg:
+                extra[repo_kwarg] = spec.cwd
 
         chat_model = iModel(
             provider=provider,
@@ -84,8 +136,18 @@ async def create_agent(
         branch_kwargs["log_config"] = log_config
 
     branch = Branch(**branch_kwargs)
+    # Immutable branch-origin marker (see CREATE_AGENT_BRANCH_ORIGIN_KEY):
+    # stamped once, here, on every branch this factory builds; never read or
+    # written anywhere else in the branch's lifetime.
+    branch.metadata[CREATE_AGENT_BRANCH_ORIGIN_KEY] = True
 
     system_message = spec.build_system_message()
+    if "coding" in spec.tools and getattr(spec, "context_management", True):
+        one_liner = (
+            "You can curate your own context with the context tool "
+            "(status/evict/compact/restore); guidance arrives when relevant."
+        )
+        system_message = f"{system_message}\n\n{one_liner}" if system_message else one_liner
     if system_message:
         if spec.lion_system:
             from lionagi.session.prompts import LION_SYSTEM_MESSAGE
@@ -97,12 +159,83 @@ async def create_agent(
 
     _apply_permissions(spec)
     _register_tools(branch, spec)
+    _register_providers(branch, spec)
     await _load_mcp(branch, spec, trust_project_settings=trust_project_settings)
+    _forward_mcp_to_cli_request(
+        branch,
+        spec,
+        trust_project_settings=trust_project_settings,
+        resolved_servers=resolved_mcp_servers,
+        resolved_servers_explicit=resolved_mcp_explicit,
+    )
+    _wire_external_hooks(branch, spec)
 
     if op := spec.emission_operable():
         branch.grant_capabilities(op)
 
     return branch
+
+
+def _wire_external_hooks(branch: Branch, spec: AgentSpec) -> None:
+    """Attach ``hooks_external`` entries (parsed by ``apply_hooks_from_settings``)
+    to the seam their event maps to.
+
+    ``PreToolUse``/``PostToolUse`` attach to ``branch.acts`` (always present).
+    The remaining supported events attach to ``branch._hooks`` (a ``HookBus``)
+    -- present only once the branch is owned by a ``Session``; a standalone
+    branch built via ``create_agent`` has none yet, so those entries are
+    queued on ``branch._pending_hook_bus_entries`` instead of dropped, and
+    the queue is kept for the branch's lifetime rather than cleared on
+    first use. ``Branch.attach_hook_bus`` -- the only seam that ever assigns
+    ``branch._hooks`` (``Session.include_branches`` and the lazy
+    ``Session.hooks`` property) -- syncs unattached entries onto whichever
+    bus is current, so a configured ``UserPromptSubmit``/``SessionStart``/
+    ``SessionEnd``/``PostToolUseFailure`` hook attaches once this branch
+    joins a ``Session`` and re-attaches if it is later reparented to
+    another one, rather than silently never firing.
+    """
+    if not spec.external_hooks:
+        return
+
+    from lionagi.hooks.bus import HookPoint
+    from lionagi.hooks.external import external_hook_adapter
+
+    session_id = str(branch._owning_session_id or branch.id)
+    event_to_point = {
+        "SessionStart": HookPoint.SESSION_START,
+        "SessionEnd": HookPoint.SESSION_END,
+        "UserPromptSubmit": HookPoint.USER_PROMPT_SUBMIT,
+        "PostToolUseFailure": HookPoint.TOOL_ERROR,
+    }
+
+    for entry in spec.external_hooks:
+        handler = external_hook_adapter(
+            event=entry["event"],
+            command=entry["command"],
+            timeout=entry["timeout"],
+            matcher=entry.get("matcher"),
+            source=entry.get("source"),
+            cwd=spec.cwd,
+            session_id=session_id,
+        )
+        if entry["event"] == "PreToolUse":
+            branch.acts.add_tool_pre_hook(handler)
+        elif entry["event"] == "PostToolUse":
+            branch.acts.add_tool_post_hook(handler)
+        else:
+            branch._pending_hook_bus_entries.append((event_to_point[entry["event"]], handler))
+            if branch._hooks is not None:
+                # Bus already attached (branch already owned by a Session):
+                # sync this newly queued entry onto it right away, and keep
+                # it tracked so it survives a later reparent to another bus.
+                branch.attach_hook_bus(branch._hooks)
+            else:
+                logger.debug(
+                    "hooks_external: %r configured on a branch with no HookBus "
+                    "attached yet (not part of a Session yet) -- queued for "
+                    "attachment once it joins one",
+                    entry["event"],
+                )
 
 
 def _apply_permissions(spec: AgentSpec) -> None:
@@ -133,18 +266,41 @@ def _chain_pre_hooks(
     security_hooks: list[Callable],
     user_hooks: list[Callable] | None = None,
 ) -> Callable | None:
+    """Compose security controls and user pre-hooks into one preprocessor.
+
+    With user pre-hooks present, the security pass runs twice (before and
+    after) so a user hook cannot rewrite args past an already-approved
+    control. See docs/internals/runtime.md.
+    """
+    from .gate import GateDeniedError, adapt_legacy_hook, run_gate_pass
+
     user_hooks = user_hooks or []
-    hooks = [*security_hooks, *user_hooks]
-    if user_hooks:
-        hooks.extend(security_hooks)
-    if not hooks:
+    if not security_hooks and not user_hooks:
         return None
 
+    evaluators = [
+        adapt_legacy_hook(getattr(hook, "__name__", "security_control"), hook)
+        for hook in security_hooks
+    ]
+
     async def chained(args: dict, **_kw) -> dict:
-        for handler in hooks:
+        action = args.get("action", "")
+        args, deny = await run_gate_pass(evaluators, tool_name, action, args)
+        if deny is not None:
+            raise GateDeniedError(deny)
+
+        for handler in user_hooks:
             result = await handler(tool_name, args.get("action", ""), args)
             if isinstance(result, dict):
                 args = result
+
+        if user_hooks and evaluators:
+            args, deny = await run_gate_pass(
+                evaluators, tool_name, args.get("action", action), args
+            )
+            if deny is not None:
+                raise GateDeniedError(deny)
+
         return args
 
     return chained
@@ -166,6 +322,39 @@ def _chain_post_hooks(tool_name: str, hooks: list[Callable]) -> Callable | None:
     return chained
 
 
+def _compose_preprocessor(original: Callable | None, new: Callable) -> Callable:
+    """Compose a spec-derived preprocessor in front of a tool's existing one.
+
+    Ordering keeps the security recheck closest to the actual invocation:
+    the tool's own preprocessor (if any) runs first, then the spec chain.
+    """
+    if original is None:
+        return new
+
+    async def composed(args: dict, **kw) -> Any:
+        args = await original(args, **kw) if is_coro_func(original) else original(args, **kw)
+        return await new(args, **kw) if is_coro_func(new) else new(args, **kw)
+
+    return composed
+
+
+def _compose_postprocessor(original: Callable | None, new: Callable) -> Callable:
+    """Compose a spec-derived postprocessor around a tool's existing one.
+
+    Ordering mirrors `_compose_preprocessor`: the spec chain runs immediately
+    after the tool call (closest to invocation), then the tool's own
+    postprocessor (if any) runs last.
+    """
+    if original is None:
+        return new
+
+    async def composed(result: Any, **kw) -> Any:
+        result = await new(result, **kw) if is_coro_func(new) else new(result, **kw)
+        return await original(result, **kw) if is_coro_func(original) else original(result, **kw)
+
+    return composed
+
+
 def _attach_hooks(tool: Any, spec: AgentSpec, canonical_name: str) -> Any:
     security_hooks = _tool_hooks(spec, "security_pre", canonical_name)
     user_pre_hooks = _tool_hooks(spec, "pre", canonical_name)
@@ -173,9 +362,9 @@ def _attach_hooks(tool: Any, spec: AgentSpec, canonical_name: str) -> Any:
     pre = _chain_pre_hooks(canonical_name, security_hooks, user_pre_hooks)
     post = _chain_post_hooks(canonical_name, post_hooks)
     if pre is not None:
-        tool.preprocessor = pre
+        tool.preprocessor = _compose_preprocessor(tool.preprocessor, pre)
     if post is not None:
-        tool.postprocessor = post
+        tool.postprocessor = _compose_postprocessor(tool.postprocessor, post)
     return tool
 
 
@@ -210,13 +399,111 @@ def _register_tools(branch: Branch, spec: AgentSpec) -> None:
             branch.register_tools(tool)
 
 
+def _register_providers(branch: Branch, spec: AgentSpec) -> None:
+    # LIONAGI_KHIVE_INJECTION is the fleet-wide injection kill-switch.
+    env_setting = os.getenv("LIONAGI_KHIVE_INJECTION")
+    if env_setting is not None and env_setting.strip().lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }:
+        return
+
+    configured = spec.khive_injection
+    # Only None/False disable — an empty mapping is a valid opt-in that must
+    # still receive the fleet defaults (derived profile_id + writeback on).
+    if configured is None or configured is False:
+        return
+
+    from lionagi.tools.khive_injection import (
+        ComposePolicy,
+        KhiveInjectionPolicy,
+        KhiveInjectionProvider,
+        RecallPolicy,
+        WritebackPolicy,
+    )
+
+    # Provider construction can fail on a bad policy (e.g. an unsupported
+    # snapshot_id) — that must degrade to "no injection this turn", matching
+    # KhiveInjectionProvider.provide()'s own transport-failure fail-open, not
+    # abort the whole agent/run.
+    try:
+        if isinstance(configured, KhiveInjectionPolicy):
+            policy = configured
+        elif isinstance(configured, dict):
+            policy_kwargs = dict(configured)
+            nested_policy_types = {
+                "recall": RecallPolicy,
+                "compose": ComposePolicy,
+                "writeback": WritebackPolicy,
+            }
+            for field_name, policy_type in nested_policy_types.items():
+                value = policy_kwargs.get(field_name)
+                if isinstance(value, dict):
+                    policy_kwargs[field_name] = policy_type(**value)
+            defaults = {}
+            if "profile_id" not in policy_kwargs:
+                defaults["profile_id"] = f"{spec.profile.role.name}-recall-v1"
+            if "writeback" not in policy_kwargs:
+                defaults["writeback"] = WritebackPolicy(enabled=True)
+            policy = KhiveInjectionPolicy(**{**defaults, **policy_kwargs})
+        elif configured is True:
+            policy = KhiveInjectionPolicy(
+                profile_id=f"{spec.profile.role.name}-recall-v1",
+                writeback=WritebackPolicy(enabled=True),
+            )
+        else:
+            raise TypeError(
+                "khive_injection must be None, a bool, a mapping, or a KhiveInjectionPolicy"
+            )
+        provider = KhiveInjectionProvider(policy)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "khive injection provider construction failed (%s: %s); continuing "
+            "without context injection for this agent",
+            type(exc).__name__,
+            exc,
+        )
+        return
+
+    branch.providers.register(provider)
+
+
+def register_profile_injection(branch: Branch, role_name: str, profile: Any) -> None:
+    """Register a CLI agent profile's khive injection provider onto ``branch``.
+
+    Shared by the orchestrate path and the bare ``li agent`` path so both honor a
+    profile's ``khive_injection`` opt-in without routing through the coding preset —
+    injection is a context-provider concern, orthogonal to CodingToolkit/path-guards.
+    The provider is keyed on ``{role_name}-recall-v1`` (role_name is the invoked
+    profile name). None/False disables; the env kill-switch is honored by
+    ``_register_providers``.
+    """
+    configured = getattr(profile, "khive_injection", None)
+    # Only None/False disable — an empty mapping is a valid opt-in (see _register_providers).
+    if configured is None or configured is False:
+        return
+
+    from lionagi.casts.pattern import Role
+    from lionagi.casts.profile import Profile
+
+    identity = Profile(name=role_name, role=Role(name=role_name, description="", body=""))
+    provider_spec = AgentSpec(profile=identity, pack=None, khive_injection=configured)
+    _register_providers(branch, provider_spec)
+
+
 def _register_coding_tools(branch: Branch, spec: AgentSpec) -> None:
     from pathlib import Path
 
-    from lionagi.tools.coding import CodingToolkit
+    from lionagi.tools.coding import DEFAULT_CODING_TOOLS, CodingToolkit
 
     workspace_root = Path(spec.cwd) if spec.cwd else Path.cwd()
-    toolkit = CodingToolkit(workspace_root=workspace_root)
+    context_management = getattr(spec, "context_management", True)
+    tools = None if context_management else tuple(t for t in DEFAULT_CODING_TOOLS if t != "context")
+    toolkit = CodingToolkit(workspace_root=workspace_root, tools=tools)
 
     for key, handlers in spec.hook_handlers.items():
         parts = key.split(":", 1)
@@ -237,42 +524,583 @@ def _register_coding_tools(branch: Branch, spec: AgentSpec) -> None:
     branch.register_tools(tools)
 
 
+def _resolve_mcp_path(spec: AgentSpec, *, trust_project_settings: bool = False) -> str | None:
+    """Resolve the ``.mcp.json`` path an AgentSpec's MCP fields point at.
+
+    Shared by ``_load_mcp`` and ``_forward_mcp_to_cli_request`` so both agree
+    on the authoritative file and trust gate. See docs/internals/runtime.md.
+    """
+    from pathlib import Path
+
+    if spec.mcp_config_path is not None:
+        # Presence check, not truthiness: an explicit empty string must fail
+        # loudly below, never fall through into auto-discovery.
+        p = Path(spec.mcp_config_path)
+        if p.is_file():
+            return str(p)
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "spec.mcp_config_path=%r does not resolve to an existing file",
+            spec.mcp_config_path,
+        )
+        raise ConfigurationError(
+            f"spec.mcp_config_path={spec.mcp_config_path!r} does not resolve to an existing file"
+        )
+
+    candidates = []
+    cwd = Path(spec.cwd) if spec.cwd else Path.cwd()
+
+    if trust_project_settings:
+        for parent in [cwd, *cwd.parents]:
+            candidates.append(parent / ".lionagi" / ".mcp.json")
+            candidates.append(parent / ".mcp.json")
+            if (parent / ".lionagi").is_dir():
+                break
+
+    candidates.append(Path.home() / ".lionagi" / ".mcp.json")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 async def _load_mcp(
     branch: Branch,
     spec: AgentSpec,
     *,
     trust_project_settings: bool = False,
 ) -> None:
-    from pathlib import Path
-
-    mcp_path = None
-
-    if spec.mcp_config_path:
-        p = Path(spec.mcp_config_path)
-        if p.is_file():
-            mcp_path = str(p)
-    else:
-        candidates = []
-        cwd = Path(spec.cwd) if spec.cwd else Path.cwd()
-
-        if trust_project_settings:
-            for parent in [cwd, *cwd.parents]:
-                candidates.append(parent / ".lionagi" / ".mcp.json")
-                candidates.append(parent / ".mcp.json")
-                if (parent / ".lionagi").is_dir():
-                    break
-
-        candidates.append(Path.home() / ".lionagi" / ".mcp.json")
-
-        for candidate in candidates:
-            if candidate.is_file():
-                mcp_path = str(candidate)
-                break
-
+    mcp_path = _resolve_mcp_path(spec, trust_project_settings=trust_project_settings)
     if mcp_path is None:
         return
 
-    await branch.acts.load_mcp_config(
+    from lionagi.service.connections.mcp_wrapper import MCPSecurityConfig
+
+    # ActionManager.load_mcp_config() no longer implies trust when its
+    # `mcp_security` argument is omitted (ADR-0011 delta row 3) -- an
+    # omitted policy now falls through to the wrapper's fail-closed
+    # default instead. Reaching this point already required an explicit
+    # trust act: either `spec.mcp_config_path` was set directly, or
+    # `mcp_path` resolved from the operator's own home-level `.mcp.json`
+    # (the same "global config is inherently trusted" precedent as
+    # settings.yaml's always-loaded global file), or the caller opted into
+    # `trust_project_settings=True` for a project-level file. This is the
+    # one, explicit, documented compatibility decision for lionagi's own
+    # MCP auto-load consumer -- not a silent default buried in the generic
+    # library call.
+    loaded = await branch.acts.load_mcp_config(
         mcp_path,
         server_names=spec.mcp_servers,
+        mcp_security=MCPSecurityConfig.trusted(),
     )
+
+    # Apply the same hook chain static tools get (security_pre/pre/post from
+    # spec.hook_handlers, wired via _attach_hooks in _register_tools) to
+    # MCP-discovered tools too -- they are registered after built-in tool
+    # interception and would otherwise keep their bare default preprocessor
+    # (ADR-0041 delta row 2). Reuses _attach_hooks, the same function static
+    # registration uses, so both paths stay on one shared chain-application
+    # path rather than a copied block.
+    for tool_names in loaded.values():
+        for tool_name in tool_names:
+            tool = branch.acts.registry.get(tool_name)
+            if tool is not None:
+                _attach_hooks(tool, spec, tool_name)
+
+
+_MCP_FORWARDING_PROVIDERS = frozenset({*_CLAUDE_PROVIDER_NAMES, "codex"})
+_ANTIGRAVITY_PROVIDER_NAMES = frozenset({"gemini-cli", "gemini_cli", "gemini-code", "gemini_code"})
+
+
+def _canonical_provider(provider: str | None) -> str:
+    """Fold a provider string the way endpoint resolution does, so a spelling that
+    resolves to an endpoint is never one these predicates fail to recognise."""
+    return provider.strip().lower() if isinstance(provider, str) else ""
+
+
+def provider_accepts_forwarded_mcp(provider: str | None) -> bool:
+    """Whether a provider's request can carry an MCP server set resolved by the caller.
+
+    One answer for a capability with two transports: the Claude CLI takes the
+    set as a request kwarg, codex takes it as `-c mcp_servers.<name>.<field>`
+    overrides. Both are implemented in ``apply_forwarded_mcp_servers`` below,
+    which is why the predicate lives here rather than in a second list kept by
+    a caller — every spawn path asks this one function. Each spelling the CLI
+    accepts for the Claude lane counts: which alias a caller typed is not a
+    capability of the provider behind it. It answers what a provider is
+    *capable* of, which is not the same question as whether a given spawn
+    handed anything over — for that, read ``request_carries_forwarded_mcp`` off
+    the request the spawn produced.
+    """
+    return _canonical_provider(provider) in _MCP_FORWARDING_PROVIDERS
+
+
+def _reject_unforwardable_explicit_mcp(
+    provider: str | None,
+    *,
+    named_explicitly: bool,
+    asked_for_servers: bool,
+) -> None:
+    """Reject an explicit MCP server set that Antigravity cannot receive."""
+    if (
+        named_explicitly
+        and asked_for_servers
+        and _canonical_provider(provider) in _ANTIGRAVITY_PROVIDER_NAMES
+    ):
+        raise ConfigurationError(
+            f"The {provider!r} provider runs the Antigravity CLI (`agy`), "
+            "which does not support MCP servers; the explicitly supplied "
+            "MCP configuration cannot be forwarded."
+        )
+
+
+def request_kwargs_carry_forwarded_mcp(kwargs: dict[str, Any] | None) -> bool:
+    """Whether CLI request kwargs actually carry a forwarded MCP server set.
+
+    The read counterpart of the writes ``apply_forwarded_mcp_servers`` makes:
+    the two transports put the set in different places, so a caller that
+    reports what a leg is getting asks the request that was built rather than
+    re-deriving it from the provider name or from what it resolved itself.
+    Codex entries that only disable a server by name are not a set being handed
+    over, so they do not count.
+    """
+    kwargs = kwargs or {}
+    if kwargs.get("mcp_servers"):
+        return True
+    overrides = kwargs.get("config_overrides") or {}
+    return any(
+        key.startswith("mcp_servers.") and not (key.endswith(".enabled") and value is False)
+        for key, value in overrides.items()
+    )
+
+
+def request_carries_forwarded_mcp(branch: Branch) -> bool:
+    """``request_kwargs_carry_forwarded_mcp`` for a branch's built CLI request."""
+    config = getattr(getattr(branch.chat_model, "endpoint", None), "config", None)
+    return request_kwargs_carry_forwarded_mcp(getattr(config, "kwargs", None))
+
+
+def apply_forwarded_mcp_servers(
+    kwargs: dict[str, Any],
+    servers: dict[str, Any] | None,
+    *,
+    provider: str | None,
+    exclusive: bool = False,
+    allowed_names: Collection[str] | None = None,
+    known_server_names: Collection[str] = (),
+) -> bool:
+    """Write a resolved MCP server set into a CLI request's kwargs.
+
+    Every spawn path that resolves a server set applies it here, so that "can
+    this leg be given a set?" has one answer and one implementation. Returns
+    whether *servers* reached the request: False means this provider has no
+    transport for a caller-resolved set, and the caller is the one who has to
+    say what was lost.
+
+    *exclusive* is the caller stating that *servers* is the whole set rather
+    than an addition to whatever the provider finds for itself. It is what
+    makes an empty set mean "no servers": the Claude CLI needs
+    ``strict_mcp_config``, and codex, which has no wholesale clear, needs each
+    server it would otherwise load disabled by name.
+
+    *allowed_names* is the caller's allowlist when it is wider than the set
+    being forwarded — a name the caller allows but did not itself describe
+    stays enabled rather than being disabled as excluded. *known_server_names*
+    adds names the caller knows the provider may load which ambient discovery
+    would not report. Both only matter under *exclusive*.
+    """
+    if servers is None:
+        return False
+    if not provider_accepts_forwarded_mcp(provider):
+        return False
+
+    if provider in _CLAUDE_PROVIDER_NAMES:
+        kwargs["mcp_servers"] = servers
+        if exclusive:
+            # The handed set alone is merged with whatever the CLI discovers
+            # for itself. The strict flag is what makes it the entire set.
+            kwargs["strict_mcp_config"] = True
+        return True
+
+    # codex: the CLI takes no JSON MCP-config input; each server is forwarded
+    # as `-c mcp_servers.<name>.<field>=<value>` config overrides, which the
+    # request model already serializes onto the command line as TOML. Only
+    # the fields the codex CLI's own McpServerConfig schema understands are
+    # forwarded (verified against the installed codex CLI: `codex mcp list
+    # --json` echoes back exactly this field set); a field outside that set
+    # is a caller mistake, not a value to silently drop, so it's a loud
+    # ConfigurationError. Server shapes lacking both `command` and `url`
+    # aren't a real MCP server transport at all and are skipped outright.
+    overrides = dict(kwargs.get("config_overrides") or {})
+    # `env` and `http_headers` can carry arbitrary secret-bearing literal
+    # values (API keys/tokens, an `Authorization: Bearer ...` header) and
+    # must never land on argv (visible via `ps`, request logs, etc).
+    # `env_http_headers` values are env-var *names*, not secrets -- the
+    # actual header values are resolved by codex from its own environment at
+    # runtime, so those stay on the `-c` override path. Every other
+    # supported field is a name, path, flag, or timeout -- safe as a
+    # `-c` override.
+    secret_fields: dict[str, dict[str, Any]] = {}
+    for server_name, server_cfg in servers.items():
+        if not isinstance(server_cfg, dict) or not ("command" in server_cfg or "url" in server_cfg):
+            continue
+        unsupported = [k for k in server_cfg if k not in _CODEX_MCP_SERVER_FIELDS]
+        if unsupported:
+            raise ConfigurationError(
+                f"MCP server {server_name!r} sets field(s) {unsupported!r} that "
+                "the codex CLI's `-c mcp_servers.<name>.<field>` passthrough "
+                f"does not support. Supported fields: {sorted(_CODEX_MCP_SERVER_FIELDS)!r}."
+            )
+        for field_key in _CODEX_MCP_SERVER_FIELDS:
+            value = server_cfg.get(field_key)
+            if value is None:
+                continue
+            if field_key in _SECRET_CODEX_MCP_FIELDS:
+                secret_fields.setdefault(server_name, {})[field_key] = value
+            else:
+                overrides[f"mcp_servers.{server_name}.{field_key}"] = value
+
+    if exclusive:
+        # codex has no wholesale "clear mcp_servers" override -- `-c
+        # mcp_servers={}` merges onto, rather than replaces, the existing table
+        # (verified against the installed CLI) -- so every server the caller's
+        # set leaves out is disabled by name instead. What codex would load on
+        # its own counts as left out too: an exclusive set enforced only
+        # against names the caller happens to know about leaves every ambient
+        # server enabled, which is the opposite of what it asked for.
+        allowed = set(servers) if allowed_names is None else set(allowed_names)
+        discovered = set(known_server_names) | _discover_ambient_codex_mcp_server_names()
+        for excluded_name in sorted(discovered - allowed):
+            overrides[f"mcp_servers.{excluded_name}.enabled"] = False
+
+    if secret_fields:
+        _write_codex_mcp_secret_profile(kwargs, secret_fields)
+    if overrides:
+        kwargs["config_overrides"] = overrides
+    return True
+
+
+def _forward_mcp_to_cli_request(
+    branch: Branch,
+    spec: AgentSpec,
+    *,
+    trust_project_settings: bool = False,
+    resolved_servers: dict[str, Any] | None | UnsetType = Unset,
+    resolved_servers_explicit: bool = False,
+) -> None:
+    """Forward an MCP server set into the CLI provider's own request.
+
+    ``_load_mcp`` only reaches lionagi-native ``branch.acts`` tools (inert for
+    CLI providers); this reaches the per-turn request kwargs a CLI provider
+    subprocess actually reads. See docs/internals/runtime.md.
+
+    With ``resolved_servers`` given, that set is what gets handed over and no
+    config file is looked for: a caller that already resolved a set is saying
+    which servers this agent gets, and discovering a second one from the
+    agent's working directory would silently replace it.
+
+    ``resolved_servers_explicit`` says the handed-over set was named by the
+    caller rather than discovered near the launch directory. Both arrive here as
+    the same dict, so only the caller can tell them apart.
+    """
+    caller_resolved = resolved_servers is not Unset
+    mcp_path = (
+        None
+        if caller_resolved
+        else _resolve_mcp_path(spec, trust_project_settings=trust_project_settings)
+    )
+    has_config = resolved_servers is not None if caller_resolved else mcp_path is not None
+    if not has_config and spec.mcp_servers is None:
+        # Nothing configured at all: no server set was handed in, no config
+        # file resolves, and no explicit server-name filter was set.
+        return
+
+    provider = getattr(branch.chat_model.endpoint.config, "provider", None)
+
+    if not provider_accepts_forwarded_mcp(provider):
+        # Refusing is only right when someone asked for these servers by name.
+        # A set the caller merely discovered near the launch directory is not an
+        # ask, and an empty set is the opposite of one, so neither can turn a
+        # working spawn into a hard failure.
+        named_explicitly = bool(spec.mcp_config_path) or resolved_servers_explicit
+        asked_for_servers = bool(resolved_servers) if caller_resolved else has_config
+        _reject_unforwardable_explicit_mcp(
+            provider,
+            named_explicitly=named_explicitly,
+            asked_for_servers=asked_for_servers,
+        )
+        if has_config:
+            import logging
+
+            # Scope the claim to what this call can see: one branch, whose
+            # provider was resolved from this one spec. Sibling branches in the
+            # same run resolve their own providers and are not observable here,
+            # so saying "this run" would overstate a per-branch fact.
+            logging.getLogger(__name__).warning(
+                "MCP config present in AgentSpec but the active provider (%s) has "
+                "no MCP passthrough; MCP servers will not be reachable for this "
+                "branch (role %s, branch %s). Other branches resolve their own "
+                "providers and are not covered by this warning.",
+                provider,
+                spec.profile.role.name,
+                branch.id,
+            )
+        # No MCP-capable request model for this provider to forward into,
+        # so this stays a silent no-op (mirrors _load_mcp's own shape).
+        return
+
+    if caller_resolved:
+        # Hand over exactly what the caller read, snapshot and all.
+        servers: dict = dict(resolved_servers or {})
+    elif mcp_path is None:
+        # No config file resolves: the available-servers set is empty, which
+        # matches the explicit-empty-allowlist case.
+        servers = {}
+    else:
+        import json
+        from pathlib import Path
+
+        try:
+            data = json.loads(Path(mcp_path).read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Could not read/parse MCP config %r for forwarding to the %s "
+                "CLI request (%s: %s); MCP servers will not be reachable for "
+                "this branch (role %s, branch %s).",
+                mcp_path,
+                provider,
+                type(exc).__name__,
+                exc,
+                spec.profile.role.name,
+                branch.id,
+            )
+            if spec.mcp_config_path:
+                # An explicitly configured path failing to parse is a
+                # configuration error, not a soft no-op.
+                raise ConfigurationError(
+                    f"spec.mcp_config_path={spec.mcp_config_path!r} could not be "
+                    f"read or parsed as JSON: {type(exc).__name__}: {exc}"
+                ) from exc
+            return
+        servers = data.get("mcpServers", {}) if isinstance(data, dict) else {}
+
+    # Keep the pre-filter server set: an explicit (possibly empty) allowlist
+    # needs to know which discovered servers it excluded, not just which it
+    # kept (see the codex disabling block below).
+    available_servers = servers
+
+    if spec.mcp_servers is not None:
+        # Explicit filter set (possibly empty): mirrors _load_mcp's
+        # server_names semantics, where an empty list loads nothing.
+        servers = {name: cfg for name, cfg in servers.items() if name in spec.mcp_servers}
+
+    # Copy chat_model before mutating config.kwargs: Branch keeps a
+    # caller-supplied chat_model by reference, so mutating in place would
+    # cross-contaminate other branches sharing the same iModel.
+    branch.chat_model = branch.chat_model.copy(share_session=True, share_executor=True)
+    # An explicit allowlist (including an explicit empty one) is the caller
+    # saying which servers this agent gets and no others, so it is applied as
+    # the whole set. It is enforced against the servers this call read as well
+    # as the ones the provider would load on its own; a name the allowlist
+    # permits but the config file did not describe is not an exclusion.
+    apply_forwarded_mcp_servers(
+        branch.chat_model.endpoint.config.kwargs,
+        servers,
+        provider=provider,
+        exclusive=spec.mcp_servers is not None,
+        allowed_names=spec.mcp_servers,
+        known_server_names=tuple(available_servers),
+    )
+
+
+# Fields the codex CLI's MCP server config schema accepts, verified against
+# the installed `codex` CLI (`codex mcp list --json` output field names).
+# `env` and `http_headers` are handled separately -- see
+# `_write_codex_mcp_secret_profile`.
+_CODEX_MCP_SERVER_FIELDS = frozenset(
+    {
+        "command",
+        "args",
+        "env",
+        "url",
+        "cwd",
+        "env_vars",
+        "startup_timeout_ms",
+        "enabled",
+        "required",
+        "bearer_token_env_var",
+        "http_headers",
+        "env_http_headers",
+    }
+)
+
+# Fields whose values may themselves be secrets (API keys, tokens, a static
+# `Authorization: Bearer ...` header) rather than names/paths/flags -- routed
+# to the on-disk profile file instead of the `-c` command line.
+_SECRET_CODEX_MCP_FIELDS = frozenset({"env", "http_headers"})
+
+
+def _discover_ambient_codex_mcp_server_names() -> set[str]:
+    """Discover the names of ambient/profile-configured codex MCP servers,
+    i.e. servers codex would load on its own even if lionagi resolves no MCP
+    config file for this run. An explicit lionagi allowlist has to know
+    about these to disable the ones it excludes -- otherwise `mcp_servers=[]`
+    leaves codex's own configured servers running untouched.
+
+    Two discovery paths, in order:
+    1. Parse ``$CODEX_HOME/config.toml``'s ``[mcp_servers.*]`` tables
+       directly -- this is where ambient servers live.
+    2. Fall back to ``codex mcp list --json`` (verified against the
+       installed CLI: emits a JSON array of ``{"name": ..., ...}`` objects)
+       if that file is missing, unreadable, or unparseable.
+
+    Raises ``ConfigurationError`` if both paths fail -- an allowlist that
+    cannot be enforced must fail closed, never silently pass every ambient
+    server through.
+    """
+    import json
+    import subprocess
+    from pathlib import Path
+
+    import toml
+
+    codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    config_path = codex_home / "config.toml"
+    try:
+        data = toml.loads(config_path.read_text())
+    except (OSError, toml.TomlDecodeError):
+        pass
+    else:
+        mcp_servers = data.get("mcp_servers") if isinstance(data, dict) else None
+        if isinstance(mcp_servers, dict):
+            return set(mcp_servers)
+        return set()
+
+    try:
+        result = subprocess.run(
+            ["codex", "mcp", "list", "--json"],  # noqa: S607 — relies on PATH resolution for "codex", intentional
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        listed = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(
+            "Cannot enforce the explicit codex MCP server allowlist: failed "
+            f"to discover ambient/profile-configured servers via both "
+            f"{str(config_path)!r} and `codex mcp list --json` "
+            f"({type(exc).__name__}: {exc}). An allowlist that cannot be "
+            "enforced must fail closed rather than silently leaving "
+            "unlisted servers enabled."
+        ) from exc
+
+    if not isinstance(listed, list):
+        raise ConfigurationError(
+            "Cannot enforce the explicit codex MCP server allowlist: "
+            f"`codex mcp list --json` returned unexpected output "
+            f"(expected a JSON array, got {type(listed).__name__})."
+        )
+    return {entry["name"] for entry in listed if isinstance(entry, dict) and "name" in entry}
+
+
+# Names of this shape are generated here and belong to lionagi. It is what
+# separates a profile this code minted from one the caller asked for, so the
+# minting, the reaping and the caller-profile check all read it from one place.
+#
+# It has to be the NAME that carries this, because the profile a resumed leg
+# arrives with was written by a different process: an in-process record of what
+# this run generated cannot recognise it. So the shape is narrow, a fixed prefix
+# and exactly 32 hex characters, and it is reserved: a caller who names a
+# profile in that exact shape is treated as having named one of ours and has it
+# replaced. Anything else, `lionagi-mcp-custom` included, is the caller's and is
+# refused rather than overwritten.
+_CODEX_MCP_PROFILE_PREFIX = "lionagi-mcp-"
+_GENERATED_CODEX_PROFILE_RE = re.compile(rf"^{re.escape(_CODEX_MCP_PROFILE_PREFIX)}[0-9a-f]{{32}}$")
+
+
+def _is_generated_codex_profile(name: object) -> bool:
+    """Whether *name* is a profile name `_write_codex_mcp_secret_profile` minted."""
+    return isinstance(name, str) and _GENERATED_CODEX_PROFILE_RE.fullmatch(name) is not None
+
+
+# Profile files older than this are considered abandoned (the process that
+# wrote them was killed before its `atexit` cleanup ran, e.g. SIGKILL/crash)
+# and safe to reap on the next write.
+_STALE_PROFILE_MAX_AGE_SECONDS = 24 * 60 * 60
+
+
+def _reap_stale_codex_mcp_profiles(codex_home: Path) -> None:
+    """Delete generated profile files older than 24h.
+
+    `_write_codex_mcp_secret_profile`'s own cleanup is `atexit`-based, so a
+    killed-not-terminated process (SIGKILL, crash) leaves its profile file
+    on disk indefinitely. Reaping stale files on the next write bounds how
+    long an abandoned credential file can sit under `$CODEX_HOME`.
+    """
+    import time
+
+    cutoff = time.time() - _STALE_PROFILE_MAX_AGE_SECONDS
+    for stale in codex_home.glob(f"{_CODEX_MCP_PROFILE_PREFIX}*.config.toml"):
+        try:
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
+def _write_codex_mcp_secret_profile(
+    kwargs: dict[str, Any], secret_fields: dict[str, dict[str, Any]]
+) -> None:
+    """Route MCP server fields that may carry secret values (`env`,
+    `http_headers`) to codex via a private, on-disk config profile instead
+    of the `-c` command line.
+
+    codex layers ``$CODEX_HOME/<name>.config.toml`` on top of its base
+    config for any invocation given ``-p <name>`` (confirmed against the
+    installed CLI: a `sandbox_mode` set only in such a profile file took
+    effect on a real `codex exec` run). Writing these fields there, rather
+    than putting them on argv, keeps them out of process listings (`ps`)
+    and serialized request records.
+    """
+    import atexit
+    import uuid
+    from pathlib import Path
+
+    import toml
+
+    # Only a profile the caller asked for is a conflict. A resumed leg re-spawns
+    # from its persisted request, and that request carries the profile the first
+    # run generated here, whose file that run already deleted on its way out. So
+    # a name of our own generated shape is not a second profile to refuse, it is
+    # a spent one to replace.
+    existing_profile = kwargs.get("profile")
+    if existing_profile and not _is_generated_codex_profile(existing_profile):
+        raise ConfigurationError(
+            "Cannot forward MCP server secret fields for codex: the request "
+            f"already has an explicit profile={existing_profile!r}, and codex "
+            "accepts only one `-p` profile per invocation. Remove the "
+            "explicit profile or drop `env`/`http_headers` from the MCP "
+            "server config."
+        )
+
+    codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    codex_home.mkdir(parents=True, exist_ok=True)
+    _reap_stale_codex_mcp_profiles(codex_home)
+    profile_name = f"{_CODEX_MCP_PROFILE_PREFIX}{uuid.uuid4().hex}"
+    profile_path = codex_home / f"{profile_name}.config.toml"
+
+    profile_doc = {"mcp_servers": {name: dict(fields) for name, fields in secret_fields.items()}}
+    # The profile carries secrets: create it 0600 from the first byte instead
+    # of write-then-chmod, which leaves a umask-permission window where the
+    # contents are readable (and a wrong-mode file if the write is interrupted).
+    fd = os.open(profile_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(toml.dumps(profile_doc))
+    atexit.register(lambda: profile_path.unlink(missing_ok=True))
+
+    kwargs["profile"] = profile_name

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import yaml
 
+from lionagi._spec_limits import MAX_SPEC_PROMPT_CHARS
 from lionagi.cli.orchestrate import (
     _validate_spec_fields,
     add_orchestrate_subparser,
@@ -99,7 +100,7 @@ class TestSpecValidationRejectsBadTypes:
         assert err is not None
 
     def test_prompt_too_long(self):
-        err = _validate_spec_fields({"prompt": "x" * 8193})
+        err = _validate_spec_fields({"prompt": "x" * (MAX_SPEC_PROMPT_CHARS + 1)})
         assert err is not None
         assert "prompt" in err
 
@@ -213,7 +214,7 @@ class TestSpecValidationAcceptsValidFields:
         assert _validate_spec_fields({"prompt": "Do the thing"}) is None
 
     def test_prompt_at_max_length(self):
-        assert _validate_spec_fields({"prompt": "x" * 8192}) is None
+        assert _validate_spec_fields({"prompt": "x" * MAX_SPEC_PROMPT_CHARS}) is None
 
     def test_valid_string_fields(self):
         spec = {
@@ -265,7 +266,10 @@ class TestSpecValidationAcceptsValidFields:
 
 class TestSavePathContainment:
     def test_save_path_rejects_escape(self, tmp_path, caplog):
-        escape_path = str(Path.home().parent / "li_sec_test_escape_dir")
+        allowed_roots = (Path.cwd().resolve(), Path.home().resolve())
+        escape = Path(Path.cwd().anchor).resolve() / "li_sec_test_escape_dir"
+        assert all(not escape.is_relative_to(root) for root in allowed_roots)
+        escape_path = str(escape)
         spec_file = tmp_path / "spec.yaml"
         spec_file.write_text(
             yaml.dump({"model": "claude/opus", "prompt": "task", "save": escape_path})
@@ -301,7 +305,7 @@ class TestSavePathContainment:
         run_flow.assert_called_once()
 
 
-# ── ADR-0029: artifacts: field validation in _validate_spec_fields ────────────
+# ── ADR-0064: artifacts: field validation in _validate_spec_fields ────────────
 
 
 class TestArtifactsFieldValidation:

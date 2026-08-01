@@ -12,6 +12,15 @@ DENIED_NAMES: frozenset[str] = frozenset(
     {".env", ".netrc", "id_rsa", "id_ed25519", "id_ecdsa", ".htpasswd"}
 )
 
+_DENIED_NAMES_CASEFOLD: frozenset[str] = frozenset(name.casefold() for name in DENIED_NAMES)
+
+
+def is_protected_name(name: str) -> bool:
+    """True if name matches a protected basename, case-insensitively (case-insensitive
+    filesystems can bypass a case-sensitive check)."""
+    return name.casefold() in _DENIED_NAMES_CASEFOLD
+
+
 DANGEROUS_CHARS: frozenset[str] = frozenset("/\\\x00")
 
 GLOB_CHARS: frozenset[str] = frozenset("*?[]{}~")
@@ -25,11 +34,8 @@ def has_traversal(p: Path) -> bool:
 
 
 def resolve_workspace_path(path: str | Path, workspace_root: Path) -> Path:
-    """Resolve a tool-supplied path against workspace root with full safety checks.
-
-    Checks: expanduser, symlink detection pre-resolve, containment, denied names.
-    Raises PermissionError on any violation.
-    """
+    """Resolve a tool-supplied path against workspace root with full safety checks
+    (symlink, containment, denied names). Raises PermissionError on any violation."""
     raw = Path(path).expanduser()
     candidate = raw if raw.is_absolute() else workspace_root / raw
     if candidate.is_symlink():
@@ -39,7 +45,7 @@ def resolve_workspace_path(path: str | Path, workspace_root: Path) -> Path:
         resolved.relative_to(workspace_root)
     except ValueError as e:
         raise PermissionError(f"Path escapes workspace root: {path!r}") from e
-    if resolved.name in DENIED_NAMES:
+    if is_protected_name(resolved.name):
         raise PermissionError(f"Refusing to access protected path: {resolved.name!r}")
     return resolved
 
@@ -51,11 +57,8 @@ def check_path_safe(
     reject_absolute: bool = True,
     strip_at: bool = False,
 ) -> str:
-    """Validate a path string: reject traversal, NUL bytes, and optionally absolute paths.
-
-    Also rejects Windows-style drive-letter paths (e.g. C:foo) when reject_absolute is True.
-    Raises ValueError on any violation.
-    """
+    """Validate a path string: reject traversal, NUL bytes, and optionally absolute paths
+    (incl. Windows drive-letter paths). Raises ValueError on any violation."""
     entry = value.lstrip("@") if strip_at else value
     if "\x00" in entry:
         raise ValueError(f"{field_name} entry {value!r} contains NUL bytes")
@@ -71,7 +74,7 @@ def check_path_safe(
             f"{field_name} entry {value!r} is a Windows drive-letter path — "
             "only repo-relative paths inside the repository are allowed."
         )
-    if ".." in p.parts:
+    if has_traversal(p):
         raise ValueError(
             f"{field_name} entry {value!r} contains directory traversal ('..') — "
             "only paths that remain inside the repository are allowed."
@@ -104,6 +107,22 @@ def contain_and_resolve(path: str | Path, root: Path) -> Path:
             f"Repository: {root_resolved}, Workspace: {resolved}"
         ) from None
     return resolved
+
+
+def contain_relative_path(value: str | Path, root: Path, field_name: str = "path") -> Path:
+    """Validate `value` is a safe, root-relative path and resolve it under `root`.
+
+    The one containment predicate shared by workspace-relative consumers
+    (sandbox seed-input/artifact-manifest paths and others) — extend this
+    function rather than writing a new local check at each call site. Rejects
+    absolute paths (incl. Windows drive letters), NUL bytes, and `..`
+    traversal in the raw string via `check_path_safe()`, then resolves the
+    candidate against `root` (following symlinks) and rejects any result that
+    escapes `root` via `contain_and_resolve()`. Raises ValueError on any
+    violation and returns the resolved absolute Path on success.
+    """
+    check_path_safe(str(value), field_name)
+    return contain_and_resolve(value, root)
 
 
 def contain_path_in_root(
@@ -143,7 +162,7 @@ def contain_paths_in_root(
 def check_add_dir_safe(value: str, field_name: str) -> str:
     """Validate add_dir entry: allow absolute, reject traversal only (read-grant semantics)."""
     p = Path(value)
-    if ".." in p.parts:
+    if has_traversal(p):
         raise ValueError(
             f"{field_name} entry {value!r} contains directory traversal ('..') — "
             "use an explicit absolute path to grant access to directories outside "

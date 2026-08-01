@@ -1,6 +1,8 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
+"""Public session orchestration and graph-execution facade; new graph-execution surfaces must delegate through ``Session.flow``/the streaming kernel and include conformance coverage."""
+
 import contextlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -53,16 +55,8 @@ class Session(Node, Relational):
 
     def __init__(self, *, memory: MemoryStore | None = None, **kwargs: Any):
         super().__init__(**kwargs)
-        # `_initialize_branches` (a model validator) already ran inside
-        # `super().__init__()` and, via `include_branches()`, may have read
-        # the `.memory` property and lazily created a store, wiring it into
-        # every branch taken in at construction time (including the default
-        # branch). When an explicit store is supplied here, swap it in and
-        # rewire any branch still holding that temporary store so the whole
-        # session — not just `self._memory` — ends up pointing at the
-        # explicit store. When no explicit store is supplied, leave
-        # `self._memory` as whatever `_initialize_branches` already set, so
-        # it stays the same instance every branch was wired to.
+        # `_initialize_branches` may have lazily created + wired a store already;
+        # an explicit store here overrides it and rewires branches holding the temp one.
         temp = self._memory
         if memory is not None:
             self._memory = memory
@@ -102,12 +96,10 @@ class Session(Node, Relational):
             branch._operation_manager = self._operation_manager
             branch._observer = self.observer
             if self._hooks is not None:
-                branch._hooks = self._hooks
+                branch.attach_hook_bus(self._hooks)
             if branch._memory is None:
-                # A branch keeps an explicitly supplied or previously
-                # adopted store; first claim wins. Reading the property
-                # lazily creates the session's own store on first use, then
-                # shares that one instance across every branch taken in.
+                # First claim wins; reading self.memory lazily creates and
+                # shares one store instance across every branch taken in.
                 branch._memory = self.memory
             if not self.exchange.has(branch.id):
                 self.exchange.register(branch.id)
@@ -149,6 +141,8 @@ class Session(Node, Relational):
             from lionagi.hooks import build_session_bus
 
             self._hooks = build_session_bus(observer=self.observer)
+            for branch in self.branches:
+                branch.attach_hook_bus(self._hooks)
         return self._hooks
 
     @property
@@ -162,10 +156,7 @@ class Session(Node, Relational):
 
     @property
     def memory(self) -> MemoryStore:
-        """This session's memory store: an explicitly supplied backend, or a
-        lazily-created shared `InMemoryStore` on first access. Read-only —
-        the only way to give a `Session` its own store is the `memory=`
-        constructor parameter."""
+        """This session's memory store: explicit backend or lazily-created shared `InMemoryStore`. Read-only — only settable via the `memory=` constructor param."""
         if self._memory is None:
             self._memory = InMemoryStore()
         return self._memory
@@ -185,6 +176,10 @@ class Session(Node, Relational):
     def gate(self, check: Callable) -> "SessionObserver":
         """Set the governance gate consulted before events are dispatched."""
         return self.observer.gate(check)
+
+    def clear_gate(self) -> "SessionObserver":
+        """Remove the governance gate; dispatch and authorize() allow everything again."""
+        return self.observer.clear_gate()
 
     async def emit(self, event: Any) -> list[Any]:
         return await self.observer.emit(event)
@@ -260,12 +255,15 @@ class Session(Node, Relational):
         self.branches.exclude(branch)
         self.exchange.unregister(branch.id)
 
-        # Routing infrastructure is session-owned: tear it down so a removed
-        # branch reverts to a clean standalone state and can be reparented.
-        # Branch data (messages, memory, logs) stays with the branch.
+        # Routing infra is session-owned: torn down so branch reverts to clean,
+        # reparentable state. Branch data (messages/memory/logs) stays with it.
         branch._owning_session_id = None
         branch._observer = None
-        branch._hooks = None
+        # Routed through attach_hook_bus (not a direct `branch._hooks = None`)
+        # so the branch's handlers are actually unregistered from this
+        # session's bus -- otherwise they keep firing on it forever, even
+        # after the branch has moved to (or become standalone from) it.
+        branch.attach_hook_bus(None)
         branch._operation_manager = OperationManager()
         if branch.user == self.id:
             branch.user = None
@@ -281,7 +279,13 @@ class Session(Node, Relational):
 
     async def asplit(self, branch: ID.Ref) -> Branch:
         async with self.branches:
-            return self.split(branch)
+            branch: Branch = self.branches[branch]
+            # Use aclone, not the sync split path: aclone holds the message
+            # snapshot lock across the clone, so a concurrent sync-thread message
+            # removal cannot race the copy and raise KeyError mid-clone.
+            branch_clone = await branch.aclone(sender=self.id)
+            self.include_branches(branch_clone)
+            return branch_clone
 
     def split(self, branch: ID.Ref) -> Branch:
         branch: Branch = self.branches[branch]
@@ -371,6 +375,9 @@ class Session(Node, Relational):
         node_builder: Any = None,
         max_spawn: int = 50,
         executor_ref: dict[str, Any] | None = None,
+        on_branch_created: Callable[[Any], None] | None = None,
+        spawn_branch_setup: Callable[[Any, Any], None] | None = None,
+        on_op_complete: Callable[[Any], None] | None = None,
     ) -> dict[str, Any]:
         """Execute a graph-based DAG workflow, optionally reactive (self-expanding)."""
         from lionagi.operations.flow import flow
@@ -394,6 +401,9 @@ class Session(Node, Relational):
             node_builder=node_builder,
             max_spawn=max_spawn,
             executor_ref=executor_ref,
+            on_branch_created=on_branch_created,
+            spawn_branch_setup=spawn_branch_setup,
+            on_op_complete=on_op_complete,
         )
 
     async def flow_stream(

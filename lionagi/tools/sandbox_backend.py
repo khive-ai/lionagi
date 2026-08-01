@@ -1,16 +1,8 @@
 # Copyright (c) 2023-2025, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sandbox backend seam — one contract for provision/run_cell/collect/teardown.
-
-Backend divergence (local worktree vs. Daytona vs. future backends) is absorbed
-in ``provision()`` and ``capabilities()``; ``run_cell()``'s signature never
-changes per backend. A ``Cell`` is one scored trial and declares a ``kind``:
-``prompt_cell`` (the provider call runs host-side, already authenticated; no
-secrets cross into the box) or ``exec_cell`` (untrusted code runs inside the
-box; secrets are injected explicitly). Callers read ``capabilities()`` to
-decide what a backend can do; they never branch on a backend's name.
-"""
+"""Sandbox backend seam (ADR-0090) — one contract for provision/run_cell/collect/teardown
+across backends; see docs/internals/runtime.md for the prompt_cell/exec_cell security contract."""
 
 from __future__ import annotations
 
@@ -20,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from lionagi.libs.path_safety import check_path_safe, contain_relative_path
 from lionagi.ln.concurrency import run_sync
 
 from . import sandbox as _worktree
@@ -46,9 +39,7 @@ __all__ = (
     "select_backend_for_cell",
 )
 
-# ---------------------------------------------------------------------------
-# ADR-0079 types, adopted verbatim (frozen, codeless data types).
-# ---------------------------------------------------------------------------
+# ADR-0090 types, adopted verbatim (frozen, codeless data types).
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +78,7 @@ class ExecutionTarget:
         )
 
 
-# ---------------------------------------------------------------------------
-# ADR-0080's stream event shape, absorbed here (ADR-0089 §4 Lineage).
-# ---------------------------------------------------------------------------
+# ADR-0090's stream event shape, absorbed here (ADR-0090 §4 Lineage).
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,18 +90,14 @@ class SubstrateStreamEvent:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
-# New ADR-0089 seam types.
-# ---------------------------------------------------------------------------
+# New ADR-0090 seam types.
 
 BackendName = Literal["local_worktree", "daytona"]
 CellKind = Literal["prompt_cell", "exec_cell"]
 ColdStartClass = Literal["sub100ms", "seconds", "minutes"]
 
-#: Sentinel artifact name: ``collect(handle, [DIFF_ARTIFACT])`` returns the
-#: workspace's unified diff instead of reading a literal file at that path.
-#: The same sentinel works across backends so callers never need a
-#: backend-specific way to ask for "what changed".
+#: Sentinel: ``collect(handle, [DIFF_ARTIFACT])`` returns the unified diff instead of
+#: reading a literal file — same sentinel works across all backends.
 DIFF_ARTIFACT = "__diff__"
 
 
@@ -144,7 +129,7 @@ class ProvisionSpec:
 
 @dataclass(slots=True)
 class Handle:
-    """State, not behavior — extends ADR-0080's ``SandboxSession`` shape."""
+    """State, not behavior — extends ADR-0090's ``SandboxSession`` shape."""
 
     backend: BackendName
     remote_id: str | None
@@ -195,16 +180,10 @@ class SandboxBackend(Protocol):
     def capabilities(self) -> Capabilities: ...
 
 
-# ---------------------------------------------------------------------------
 # local_worktree backend — wraps sandbox.py's SandboxSession lifecycle.
-# ---------------------------------------------------------------------------
 
-#: ``run_cell``'s subprocess never blanket-inherits the host environment (a
-#: credential-leak vector: any secret in this process's env would otherwise be
-#: visible to the cell's command). Only these host variables are forwarded —
-#: enough to resolve the interpreter/tool chain and locate a home directory —
-#: plus whatever ``cell.env`` explicitly allow-lists (empty for prompt-cells,
-#: enforced below).
+#: run_cell's subprocess never blanket-inherits the host env (credential-leak vector) —
+#: only these vars are forwarded, plus whatever cell.env explicitly allow-lists.
 _SAFE_ENV_KEYS = ("PATH", "HOME", "PYTHONPATH", "VIRTUAL_ENV")
 
 
@@ -246,12 +225,14 @@ class LocalWorktreeBackend:
         if cell.kind == "prompt_cell" and cell.env:
             raise ValueError(
                 "prompt-cells never receive env/secrets in the box "
-                "(ADR-0089 §3): put provider auth on the host, not on cell.env"
+                "(ADR-0090): put provider auth on the host, not on cell.env"
             )
 
         base = Path(handle.remote_repo_path)
         for rel_path, content in cell.seed_inputs.items():
-            dst = base / rel_path
+            # Containment against the provisioned workspace (ADR-0090 delta 4):
+            # absolute paths, `..` traversal, and symlink escapes are all rejected.
+            dst = contain_relative_path(rel_path, base, "seed_inputs")
             dst.parent.mkdir(parents=True, exist_ok=True)
             data = content.encode("utf-8") if isinstance(content, str) else content
             dst.write_bytes(data)
@@ -291,7 +272,7 @@ class LocalWorktreeBackend:
                 diff = await _worktree.sandbox_diff(handle.metadata["session"])
                 out[rel] = diff["patch"].encode("utf-8")
                 continue
-            fp = base / rel
+            fp = contain_relative_path(rel, base, "artifact_manifest")
             out[rel] = fp.read_bytes() if fp.is_file() else b""
         return out
 
@@ -301,9 +282,7 @@ class LocalWorktreeBackend:
             await _worktree.sandbox_discard(session)
 
 
-# ---------------------------------------------------------------------------
 # daytona backend — thin adapter over daytona.py; behavior unchanged there.
-# ---------------------------------------------------------------------------
 
 
 class DaytonaBackend:
@@ -364,6 +343,10 @@ class DaytonaBackend:
 
         sandbox: DaytonaSandbox = handle.metadata["sandbox"]
         for rel_path, content in cell.seed_inputs.items():
+            # Remote filesystem: no local resolve() is possible, so reject
+            # absolute paths and `..` traversal at the string level (ADR-0090
+            # delta 4 — symlink-escape checking is scoped to the local backend).
+            check_path_safe(rel_path, "seed_inputs")
             data = content.encode("utf-8") if isinstance(content, str) else content
             await sandbox.upload_bytes(data, f"{handle.remote_repo_path}/{rel_path}")
 
@@ -416,6 +399,7 @@ class DaytonaBackend:
                 diff = await sandbox.git_diff(handle.remote_repo_path)
                 out[rel] = diff.encode("utf-8")
                 continue
+            check_path_safe(rel, "artifact_manifest")
             out[rel] = await sandbox.download(f"{handle.remote_repo_path}/{rel}")
         return out
 
@@ -424,9 +408,7 @@ class DaytonaBackend:
         await sandbox.delete()
 
 
-# ---------------------------------------------------------------------------
 # Registry + capability-driven selection.
-# ---------------------------------------------------------------------------
 
 _BACKENDS: dict[BackendName, SandboxBackend] = {}
 
@@ -444,11 +426,8 @@ def get_backend(name: BackendName) -> SandboxBackend:
 
 
 def select_backend_for_cell(cell: Cell, candidates: Sequence[SandboxBackend]) -> SandboxBackend:
-    """Pick the first candidate whose ``capabilities()`` can host ``cell``.
-
-    Reads ``capabilities()`` only — never a backend's name or type. This is
-    the pattern every caller is expected to follow (ADR-0089 §1).
-    """
+    """Pick the first candidate whose capabilities() can host cell — by capability
+    only, never by backend name/type (ADR-0090 §1)."""
     for backend in candidates:
         caps = backend.capabilities()
         if cell.kind == "prompt_cell" and not caps.hosts_prompt_cell_host_side:

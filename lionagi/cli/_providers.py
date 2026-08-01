@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,6 @@ from lionagi.libs.frontmatter import parse_frontmatter as _parse_frontmatter
 from lionagi.libs.path_safety import validate_bare_name
 from lionagi.service.providers import (
     _CLAUDE_PROVIDER_NAMES,
-    _CODEX_EFFORT_CLAMP,
     BACKENDS,
     CLI_PROVIDERS,
     EFFORT_LEVELS,
@@ -28,6 +28,7 @@ from lionagi.service.providers import (
     PROVIDERS_NO_EFFORT,
     ModelSpec,
     _clamp_claude_effort,
+    _clamp_codex_effort,
     normalize_effort,
     parse_model_spec,
 )
@@ -52,9 +53,13 @@ __all__ = (
     "resolve_model_spec",
     "resolve_persisted_effort",
     "AgentProfile",
+    "AgentProfileNotFoundError",
+    "AmbiguousProfileNameError",
+    "build_agent_profile_catalog",
     "build_deadline_preamble",
     "list_agents",
     "load_agent_profile",
+    "profile_config",
     "_parse_profile",
     "_resolve_profile_path",
     "_validate_bare_name",
@@ -97,7 +102,7 @@ def build_imodel_from_spec(
         kwarg = PROVIDER_EFFORT_KWARG.get(provider_raw)
         if kwarg is not None:
             if provider_raw == "codex":
-                effort = _CODEX_EFFORT_CLAMP.get(effort, effort)
+                effort = _clamp_codex_effort(effort, ms.model)
             elif provider_raw in _CLAUDE_PROVIDER_NAMES:
                 effort = _clamp_claude_effort(effort, ms.model)
             extra[kwarg] = effort
@@ -126,10 +131,23 @@ def build_chat_model(
     effort: str | None = None,
     fast: bool = False,
     bypass: bool = False,
+    mcp_servers: dict | None = None,
 ) -> iModel | str:
     """Legacy: for agent.py compat. Returns bare spec string when no flags."""
     effort = normalize_effort(effort)
     extra: dict = {}
+    if mcp_servers is not None:
+        from lionagi.agent.factory import apply_forwarded_mcp_servers
+
+        # Whether this provider can be given a set at all is one question with
+        # one answer, and applying it is that answer's implementation — a lane
+        # that carries a set over a different transport (codex, via config
+        # overrides) is a lane this caller must not decide about itself.
+        # An empty set is the caller stating the whole set; a non-empty one is
+        # added to whatever the provider finds for itself.
+        apply_forwarded_mcp_servers(
+            extra, mcp_servers, provider=provider, exclusive=not mcp_servers
+        )
     if bypass:
         extra.update(PROVIDER_BYPASS_KWARGS.get(provider, {}))
     elif yolo:
@@ -144,7 +162,7 @@ def build_chat_model(
         kwarg = PROVIDER_EFFORT_KWARG.get(provider)
         if kwarg is not None:
             if provider == "codex":
-                effort = _CODEX_EFFORT_CLAMP.get(effort, effort)
+                effort = _clamp_codex_effort(effort, model)
             elif provider in _CLAUDE_PROVIDER_NAMES:
                 effort = _clamp_claude_effort(effort, model)
             extra[kwarg] = effort
@@ -196,7 +214,11 @@ def resolve_model_spec(spec: str) -> tuple[str, str]:
 
 def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
     """Add shared CLI flags to any subparser."""
-    parser.add_argument("--yolo", action="store_true", help="Auto-approve tool calls.")
+    parser.add_argument(
+        "--yolo",
+        action="store_true",
+        help="Auto-approve the agent's tool calls, so an unattended run is never left waiting.",
+    )
     parser.add_argument(
         "--bypass",
         action="store_true",
@@ -211,8 +233,21 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
             "Does not change model or reasoning effort."
         ),
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Stream real-time output.")
-    parser.add_argument("--theme", choices=("light", "dark"), default=None, help="Terminal theme.")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help=(
+            "Stream the agent's output as it is produced instead of printing only the final "
+            "result, and silence the progress lines that would interleave with it."
+        ),
+    )
+    parser.add_argument(
+        "--theme",
+        choices=("light", "dark"),
+        default=None,
+        help="Pick the colour scheme printed output is tuned for: 'light' or 'dark' terminal.",
+    )
     parser.add_argument(
         "--effort",
         metavar="LEVEL",
@@ -220,7 +255,8 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "Override effort (overrides spec suffix). "
             "claude: low|medium|high|xhigh|max. "
-            "codex: none|minimal|low|medium|high|xhigh. "
+            "codex: none|minimal|low|medium|high|xhigh|max|ultra "
+            "(max/ultra clamp per model support). "
             "gemini-code/gemini-cli: folded into --model as Low|Medium|High "
             "(Gemini 3.1 Pro has no Medium)."
         ),
@@ -229,7 +265,10 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
         "--cwd",
         metavar="DIR",
         default=None,
-        help="Working directory for CLI endpoints.",
+        help=(
+            "Directory the agent's process runs in — the repo or worktree it acts on. "
+            "Defaults to the current directory."
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -243,14 +282,12 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
             "accordingly."
         ),
     )
-    # ADR-0020: opt-in skill-orchestration grouping. Set by a skill via
-    # ``li invoke start``; threaded through to the session row so the
-    # Studio /invocations page can show 14 sessions under one /show row.
+    # Set by a skill via ``li invoke start``; groups sessions under one /show row.
     parser.add_argument(
         "--invocation",
         dest="invocation",
         metavar="ID",
-        default=None,
+        default=os.getenv("LIONAGI_INVOCATION_ID") or None,
         help=(
             "Parent invocation id (from `li invoke start`). Groups this "
             "session under a skill orchestration record. Optional."
@@ -276,6 +313,16 @@ def add_common_cli_args(parser: argparse.ArgumentParser) -> None:
             "task' and report the combined result. Bounded to a single "
             "auto-resume; a timeout on the resumed leg terminates normally. "
             "Same effect as an agent profile's 'resume_on_timeout: once'."
+        ),
+    )
+    parser.add_argument(
+        "--notify",
+        metavar="CMD",
+        default=None,
+        help=(
+            "Shell command template run once this run reaches its terminal "
+            "status. Overrides .lionagi/settings.yaml notify.on_terminal. "
+            "Substitutes {payload} (full JSON), {status}, {invocation_id}."
         ),
     )
 
@@ -318,8 +365,10 @@ class AgentProfile:
     model: str | None = None
     effort: str | None = None
     yolo: bool = False
+    bypass: bool = False
     fast_mode: bool = False
     lion_system: bool = True
+    khive_injection: Any = None
     artifact_defaults: dict | None = None
     timeout: int | None = None
     """Default --timeout (seconds) used when the CLI flag is not given."""
@@ -328,27 +377,112 @@ class AgentProfile:
     extra: dict = field(default_factory=dict)
 
 
-def _find_lionagi_dir() -> Path | None:
-    """Find first .lionagi/ directory (backward compat)."""
-    dirs = _find_lionagi_dirs()
-    return dirs[0] if dirs else None
+def _unreadable_symlink_target(path: Path) -> str | None:
+    """Return a broken/non-file symlink's declared target, if applicable."""
+    if not path.is_symlink() or path.is_file():
+        return None
+    try:
+        return str(path.readlink())
+    except OSError:
+        return "<unreadable>"
 
 
-def _resolve_profile_path(agents_dir: Path, name: str) -> Path | None:
-    """Return profile path for NAME: directory layout (<name>/<name>.md) before flat (<name>.md)."""
-    dir_candidate = agents_dir / name / f"{name}.md"
-    if dir_candidate.is_file():
-        return dir_candidate
-    flat_candidate = agents_dir / f"{name}.md"
-    if flat_candidate.is_file():
-        return flat_candidate
-    return None
+class AmbiguousProfileNameError(ValueError):
+    """One agents dir declares a name under both '-' and '_' spellings."""
+
+
+class AgentProfileNotFoundError(FileNotFoundError):
+    """No profile of that name exists on the search path.
+
+    A subclass rather than a bare FileNotFoundError so a caller can tell "there
+    is no such profile" from "a profile was found and then could not be read".
+    The two are the same exception type otherwise, and a caller acting on the
+    first would silently swallow the second.
+    """
+
+
+def _name_spellings(name: str) -> tuple[str, ...]:
+    """NAME plus its separator spellings, requested spelling first.
+
+    '-' and '_' are interchangeable in a profile name, so a role written
+    ``postmortem-lead`` everywhere else still finds ``postmortem_lead.md``.
+    """
+    return tuple(dict.fromkeys((name, name.replace("-", "_"), name.replace("_", "-"))))
+
+
+def _profile_path_candidates(agents_dir: Path, name: str) -> tuple[Path, ...]:
+    """Where NAME may live in one agents dir, in the order resolution tries them.
+
+    Two layouts share a directory, and either may spell the name with '-' or
+    '_', so a root can hold more than one declaration of the same name.
+    Anything reporting which files declare a profile has to walk the same
+    candidates in the same order as the resolver, or it reports a displaced
+    file in one root while missing one in another.
+    """
+    return tuple(
+        path
+        for spelling in _name_spellings(name)
+        for path in (agents_dir / spelling / f"{spelling}.md", agents_dir / f"{spelling}.md")
+    )
+
+
+def _resolve_profile_path(
+    agents_dir: Path,
+    name: str,
+    *,
+    unreadable_symlinks: list[tuple[Path, str]] | None = None,
+) -> Path | None:
+    """Return profile path for NAME, recording unreadable candidate symlinks.
+
+    The spelling actually asked for wins outright when it exists. Only a
+    request that does *not* name an existing file falls back to the other
+    separator spelling, so a directory deliberately holding two profiles that
+    differ only in separator keeps resolving both, exactly as it did before
+    the spellings became interchangeable.
+
+    Failing that, two spellings matching one request in a single directory are
+    an error rather than a ranking: whichever one lost would be invisible to
+    the caller. Two spellings in *different* roots are ordinary shadowing,
+    decided by root order, and are resolved by the caller walking the roots.
+    """
+    resolved: dict[str, Path] = {}
+    for spelling in _name_spellings(name):
+        for candidate in (agents_dir / spelling / f"{spelling}.md", agents_dir / f"{spelling}.md"):
+            if candidate.is_file():
+                resolved.setdefault(spelling, candidate)
+                continue
+            target = _unreadable_symlink_target(candidate)
+            if target is not None and unreadable_symlinks is not None:
+                unreadable_symlinks.append((candidate, target))
+
+    if name in resolved:
+        return resolved[name]
+    if len(resolved) > 1:
+        matched = ", ".join(str(p) for p in resolved.values())
+        raise AmbiguousProfileNameError(
+            f"Agent profile name '{name}' is ambiguous in {agents_dir}: "
+            f"'-' and '_' are interchangeable, and both spellings exist ({matched}). "
+            "Rename or remove one of them."
+        )
+    return next(iter(resolved.values()), None)
+
+
+def _plugin_agent_profiles() -> dict[str, tuple[str, Path]]:
+    """``<plugin>/<name>`` -> (plugin name, profile path) for every ACTIVE plugin (trusted+enabled+compatible).
+
+    A plugin's agent profiles only ever join the search *after* project and
+    global profiles: local files always win, and an untrusted or disabled
+    plugin contributes nothing here at all.
+    """
+    from lionagi.plugins import PluginRegistry
+
+    return PluginRegistry.active_agent_profile_files()
 
 
 def list_agents() -> list[str]:
-    """List available agent profile names (merged across all .lionagi/ dirs).
+    """List available agent profile names, merged across .lionagi/ dirs and active plugins.
 
-    Discovers both directory (<name>/<name>.md) and flat (<name>.md) layouts.
+    Plugin-declared profiles are namespaced as ``<plugin>/<name>``.
     """
     seen: set[str] = set()
     for d in _find_lionagi_dirs():
@@ -357,44 +491,143 @@ def list_agents() -> list[str]:
             continue
         # Directory layout
         for child in agents_dir.iterdir():
-            if child.is_dir() and (child / f"{child.name}.md").is_file():
+            profile_path = child / f"{child.name}.md"
+            if _unreadable_symlink_target(profile_path) is not None:
+                continue
+            if child.is_dir() and profile_path.is_file():
                 seen.add(child.name)
         # Flat legacy layout
         for p in agents_dir.glob("*.md"):
+            if _unreadable_symlink_target(p) is not None:
+                continue
             if p.is_file():
                 seen.add(p.stem)
+    seen.update(_plugin_agent_profiles().keys())
     return sorted(seen)
 
 
+def profile_config(profile: AgentProfile) -> dict[str, Any]:
+    """The runtime configuration a loaded profile contributes, as plain JSON values.
+
+    The one place that decides which fields a discovery surface reports — and
+    which it withholds. Prompt bodies are deliberately absent: discovery is not a
+    second path for exposing or copying profile instructions. Every reader of the
+    roster goes through here so they cannot disagree about either half.
+    """
+    return {
+        "model": profile.model,
+        "effort": profile.effort,
+        "role": profile.extra.get("role"),
+        "pack": profile.extra.get("pack"),
+        "yolo": profile.yolo,
+        "bypass": profile.bypass,
+        "fast_mode": profile.fast_mode,
+        "lion_system": profile.lion_system,
+        "khive_injection": profile.khive_injection,
+        "timeout": profile.timeout,
+        "resume_on_timeout": profile.resume_on_timeout,
+    }
+
+
+def build_agent_profile_catalog() -> dict[str, dict[str, Any]]:
+    """Index discoverable profiles by name and resolved runtime configuration."""
+    return {name: profile_config(load_agent_profile(name)) for name in list_agents()}
+
+
+def _resolve_plugin_profile_path(name: str) -> Path | None:
+    """Resolve *name* against active plugins: an explicit ``<plugin>/<agent>`` token always
+
+    resolves; a bare name resolves only when exactly one active plugin declares it
+    (ambiguous bare names are left unresolved — namespacing exists precisely so a
+    caller can disambiguate).
+    """
+    plugin_profiles = _plugin_agent_profiles()
+    if "/" in name:
+        entry = plugin_profiles.get(name)
+        return entry[1] if entry is not None else None
+
+    matches = [
+        path for token, (_plugin, path) in plugin_profiles.items() if token.endswith(f"/{name}")
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _warn_if_shadowing_plugin_profile(name: str) -> None:
+    """Log a shadow warning when a local agent profile hides a same-named plugin profile.
+
+    The user's own explicit local file always wins on a bare-name collision;
+    this only makes the shadowing visible instead of silent.
+    """
+    plugin_profiles = _plugin_agent_profiles()
+    owners = sorted(
+        {token.split("/", 1)[0] for token in plugin_profiles if token.endswith(f"/{name}")}
+    )
+    if not owners:
+        return
+    from ._logging import warn
+
+    warn(
+        f"agent profile {name!r} is also declared by plugin(s) {', '.join(owners)}; "
+        f"using the local file (load the plugin's version with '<plugin>/{name}')."
+    )
+
+
 def load_agent_profile(name: str) -> AgentProfile:
-    """Load a named agent profile, searching project-local then global ~/.lionagi/agents/."""
-    _validate_bare_name(name)
+    """Load a named agent profile, searching project-local then global ~/.lionagi/agents/,
+
+    then active plugin bundles: a plugin's agent profiles join the search
+    only after a project/global miss, and only for a plugin that is trusted +
+    enabled + version-compatible (see ``lionagi.plugins``).
+    """
+    plugin_token = "/" in name
+    if plugin_token:
+        # A `<plugin>/<name>` token is opaque to the bare-name validator
+        # (which forbids '/'); validate each component instead.
+        plugin_part, _, agent_part = name.partition("/")
+        _validate_bare_name(plugin_part)
+        _validate_bare_name(agent_part)
+    else:
+        _validate_bare_name(name)
+
     dirs = _find_lionagi_dirs()
-    if not dirs:
-        raise FileNotFoundError(
+    unreadable_symlinks: list[tuple[Path, str]] = []
+    if not plugin_token:
+        for d in dirs:
+            path = _resolve_profile_path(
+                d / "agents",
+                name,
+                unreadable_symlinks=unreadable_symlinks,
+            )
+            if path is not None:
+                _warn_if_shadowing_plugin_profile(name)
+                text = path.read_text()
+                return _parse_profile(name, text)
+
+    plugin_path = _resolve_plugin_profile_path(name)
+    if plugin_path is not None:
+        return _parse_profile(name, plugin_path.read_text())
+
+    if not dirs and not plugin_token:
+        raise AgentProfileNotFoundError(
             "No .lionagi/ directory found. Create .lionagi/agents/ in your repo "
             "or ~/.lionagi/agents/ globally."
         )
 
-    for d in dirs:
-        path = _resolve_profile_path(d / "agents", name)
-        if path is not None:
-            text = path.read_text()
-            return _parse_profile(name, text)
-
-    available = list_agents()
+    available = sorted(_plugin_agent_profiles().keys()) if plugin_token else list_agents()
     msg = f"Agent profile '{name}' not found"
+    for path, target in unreadable_symlinks:
+        msg += f"\n{path} exists but its symlink target is unreadable: {target}"
     if available:
         msg += f"\nAvailable: {', '.join(available)}"
-    raise FileNotFoundError(msg)
+    raise AgentProfileNotFoundError(msg)
 
 
 def _parse_profile_timeout(name: str, raw: Any) -> int | None:
     """Validate the profile 'timeout' field; warn and ignore garbage rather than raising.
 
-    Only a genuine positive int is accepted — YAML booleans (True/False are
-    ints in Python) and floats (which int() would silently truncate) are
-    rejected rather than coerced.
+    See docs/internals/cli.md for why bool/float are rejected, not coerced.
     """
     if raw is None:
         return None
@@ -442,8 +675,10 @@ def _parse_profile(name: str, text: str) -> AgentProfile:
         model=frontmatter.get("model"),
         effort=frontmatter.get("effort"),
         yolo=bool(frontmatter.get("yolo", False)),
+        bypass=bool(frontmatter.get("bypass", False)),
         fast_mode=bool(frontmatter.get("fast_mode", False)),
         lion_system=lion_system,
+        khive_injection=frontmatter.get("khive_injection"),
         artifact_defaults=frontmatter.get("artifact_defaults"),
         timeout=_parse_profile_timeout(name, frontmatter.get("timeout")),
         resume_on_timeout=_parse_profile_resume_on_timeout(
@@ -457,8 +692,10 @@ def _parse_profile(name: str, text: str) -> AgentProfile:
                 "model",
                 "effort",
                 "yolo",
+                "bypass",
                 "fast_mode",
                 "lion_system",
+                "khive_injection",
                 "artifact_defaults",
                 "timeout",
                 "resume_on_timeout",

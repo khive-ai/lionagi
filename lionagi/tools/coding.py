@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import re
 import shlex
 from collections.abc import Callable, Sequence
@@ -32,17 +33,14 @@ from .file.reader import _list_dir_sync as _file_list_dir_sync
 from .file.reader import _read_sync as _file_read_sync
 
 if TYPE_CHECKING:
+    from lionagi.agent.nudge import NudgeEngine, NudgeRule
     from lionagi.session.branch import Branch
 
+logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Request models (LLM-facing schemas)
-# ---------------------------------------------------------------------------
-# ReaderRequest and EditorRequest are imported from file/reader.py and
-# file/editor.py. BashRequest, SearchAction, and SearchRequest are imported
-# from code/bash.py and code/search.py — those are the canonical definitions.
-# SandboxRequest and SubagentRequest have no standalone equivalent and are
-# defined here.
+
+# Request models (LLM-facing schemas). Reader/Editor/Bash/Search request types
+# are imported from file/reader.py, file/editor.py, code/bash.py, code/search.py.
 
 
 class SandboxAction(str, Enum):
@@ -99,9 +97,7 @@ class SubagentRequest(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
 # Blocking helpers (run via run_sync in async tools)
-# ---------------------------------------------------------------------------
 
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
@@ -268,9 +264,7 @@ def _edit_file_sync(
     }
 
 
-# ---------------------------------------------------------------------------
 # CodingToolkit
-# ---------------------------------------------------------------------------
 
 
 ALL_CODING_TOOLS: tuple[str, ...] = (
@@ -294,6 +288,7 @@ DEFAULT_CODING_TOOLS: tuple[str, ...] = (
     "code_check",
     "code_nav",
     "ast_search",
+    "context",
 )
 
 
@@ -348,7 +343,13 @@ class CodingToolkit(LionTool):
         notify_max_tokens: int = 200_000,
         workspace_root: str | Path | None = None,
         tools: Sequence[str] | None = None,
+        nudge_engine: NudgeEngine | None = None,
+        nudge_rules: Sequence[NudgeRule] | None = None,
+        sandbox_allow_protected: bool = False,
     ):
+        """sandbox_allow_protected: operator-only trust decision (deliberately absent
+        from SandboxRequest) gating whether sandbox merge may target a protected branch.
+        """
         self._security_pre_hooks: dict[str, list[Callable]] = {}
         self._pre_hooks: dict[str, list[Callable]] = {}
         self._post_hooks: dict[str, list[Callable]] = {}
@@ -357,58 +358,65 @@ class CodingToolkit(LionTool):
         self.notify_threshold = notify_threshold
         self.notify_max_tokens = notify_max_tokens
         self.workspace_root = Path(workspace_root or Path.cwd()).expanduser().resolve()
+        self.sandbox_allow_protected = sandbox_allow_protected
         selected = tuple(tools) if tools is not None else DEFAULT_CODING_TOOLS
         unknown = [t for t in selected if t not in ALL_CODING_TOOLS]
         if unknown:
             raise ValueError(f"unknown coding tool(s): {unknown}. Valid: {list(ALL_CODING_TOOLS)}")
         self.enabled_tools = selected
+        self.nudge_engine = nudge_engine
+        self.nudge_rules = tuple(nudge_rules) if nudge_rules is not None else ()
+        self._bound_nudge_engine: NudgeEngine | None = None
 
     def bind(self, branch: Branch) -> list[Tool]:
         from lionagi.protocols.messages import ActionResponse
 
         file_state: dict[str, float] = {}
-        call_count = [0]
+        read_tracked: set[str] = set()
         msgs = branch.msgs
         notify = self.notify
         workspace_root = self.workspace_root
 
-        def _system_status() -> str | None:
-            if not notify:
-                return None
-            call_count[0] += 1
+        engine: NudgeEngine | None = None
+        if notify:
+            from lionagi.agent.nudge import NudgeEngine, default_nudge_rules
 
-            from lionagi.service.token_budget import get_token_budget
+            engine = self.nudge_engine
+            if engine is None:
+                rules = default_nudge_rules() + list(self.nudge_rules)
+                engine = NudgeEngine(branch, rules=rules)
+        self._bound_nudge_engine = engine
 
-            budget = get_token_budget(branch)
-            n_active = len(branch.progression)
-            n_total = len(msgs.progression)
-            n_files = len(file_state)
-
-            n_action_results = 0
+        def _invalidate_stale_reads() -> None:
+            """Drop file_state entries whose backing read was evicted/compacted —
+            otherwise the read-before-edit guard stays satisfied for a read the model can no longer see."""
+            if not read_tracked:
+                return
+            active = branch.progression
             pile = msgs.messages
-            for uid in branch.progression:
-                if uid in pile and isinstance(pile[uid], ActionResponse):
-                    n_action_results += 1
-
-            parts = [
-                f"context {budget.used // 1000}k/{budget.limit // 1000}k tokens ({budget.usage_pct:.0%})"
-            ]
-            parts.append(f"{n_active} messages")
-            if n_action_results > 0:
-                parts.append(f"{n_action_results} action results")
-            if n_files > 0:
-                parts.append(f"{n_files} files tracked")
-            if n_total > n_active:
-                parts.append(f"{n_total - n_active} evicted")
-
-            status = f"[System: {', '.join(parts)}]"
-
-            if budget.is_critical:
-                status += " ⚠️ Context nearly full — evict old action results now."
-            elif budget.is_warning:
-                status += " Consider evicting earlier action results to free space."
-
-            return status
+            active_paths: set[str] = set()
+            for uid in active:
+                if uid not in pile:
+                    continue
+                m = pile[uid]
+                if not isinstance(m, ActionResponse):
+                    continue
+                c = m.content
+                if getattr(c, "function", None) != "reader":
+                    continue
+                args = getattr(c, "arguments", None) or {}
+                if args.get("action") != "read":
+                    continue
+                p = args.get("path")
+                if not p:
+                    continue
+                try:
+                    active_paths.add(str(_resolve_workspace_path(p, workspace_root).resolve()))
+                except PermissionError:
+                    continue
+            for p in [p for p in read_tracked if p not in active_paths]:
+                read_tracked.discard(p)
+                file_state.pop(p, None)
 
         def _check_read_guard(path: str) -> str | None:
             try:
@@ -426,16 +434,18 @@ class CodingToolkit(LionTool):
                 return f"File changed since last read: {path}. Read it again."
             return None
 
-        def _track(result: dict):
+        def _track(result: dict, *, is_read: bool = False):
             resolved = result.pop("_resolved", None)
             mtime = result.pop("_mtime", None)
             if resolved and mtime is not None:
                 file_state[resolved] = mtime
+                if is_read:
+                    read_tracked.add(resolved)
+                else:
+                    read_tracked.discard(resolved)
 
-        # Cache for documents opened via action='open' (docling conversion).
-        # Keyed by path; values are (text, cached_at) tuples — same layout as
-        # the standalone ReaderTool cache so _read_cached/_evict_expired work
-        # without modification.
+        # Docling conversion cache, keyed by path — same (text, cached_at)
+        # layout as ReaderTool's cache so _read_cached/_evict_expired reuse it.
         _open_cache: dict[str, tuple[str, float]] = {}
 
         async def reader(
@@ -446,13 +456,8 @@ class CodingToolkit(LionTool):
             recursive: bool = None,
             file_types: list[str] = None,
         ) -> dict:
-            """Read files, convert documents, or list directory contents.
-
-            Use action='read' to get file contents with line numbers.
-            Use action='open' to convert a document (PDF, PPTX, DOCX, HTML) to
-            text via docling — the result is cached by path so you can then use
-            action='read' with offset/limit on the same path to paginate it.
-            Use action='list_dir' to list files. Always read a file before editing it.
+            """Read files, convert documents (PDF/PPTX/DOCX/HTML via docling), or list directory contents.
+            Use action='open' then action='read' with offset/limit to paginate a converted document.
             """
             # Canonical empty-path contract: every reader action requires path,
             # matching ReaderTool.handle_request's pre-dispatch guard.
@@ -478,7 +483,7 @@ class CodingToolkit(LionTool):
                         "error": cached.error,
                     }
                 result = await run_sync(_read_file_sync, path, start, max_lines, workspace_root)
-                _track(result)
+                _track(result, is_read=True)
                 return result
             elif action == "list_dir":
                 return await run_sync(
@@ -494,12 +499,8 @@ class CodingToolkit(LionTool):
             new_string: str = None,
             replace_all: bool = False,
         ) -> dict:
-            """Write or edit files. You must read a file before editing it.
-
-            Use action='write' to create or overwrite. Use action='edit' for
-            exact string replacement — safer than full rewrites. When building
-            old_string from reader output, strip the `<number>\\t` line-number
-            prefix and keep only the code, with its exact indentation.
+            """Write or edit files on disk; you must read a file (via reader) before editing it.
+            action='edit' does exact string replacement — strip the `<number>\\t` prefix from reader output before using it as old_string.
             """
             if action == "write":
                 if content is None:
@@ -541,11 +542,7 @@ class CodingToolkit(LionTool):
             cwd: str = None,
         ) -> dict:
             """Execute a single shell command and return stdout, stderr, and return code.
-
-            Use for running builds, tests, git commands, and any system operations.
-            One command per call — shell operators (&&, ||, |, ;, redirects, backticks,
-            $(...)) are rejected; pass cwd= to run in a directory. Output is truncated
-            if it exceeds 100 KB per stream.
+            One command per call — shell operators (&&, ||, |, ;, redirects, backticks, $(...)) are rejected; pass cwd= to run in a directory. Output is truncated if it exceeds 100 KB per stream.
             """
             timeout_ms = max(1, min(timeout or 30000, 300000))
             timeout_s = timeout_ms / 1000.0
@@ -583,9 +580,7 @@ class CodingToolkit(LionTool):
             include: str = None,
             max_results: int = None,
         ) -> dict:
-            """Search file contents (grep) or find files by name.
-
-            Use action='grep' to search with regex. Use action='find' for file names.
+            """Search file contents by regex (action='grep') or find files by name (action='find').
             Results are capped at max_results to prevent context overflow.
             """
             if action == "grep":
@@ -639,12 +634,10 @@ class CodingToolkit(LionTool):
             summary: str = None,
             mode: str = None,
             scope: str = None,
+            auto: bool = False,
         ) -> dict:
-            """Manage your conversation context — check usage, list messages, evict old ones.
-
-            Use this to stay within context limits during long tasks. Evict verbose
-            tool outputs you no longer need to free space for new work.
-            Evicted messages are hidden from the LLM but preserved in conversation record.
+            """Manage your conversation context — check usage, list messages, evict/restore/compact them.
+            Evicted or compacted messages are hidden from your view but preserved in the full conversation record.
             """
             result = await _ctx_func(
                 action=action,
@@ -654,7 +647,14 @@ class CodingToolkit(LionTool):
                 summary=summary,
                 mode=mode,
                 scope=scope,
+                auto=auto,
             )
+            if (
+                action in ("evict", "evict_action_results", "compact")
+                and isinstance(result, dict)
+                and result.get("success")
+            ):
+                _invalidate_stale_reads()
             if action == "status" and isinstance(result, dict) and result.get("success"):
                 result["files_tracked"] = len(file_state)
             return result
@@ -662,7 +662,22 @@ class CodingToolkit(LionTool):
         async def _notify_post(
             tool_name: str, action: str, args: dict, result: dict
         ) -> dict | None:
-            status = _system_status()
+            if engine is None:
+                return result
+            try:
+                ok = (
+                    result.get("success", result.get("return_code") == 0)
+                    if isinstance(result, dict)
+                    else True
+                )
+                engine.record_call(tool_name, action, ok)
+                status = engine.evaluate(files_tracked=len(file_state))
+            except Exception:
+                logger.warning(
+                    "NudgeEngine evaluation failed; returning tool result unmodified",
+                    exc_info=True,
+                )
+                return result
             if status and isinstance(result, dict):
                 result["system"] = status
             return result
@@ -676,10 +691,8 @@ class CodingToolkit(LionTool):
             action: str,
             message: str = None,
         ) -> dict:
-            """Work in an isolated git worktree — safe experimentation with easy merge/discard.
-
-            Workflow: create → make changes (edit/bash in sandbox dir) → diff → commit → merge or discard.
-            The sandbox is a real git branch. Merge applies your changes; discard throws them away.
+            """Work in an isolated git worktree — safe experimentation with easy merge or discard.
+            Workflow: create -> edit/bash in the sandbox dir -> diff -> commit -> merge (applies changes) or discard (throws them away).
             """
             from .sandbox import (
                 create_sandbox,
@@ -722,20 +735,30 @@ class CodingToolkit(LionTool):
                 }
 
             if action == "diff":
-                return {"success": True, **(await sandbox_diff(session))}
+                try:
+                    return {"success": True, **(await sandbox_diff(session))}
+                except RuntimeError as e:
+                    return {"success": False, "error": str(e)}
             elif action == "commit":
                 if not message:
                     return {"success": False, "error": "'message' required for commit."}
                 return await sandbox_commit(session, message)
             elif action == "merge":
-                result = await sandbox_merge(session)
-                if result.get("success"):
+                result = await sandbox_merge(session, allow_protected=self.sandbox_allow_protected)
+                if not result.get("success"):
+                    return result
+                if result.get("worktree_removed") and result.get("branch_deleted"):
                     _sandbox_session[0] = None
-                return result
+                    return result
+                # Merge landed but cleanup is incomplete — keep the session (retry via
+                # discard) and report non-success so callers can't mistake it for closed.
+                return {**result, "success": False}
             elif action == "discard":
                 result = await sandbox_discard(session)
-                _sandbox_session[0] = None
-                return {"success": True, **result}
+                if result.get("worktree_removed") and result.get("branch_deleted"):
+                    _sandbox_session[0] = None
+                    return {"success": True, **result}
+                return {"success": False, **result}
 
             return {"success": False, "error": f"Unknown action: {action}"}
 
@@ -745,17 +768,8 @@ class CodingToolkit(LionTool):
             max_turns: int = 20,
             cwd: str = None,
         ) -> dict:
-            """Spawn a sub-agent to handle a task independently.
-
-            The sub-agent gets its own Branch with coding tools and runs a
-            ReAct loop. Use for delegating research, exploration, or scoped
-            edits without polluting your own context. Results are returned
-            as a summary — the sub-agent's full conversation stays separate.
-
-            Permission levels control what the sub-agent can do:
-            - read_only: search + read files only (safest for research)
-            - safe: read + write + search, bash restricted (no rm/sudo)
-            - allow_all: full access (use for trusted implementation tasks)
+            """Spawn a sub-agent with its own Branch and coding tools to handle a task independently via a ReAct loop.
+            permissions controls what it can do: read_only (search/read only), safe (read/write/search, bash restricted), or allow_all (full access).
             """
             from lionagi.agent.spec import AgentSpec
 
@@ -813,20 +827,8 @@ class CodingToolkit(LionTool):
             tool: str = "ruff",
             max_diagnostics: int = 50,
         ) -> dict:
-            """Run static analysis on Python files and return structured diagnostics.
-
-            Call this after editing a file to get immediate IDE-grade feedback.
-            Each diagnostic is returned as file:line:col with code and message so
-            the agent can locate and fix the issue without re-reading the file.
-
-            Composability (edit -> check workflow):
-              1. editor(action='edit', file_path=..., old_string=..., new_string=...)
-              2. code_check(paths=[<same file_path>])
-              3. Diagnostics list gives actionable file:line:col entries to fix next.
-
-            Supported tools:
-            - 'ruff': fast Python linter (default). Requires ruff in PATH.
-              Returns status='unavailable' if the binary is absent — not an error.
+            """Run static analysis (ruff) on Python files and return structured file:line:col diagnostics.
+            Call after editing a file for immediate feedback; returns status='unavailable' if ruff is not installed.
             """
             resolved_paths, err = _resolve_check_paths(paths, workspace_root)
             if err is not None:
@@ -835,13 +837,7 @@ class CodingToolkit(LionTool):
             return resp.model_dump()
 
         async def code_nav(action: str, path: str, symbol: str | None = None) -> dict:
-            """Navigate Python source without reading the full file.
-
-            Actions:
-            - 'outline': list all class/function signatures in a file (cheap context).
-            - 'find_definition': locate where a named symbol is defined.
-            - 'find_references': find all uses of a symbol in the file.
-            """
+            """Navigate Python source without reading the full file — outline signatures, find a definition, or find references."""
             try:
                 resolved = str(_resolve_workspace_path(path, workspace_root))
             except PermissionError as exc:
@@ -874,11 +870,8 @@ class CodingToolkit(LionTool):
             lang: str = "python",
             max_results: int = 50,
         ) -> dict:
-            """Search source code by AST shape using ast-grep (sg).
-
-            Finds structural patterns rather than text — catches syntax constructs
-            regardless of whitespace. Returns status='unavailable' if the sg binary
-            is absent (not an error).
+            """Search source code by AST shape using ast-grep (sg) — structural patterns, not text (whitespace-independent).
+            Returns status='unavailable' if the sg binary is absent, not an error.
             """
             try:
                 resolved = str(_resolve_workspace_path(path, workspace_root))

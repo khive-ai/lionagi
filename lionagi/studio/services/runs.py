@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import math
+import os
+import stat
 import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Query
 
+from lionagi.libs.path_safety import resolve_workspace_path
+
 from ..registry import studio_route
 from . import sessions as _sessions_svc
 from ._path_safety import public_path
+
+# Read-only file viewer cap (ADR file-links feature): large artifacts are
+# truncated rather than rejected outright, so a giant log still previews.
+_MAX_FILE_READ_BYTES = 2_000_000
 
 _STATUS_ALIASES: dict[str, set[str]] = {
     "done": {"done", "completed", "success", "finished"},
@@ -439,52 +447,27 @@ def _build_steps(
     return steps if steps else None
 
 
-def _adapt_detail(
-    run_id: str,
-    state_root: Path,
-    artifact_root: Path,
-    manifest: dict[str, Any],
-    branches: list[dict[str, Any]],
-) -> dict[str, Any]:
-    summary = _adapt_summary(manifest, run_id, state_root, artifact_root)
-    graph = _build_graph(manifest)
-    steps = manifest.get("steps")
-    if not steps:
-        steps = _build_steps(manifest, branches)
+def _session_liveness(s: dict[str, Any], ps_snapshot: str | None = None) -> bool | None:
+    """Tri-state liveness for a running session row, via the shared admin oracle."""
+    from .admin import process_liveness
 
-    return {
-        **summary,
-        "error": manifest.get("error") or None,
-        "cwd": manifest.get("cwd") or None,
-        "steps": steps,
-        "graph": graph,
-        "manifest": manifest,
-        "branches": branches,
-        "artifact_contract_json": manifest.get("artifact_contract_json")
-        or manifest.get("artifact_contract"),
-        "artifact_verification_json": manifest.get("artifact_verification_json")
-        or manifest.get("artifact_verification"),
-    }
+    ap = s.get("artifacts_path")
+    return process_liveness(s, Path(ap) if ap else None, ps_snapshot)
 
 
-def _run_row(s: dict[str, Any], now: float) -> dict[str, Any]:
-    """The canonical Run row shape. Shared by the list and detail routes so the
-    two can never drift out of contract (the detail route used to drop fields the
-    list route emits, e.g. invocation_id). Caller supplies a session dict carrying
-    branch_count / message_count / last_message_at.
-    """
-    from lionagi.state.health import SessionHealth, classify_session_health
+def _run_row(s: dict[str, Any], now: float, *, process_alive: bool | None = None) -> dict[str, Any]:
+    """Canonical Run row shape shared by list and detail routes."""
+    from lionagi.state.health import classify_session_health
 
     health = classify_session_health(
         s,
         now=now,
-        process_alive=True,
+        process_alive=process_alive,
         has_artifacts=bool(s.get("artifacts_path")),
         has_stale_locks=False,
     )
-    effective_health = (
-        SessionHealth.STALE.value if health == SessionHealth.UNRESPONSIVE else health.value
-    )
+    # Expose the classifier verdict verbatim; the dashboard maps UNRESPONSIVE→"stuck".
+    effective_health = health.value
     return {
         "run_id": s["id"],
         "id": s["id"],
@@ -513,6 +496,9 @@ def _run_row(s: dict[str, Any], now: float) -> dict[str, Any]:
         "message_count": s.get("message_count", 0),
         "project": s.get("project"),
         "project_source": s.get("project_source"),
+        "status_reason_code": s.get("status_reason_code"),
+        "status_reason_summary": s.get("status_reason_summary"),
+        "tags": [],
     }
 
 
@@ -521,35 +507,54 @@ async def list_runs(
     status: str | list[str] | None = None,
     project: str | None = None,
     project_null: bool = False,
+    tag: list[str] | None = None,
+    *,
+    limit: int = _sessions_svc.MAX_SESSION_PAGE,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
-    sessions = await _sessions_svc.list_sessions()
-    status_set = _normalize_status_filter(status)
+    """One page of runs. Filters are applied in SQL so the page is selected
+    rather than sieved out of a whole-store read; per-row liveness and tag
+    hydration then touch only the rows actually being returned."""
+    from . import run_tags
+
+    where = _sessions_svc.SessionFilter(
+        playbook=playbook,
+        statuses=_normalize_status_filter(status),
+        project=project,
+        project_null=project_null,
+        tags=tag,
+    )
+    sessions = await _sessions_svc.list_sessions(limit=limit, offset=offset, where=where)
     now = time.time()
     out = []
+    snapshot: str | None = None
     for s in sessions:
-        if playbook and playbook.lower() not in (s.get("playbook_name") or "").lower():
-            continue
-        if project_null:
-            if s.get("project") is not None:
-                continue
-        elif project and s.get("project") != project:
-            continue
-        if status_set and s.get("status") not in status_set:
-            continue
-        out.append(_run_row(s, now))
+        alive: bool | None = None
+        if s.get("status") == "running":
+            if snapshot is None:
+                from .admin import _ps_snapshot
+
+                snapshot = _ps_snapshot()
+            alive = _session_liveness(s, snapshot)
+        out.append(_run_row(s, now, process_alive=alive))
+
+    tagmap = await run_tags.tags_for_sessions([r["id"] for r in out])
+    for r in out:
+        r["tags"] = tagmap.get(r["id"], [])
     return out
 
 
 def paginate_runs(
-    runs: list[dict[str, Any]],
+    page_runs: list[dict[str, Any]],
     *,
     page: int,
     per_page: int,
+    total: int,
 ) -> dict[str, Any]:
-    total = len(runs)
+    """Wrap an already-selected page in the listing envelope. `total` is counted
+    separately in SQL; it is never inferred from the length of the page, which
+    would report a bounded answer as a complete one."""
     total_pages = math.ceil(total / per_page) if total else 0
-    start = (page - 1) * per_page
-    page_runs = runs[start : start + per_page]
     return {
         "runs": page_runs,
         "page": page,
@@ -561,16 +566,18 @@ def paginate_runs(
     }
 
 
-async def get_run(run_id: str) -> dict[str, Any] | None:
-    """Return run detail from StateDB; flat-file run.json path was removed (write_manifest had zero callers).
-
-    The response is a superset of the list Run row (via _run_row) plus detail-only
-    fields. get_session() omits the JOIN aggregates (branch_count / message_count /
-    last_message_at), so they are derived from the hydrated branches here.
-    Fields absent from DB (state_root, artifact_root, task, error, cwd, manifest)
-    return None/""/{} to keep the frontend contract unchanged.
-    """
-    session = await _sessions_svc.get_session(run_id)
+async def get_run(
+    run_id: str,
+    *,
+    message_limit: int = _sessions_svc.DEFAULT_MESSAGE_LIMIT,
+    message_cursor: str | None = None,
+) -> dict[str, Any] | None:
+    """Run detail from StateDB; superset of the list Run row (via _run_row)
+    plus detail-only fields. Fields absent from DB return None/""/{} to keep
+    the frontend contract unchanged."""
+    session = await _sessions_svc.get_session(
+        run_id, message_limit=message_limit, message_cursor=message_cursor
+    )
     if session is None:
         return None
 
@@ -582,27 +589,47 @@ async def get_run(run_id: str) -> dict[str, Any] | None:
 
     state_root: Path | None = artifact_root.parent if artifact_root else None
 
-    message_count = sum(len(b.get("messages") or []) for b in branches if isinstance(b, dict))
-    last_message_at = max(
-        (
-            m.get("timestamp")
+    # message_stats covers the full session progression, not the tail-windowed
+    # page; fall back to windowed length only for legacy pre-message_stats payloads.
+    message_stats = (
+        session.get("message_stats") if isinstance(session.get("message_stats"), dict) else None
+    )
+    if message_stats is not None:
+        message_count = message_stats.get("message_count", 0)
+    else:
+        message_count = sum(
+            b.get("message_total") or len(b.get("messages") or [])
             for b in branches
             if isinstance(b, dict)
-            for m in (b.get("messages") or [])
-            if isinstance(m, dict) and m.get("timestamp") is not None
-        ),
-        default=None,
-    )
+        )
+    # DB-maintained full-session aggregate; prefer it over recomputing from
+    # branches[].messages, which is only the display window.
+    last_message_at = session.get("last_message_at")
+    if last_message_at is None:
+        last_message_at = max(
+            (
+                m.get("timestamp")
+                for b in branches
+                if isinstance(b, dict)
+                for m in (b.get("messages") or [])
+                if isinstance(m, dict) and m.get("timestamp") is not None
+            ),
+            default=None,
+        )
 
-    row = _run_row(
-        {
-            **session,
-            "branch_count": len(branches),
-            "message_count": message_count,
-            "last_message_at": last_message_at,
-        },
-        time.time(),
-    )
+    detail_session = {
+        **session,
+        "branch_count": len(branches),
+        "message_count": message_count,
+        "last_message_at": last_message_at,
+    }
+    alive = _session_liveness(detail_session) if detail_session.get("status") == "running" else None
+    row = _run_row(detail_session, time.time(), process_alive=alive)
+
+    from . import run_tags
+
+    tagmap = await run_tags.tags_for_sessions([run_id])
+    row["tags"] = tagmap.get(run_id, [])
 
     return {
         **row,
@@ -619,6 +646,10 @@ async def get_run(run_id: str) -> dict[str, Any] | None:
         "graph": session.get("graph"),
         "manifest": {},
         "branches": branches,
+        "message_limit": session.get("message_limit"),
+        "message_cursor": session.get("message_cursor"),
+        "message_next_cursor": session.get("message_next_cursor"),
+        "message_stats": message_stats,
         # Failure-reason contract consumed by the run-detail panel's banner.
         "status_reason_code": session.get("status_reason_code"),
         "status_reason_summary": session.get("status_reason_summary"),
@@ -627,7 +658,9 @@ async def get_run(run_id: str) -> dict[str, Any] | None:
 
 
 def _build_steps_from_db(branches: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-    """Build a steps list from DB-hydrated branch dicts."""
+    """Build a steps list from DB-hydrated branch dicts. message_count/roles
+    read from full-session message_stats (key-presence checked, not
+    truthiness, so a legitimate 0 doesn't fall through to a fallback)."""
     if not branches:
         return None
     steps = []
@@ -636,19 +669,21 @@ def _build_steps_from_db(branches: list[dict[str, Any]]) -> list[dict[str, Any]]
             continue
         name = b.get("name") or b.get("agent_name") or "agent"
         messages = b.get("messages") or []
-        role_counts: dict[str, int] = {}
-        for m in messages:
-            r = m.get("role", "")
-            if r:
-                role_counts[r] = role_counts.get(r, 0) + 1
+        branch_stats = b.get("message_stats") if isinstance(b.get("message_stats"), dict) else {}
+        role_counts = dict(branch_stats.get("roles") or {})
+        if "message_count" in branch_stats:
+            message_count = branch_stats["message_count"]
+        else:
+            message_count = b.get("message_total") or len(messages)
+        message_count = int(message_count)
         steps.append(
             {
                 "step": name,
-                "status": "completed" if messages else "pending",
+                "status": "completed" if message_count else "pending",
                 "result": {
                     "agent": name,
                     "model": b.get("model") or "",
-                    "message_count": len(messages),
+                    "message_count": message_count,
                     "roles": role_counts,
                 },
                 "messages": messages,
@@ -661,20 +696,44 @@ def _build_steps_from_db(branches: list[dict[str, Any]]) -> list[dict[str, Any]]
 @studio_route("/runs/", method="GET", area="runs", name="list_runs")
 async def list_runs_route(
     page: int = Query(default=1, ge=1, description="1-based page number"),
-    per_page: int = Query(default=20, ge=1, le=5000, description="Rows per page"),
+    # Refused above the cap rather than served slowly: a caller can react to a
+    # 422 and ask for pages, but it cannot react to a daemon that stops answering.
+    per_page: int = Query(
+        default=20,
+        ge=1,
+        le=_sessions_svc.MAX_SESSION_PAGE,
+        description=f"Rows per page (max {_sessions_svc.MAX_SESSION_PAGE})",
+    ),
     status: list[str] | None = Query(default=None, description="Repeated status filter"),  # noqa: B008
-    # ADR-0005: renamed from ?worker= to ?playbook= — "worker" is
-    # not in lionagi's Studio vocabulary per ADR-0005.
+    # ADR-0079: renamed from ?worker= to ?playbook= — "worker" is
+    # not in lionagi's Studio vocabulary per ADR-0079.
     playbook: str | None = Query(
         default=None, description="Case-insensitive playbook contains filter"
     ),
-    project: str | None = Query(default=None, description="Exact project name filter (ADR-0026)"),
+    project: str | None = Query(default=None, description="Exact project name filter (ADR-0063)"),
     project_null: bool = Query(default=False, description="Filter to runs with no project"),
+    tag: list[str] | None = Query(  # noqa: B008
+        default=None, description="Repeated tag filter (AND-composed)"
+    ),
 ) -> dict[str, Any]:
-    runs = await list_runs(
-        playbook=playbook, status=status, project=project, project_null=project_null
+    where = _sessions_svc.SessionFilter(
+        playbook=playbook,
+        statuses=_normalize_status_filter(status),
+        project=project,
+        project_null=project_null,
+        tags=tag,
     )
-    return paginate_runs(runs, page=page, per_page=per_page)
+    runs = await list_runs(
+        playbook=playbook,
+        status=status,
+        project=project,
+        project_null=project_null,
+        tag=tag,
+        limit=per_page,
+        offset=(page - 1) * per_page,
+    )
+    total = await _sessions_svc.count_sessions(where)
+    return paginate_runs(runs, page=page, per_page=per_page, total=total)
 
 
 # Registered before /runs/{run_id} so the literal path is not captured as a run id.
@@ -687,20 +746,157 @@ async def list_run_projects_route() -> dict[str, Any]:
 
 
 @studio_route("/runs/{run_id}", method="GET", area="runs", name="get_run")
-async def get_run_route(run_id: str) -> dict[str, Any]:
+async def get_run_route(
+    run_id: str,
+    message_limit: int = Query(default=_sessions_svc.DEFAULT_MESSAGE_LIMIT, ge=1, le=1000),
+    message_cursor: str | None = Query(default=None),
+) -> dict[str, Any]:
     # get_run reads from StateDB (same source as list_runs); no thread offload needed.
-    run = await get_run(run_id)
+    try:
+        run = await get_run(run_id, message_limit=message_limit, message_cursor=message_cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
     return run
 
 
-# ADR-0008: removed /api/runs/{id}/events SSE route — it read
-# stream/*.buffer.jsonl files forbidden by ADR-0004.  Live monitoring uses
-# /api/sessions/{id}/stream instead.
-#
-# ADR-0008 Write Policy: removed POST /{run_id}/rerun and
-# DELETE /{run_id} stub routes.  Run data is explicitly read-only per
-# ADR-0008.  Re-running requires switching to the terminal (`li play ...`).
-# If re-run support is ever reconsidered, it requires an ADR-0008 amendment
-# before the route is added back.
+def _open_regular_file_no_follow(root: Path, resolved: Path) -> int:
+    """Open `resolved` (already containment-checked under `root`) through a
+    root-anchored, no-follow descriptor walk (defends the TOCTOU window where
+    a path component could be swapped for a symlink after validation).
+    Caller owns closing the returned fd."""
+    parts = resolved.relative_to(root).parts
+    if not parts:
+        raise PermissionError(f"no path components under root: {resolved!r}")
+    dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for i, part in enumerate(parts):
+            is_last = i == len(parts) - 1
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            if not is_last:
+                flags |= os.O_DIRECTORY
+            fd = os.open(part, flags, dir_fd=dir_fd)
+            os.close(dir_fd)
+            dir_fd = fd
+        if not stat.S_ISREG(os.fstat(dir_fd).st_mode):
+            raise PermissionError(f"not a regular file: {resolved!r}")
+        return dir_fd
+    except BaseException:
+        os.close(dir_fd)
+        raise
+
+
+def _decode_capped_utf8(raw: bytes, cap: int) -> str | None:
+    """Decode a byte-capped file read, tolerating only a multibyte UTF-8
+    sequence that was split by the cap boundary itself.
+
+    Returns the decoded text, or ``None`` if the slice is not valid UTF-8
+    even once any boundary-truncated trailing sequence is set aside — i.e.
+    the content is genuinely non-text/binary and should still 415,
+    regardless of whether it happens to exceed the read cap.
+    """
+    raw_slice = raw[:cap]
+    try:
+        return raw_slice.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Only tolerate an incomplete multibyte sequence cut off exactly at
+        # the end of the slice (the cap boundary). Any other decode failure
+        # -- an invalid start/continuation byte anywhere else in the slice --
+        # means the content itself is not valid UTF-8.
+        if exc.reason != "unexpected end of data" or exc.end != len(raw_slice):
+            return None
+        try:
+            raw_slice[: exc.start].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+        # Validate that the byte(s) immediately after the cap continue a valid
+        # UTF-8 sequence, rejecting cases where the sequence is already invalid.
+        try:
+            if len(raw) > cap:
+                raw[: cap + 1].decode("utf-8")
+        except UnicodeDecodeError as exc_plus1:
+            if exc_plus1.reason != "unexpected end of data":
+                return None
+
+        # Everything before the cut-off tail is confirmed valid UTF-8, so the
+        # only thing being masked here is the boundary-truncated trailing
+        # character itself -- safe to render it as a replacement character.
+        return raw_slice.decode("utf-8", errors="replace")
+
+
+async def get_run_file(run_id: str, path: str) -> dict[str, Any]:
+    """Read-only content fetch for a file inside a run's artifact root;
+    always re-validates against the live artifact root rather than trusting the caller."""
+    session = await _sessions_svc.get_session(run_id, message_limit=1)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+    artifacts_path = session.get("artifacts_path")
+    if not artifacts_path:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' has no artifact root")
+    artifact_root = Path(artifacts_path)
+    if not artifact_root.exists():
+        raise HTTPException(status_code=404, detail="Run artifact root no longer exists")
+    root = artifact_root.resolve()
+
+    try:
+        resolved = resolve_workspace_path(path, root)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    try:
+        fd = _open_regular_file_no_follow(root, resolved)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"File '{path}' not found") from exc
+    except (OSError, PermissionError) as exc:
+        raise HTTPException(status_code=403, detail=f"File '{path}' is not accessible") from exc
+
+    try:
+        size = os.fstat(fd).st_size
+        # Read at most cap+1 bytes total; accumulate until EOF since os.read
+        # may legally return short reads without signaling EOF.
+        chunks: list[bytes] = []
+        remaining = _MAX_FILE_READ_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+    finally:
+        os.close(fd)
+
+    truncated = len(raw) > _MAX_FILE_READ_BYTES
+    if truncated:
+        # A split multibyte UTF-8 sequence at the cap boundary must read as
+        # truncation, not a binary file -- but a genuinely non-text file that
+        # happens to exceed the cap must still 415, the same as a small one.
+        content = _decode_capped_utf8(raw, _MAX_FILE_READ_BYTES)
+        if content is None:
+            raise HTTPException(status_code=415, detail="File is not text/UTF-8") from None
+    else:
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=415, detail="File is not text/UTF-8") from None
+
+    return {
+        "path": str(resolved),
+        "content": content,
+        "size": size,
+        "truncated": truncated,
+    }
+
+
+@studio_route("/runs/{run_id}/file", method="GET", area="runs", name="get_run_file")
+async def get_run_file_route(run_id: str, path: str = Query(...)) -> dict[str, Any]:
+    return await get_run_file(run_id, path)
+
+
+# ADR-0076: /api/runs/{id}/events SSE (read stream/*.buffer.jsonl, forbidden
+# by ADR-0055) and the rerun/delete stub routes were removed — run data is
+# read-only per ADR-0076. Live monitoring: /api/sessions/{id}/stream;
+# re-running: the terminal (`li play ...`). Restoring either requires an
+# ADR-0076 amendment.

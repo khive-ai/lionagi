@@ -8,7 +8,16 @@ import type {
   PlaybookFormat,
   ProjectDetail,
   ProjectSummary,
+  OperatorConversation,
+  OperatorConversationSnapshot,
+  OperatorFrame,
+  OperatorFrameType,
+  OperatorProposalResult,
+  OperatorTurnAccepted,
+  OperatorTurnRequest,
   RunDetail,
+  RunResumeRequest,
+  RunResumeResponse,
   RunSummary,
   ScheduleDetail,
   ScheduleRunSummary,
@@ -21,8 +30,8 @@ import type {
   WorkerRaw,
   WorkerStepNode,
   WorkerLinkEdge,
-  WorkerSummary,
 } from "./types";
+import { reportConnectivityFailure } from "./connectivity";
 
 declare global {
   interface Window {
@@ -55,7 +64,11 @@ export function resolveApiBase(): string {
     if (port === "3000" || port === "5173") {
       return `${window.location.protocol}//${window.location.hostname}:8765`;
     }
-    // Production / single-origin deployment: use same origin (relative URLs).
+    // Every other browser origin — including HTTPS on a non-local hostname —
+    // is treated as a same-origin deployment (Docker/reverse-proxy serving
+    // the SPA and API from one origin). Hosted-static deploys that need to
+    // reach a separate local daemon must set window.__STUDIO_API_BASE__ or
+    // VITE_STUDIO_API_BASE explicitly rather than relying on a hostname guess.
     return "";
   }
   // SSR / test environment without window: fall back to localhost for compat.
@@ -63,6 +76,25 @@ export function resolveApiBase(): string {
 }
 
 export const API_BASE = resolveApiBase();
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+  readonly code?: string;
+  readonly retryable?: boolean;
+
+  constructor(status: number, message: string, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+    if (detail != null && typeof detail === "object" && !Array.isArray(detail)) {
+      const record = detail as Record<string, unknown>;
+      if (typeof record.code === "string") this.code = record.code;
+      if (typeof record.retryable === "boolean") this.retryable = record.retryable;
+    }
+  }
+}
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
@@ -74,19 +106,62 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, { redirect: "follow", ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(url, { redirect: "follow", ...init, headers });
+  } catch (err) {
+    // fetch() itself only throws for network-level failures (daemon not
+    // running, CORS, DNS) — never for HTTP error statuses. Let NoDaemonGate
+    // re-probe /health right away instead of waiting for its own poll tick.
+    reportConnectivityFailure();
+    throw err;
+  }
   if (!response.ok) {
     // Preserve the backend `detail` field (FastAPI/Pydantic validation errors,
     // our structured 409 body, etc.) so callers can surface it to the operator.
     // Falls back to the status code when the body is not JSON or has no detail.
-    let detail: string | undefined;
+    let detail: unknown;
     try {
-      const body = (await response.json()) as { detail?: string };
-      if (typeof body?.detail === "string") detail = body.detail;
+      const body = (await response.json()) as { detail?: unknown };
+      detail = body?.detail;
     } catch {
       // not JSON — ignore
     }
-    throw new Error(detail ?? `Request failed: ${response.status}`);
+    const message =
+      typeof detail === "string"
+        ? detail
+        : detail != null && typeof detail === "object" && !Array.isArray(detail)
+          ? typeof (detail as Record<string, unknown>).message === "string"
+            ? String((detail as Record<string, unknown>).message)
+            : `Request failed: ${response.status}`
+          : `Request failed: ${response.status}`;
+    throw new ApiError(response.status, message, detail);
+  }
+  // 204/empty-body responses have nothing to parse — return as-is (matches
+  // callers that type these as `unknown`/`{ ok: boolean }` but never actually
+  // read a JSON body for a No Content response).
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  // Static deploys with no backend (e.g. Vercel serving only the SPA dist/)
+  // rewrite every unmatched path — including /api/* — to index.html with a
+  // 200. response.ok is then true and response.json() throws a cryptic,
+  // engine-specific parse error on the HTML document. Detect it here so
+  // every caller gets one clear message instead of chasing this per view.
+  const contentType = response.headers.get("content-type") ?? "";
+  const looksJson = contentType.includes("json");
+  if (!looksJson) {
+    const text = await response.text();
+    if (!text) {
+      // Empty body without a JSON content-type — nothing to parse.
+      return undefined as T;
+    }
+    if (/^\s*<(!doctype html|html)/i.test(text)) {
+      throw new Error(
+        `Studio API returned HTML instead of JSON for ${path} — the API base is likely unconfigured for this deployment (set VITE_STUDIO_API_BASE at build time or window.__STUDIO_API_BASE__ at runtime).`,
+      );
+    }
+    return JSON.parse(text) as T;
   }
   return response.json() as Promise<T>;
 }
@@ -149,6 +224,385 @@ function sseSubscribe(path: string, onData: (data: string) => void): () => void 
   return close;
 }
 
+// ─── Operator conversations (ADR-0083 v1) ──────────────────────────────────
+
+const OPERATOR_FRAME_TYPES = new Set<OperatorFrameType>([
+  "text",
+  "tool_call",
+  "tool_result",
+  "ui_command",
+  "proposal",
+  "confirmation",
+  "error",
+  "done",
+]);
+
+type RawRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): RawRecord {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as RawRecord)
+    : {};
+}
+
+function normalizeOperatorConversation(value: unknown): OperatorConversation {
+  const raw = asRecord(value);
+  const id = raw.id;
+  if (typeof id !== "string" || !id) {
+    throw new Error("Operator conversation response did not include an id.");
+  }
+  const status =
+    raw.status === "archived" || raw.status === "deleted" ? raw.status : ("active" as const);
+  const readNumber = (camel: string, snake: string): number | undefined => {
+    const candidate = raw[camel] ?? raw[snake];
+    return typeof candidate === "number" ? candidate : undefined;
+  };
+  const readString = (camel: string, snake: string): string | undefined => {
+    const candidate = raw[camel] ?? raw[snake];
+    return typeof candidate === "string" ? candidate : undefined;
+  };
+  return {
+    id,
+    status,
+    project: typeof raw.project === "string" ? raw.project : null,
+    title: typeof raw.title === "string" ? raw.title : null,
+    nextSequence: readNumber("nextSequence", "next_sequence"),
+    activeRequestId: readString("activeRequestId", "active_request_id") ?? null,
+    createdAt: readNumber("createdAt", "created_at"),
+    updatedAt: readNumber("updatedAt", "updated_at"),
+  };
+}
+
+export function isOperatorFrame(value: unknown): value is OperatorFrame {
+  const raw = asRecord(value);
+  return (
+    raw.version === 1 &&
+    typeof raw.conversationId === "string" &&
+    typeof raw.requestId === "string" &&
+    typeof raw.sequence === "number" &&
+    Number.isInteger(raw.sequence) &&
+    raw.sequence >= 1 &&
+    typeof raw.type === "string" &&
+    OPERATOR_FRAME_TYPES.has(raw.type as OperatorFrameType) &&
+    raw.payload != null &&
+    typeof raw.payload === "object" &&
+    typeof raw.createdAt === "number"
+  );
+}
+
+export async function createOperatorConversation(input?: {
+  project?: string | null;
+  title?: string | null;
+}): Promise<OperatorConversation> {
+  const response = await fetchJson<unknown>("/api/operator/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input ?? {}),
+  });
+  const raw = asRecord(response);
+  return normalizeOperatorConversation(raw.conversation ?? raw);
+}
+
+export async function listOperatorConversations(): Promise<OperatorConversation[]> {
+  const response = await fetchJson<unknown>("/api/operator/conversations");
+  const raw = asRecord(response);
+  if (!Array.isArray(raw.conversations)) {
+    throw new Error("Operator conversation list response was invalid.");
+  }
+  return raw.conversations.map(normalizeOperatorConversation);
+}
+
+export async function getOperatorConversation(
+  conversationId: string,
+): Promise<OperatorConversationSnapshot> {
+  const pageSize = 1000;
+  let afterSequence = 0;
+  let conversation: OperatorConversation | null = null;
+  const frames: OperatorFrame[] = [];
+
+  for (;;) {
+    const response = await fetchJson<unknown>(
+      `/api/operator/conversations/${encodeURIComponent(conversationId)}?after_sequence=${afterSequence}&limit=${pageSize}`,
+    );
+    const raw = asRecord(response);
+    conversation = normalizeOperatorConversation(raw.conversation ?? raw);
+    const framesValue = raw.frames ?? raw.events;
+    const page = Array.isArray(framesValue) ? framesValue : [];
+    for (const frame of page) {
+      if (!isOperatorFrame(frame)) {
+        throw new Error("Operator history contains an unsupported protocol frame.");
+      }
+    }
+    frames.push(...page);
+    const hasMore = typeof raw.hasMore === "boolean" ? raw.hasMore : page.length >= pageSize;
+    if (!hasMore) break;
+    const reportedNext = raw.nextAfterSequence;
+    const nextSequence =
+      typeof reportedNext === "number"
+        ? reportedNext
+        : Math.max(...page.map((frame) => (frame as OperatorFrame).sequence));
+    if (nextSequence <= afterSequence) {
+      throw new Error("Operator history pagination did not advance.");
+    }
+    afterSequence = nextSequence;
+  }
+
+  if (!conversation) {
+    throw new Error("Operator conversation response was empty.");
+  }
+  return { conversation, frames };
+}
+
+export async function submitOperatorTurn(
+  conversationId: string,
+  request: OperatorTurnRequest,
+): Promise<OperatorTurnAccepted> {
+  return fetchJson<OperatorTurnAccepted>(
+    `/api/operator/conversations/${encodeURIComponent(conversationId)}/turns`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instruction: request.instruction,
+        context: request.context,
+        expected_last_sequence: request.expectedLastSequence,
+        ...(request.model ? { model: request.model } : {}),
+      }),
+    },
+  );
+}
+
+export async function cancelOperatorRequest(
+  conversationId: string,
+  requestId: string,
+): Promise<void> {
+  await fetchJson<unknown>(
+    `/api/operator/conversations/${encodeURIComponent(conversationId)}/requests/${encodeURIComponent(requestId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export type OperatorEffectRejectionCode =
+  | "unsupported"
+  | "invalid_params"
+  | "stale_context"
+  | "not_visible"
+  | "client_error";
+
+export async function acknowledgeOperatorEffect(
+  conversationId: string,
+  effectId: string,
+  acknowledgement:
+    | { status: "applied"; clientRoute: string }
+    | {
+        status: "rejected";
+        clientRoute?: string;
+        rejectionCode: OperatorEffectRejectionCode;
+      },
+): Promise<{ effectId: string; status: "applied" | "rejected" }> {
+  return fetchJson(
+    `/api/operator/conversations/${encodeURIComponent(conversationId)}/effects/${encodeURIComponent(effectId)}/ack`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(acknowledgement),
+    },
+  );
+}
+
+export async function confirmOperatorProposal(
+  conversationId: string,
+  proposalId: string,
+  expectedCommandHash: string,
+  expectedTargetVersion?: string | null,
+): Promise<OperatorProposalResult> {
+  return fetchJson<OperatorProposalResult>(
+    `/api/operator/conversations/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/confirm`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedCommandHash,
+        expectedTargetVersion: expectedTargetVersion ?? null,
+      }),
+    },
+  );
+}
+
+export async function decideOperatorProposal(
+  conversationId: string,
+  proposalId: string,
+  decision: "allow" | "deny",
+  expectedCommandHash?: string,
+  expectedTargetVersion?: string | null,
+): Promise<OperatorProposalResult> {
+  return fetchJson<OperatorProposalResult>(
+    `/api/operator/conversations/${encodeURIComponent(conversationId)}/proposals/${encodeURIComponent(proposalId)}/decision`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        decision,
+        ...(expectedCommandHash ? { expectedCommandHash } : {}),
+        expectedTargetVersion: expectedTargetVersion ?? null,
+      }),
+    },
+  );
+}
+
+export interface OperatorSseChunk {
+  data: string[];
+  rest: string;
+}
+
+/**
+ * Consume complete SSE records while retaining a possibly-fragmented tail.
+ * Handles both LF and CRLF records and joins multi-line data fields.
+ */
+export function consumeOperatorSse(input: string): OperatorSseChunk {
+  const data: string[] = [];
+  let rest = input;
+  for (;;) {
+    const match = /\r?\n\r?\n/.exec(rest);
+    if (!match || match.index == null) break;
+    const record = rest.slice(0, match.index);
+    rest = rest.slice(match.index + match[0].length);
+    const payload = record
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (payload) data.push(payload);
+  }
+  return { data, rest };
+}
+
+export type OperatorStreamConnection = "connecting" | "open" | "reconnecting";
+
+export interface OperatorStreamHandlers {
+  onFrame: (frame: OperatorFrame) => void;
+  onConnection?: (state: OperatorStreamConnection) => void;
+  onError?: (error: Error, fatal: boolean) => void;
+}
+
+/**
+ * Authenticated, replayable SSE subscription. The cursor advances only after
+ * a validated v1 frame and is sent on every reconnect, so delivery may repeat
+ * but never silently skips a durable frame.
+ */
+export function streamOperatorConversation(
+  conversationId: string,
+  afterSequence: number,
+  handlers: OperatorStreamHandlers,
+): () => void {
+  let closed = false;
+  let cursor = Math.max(0, afterSequence);
+  let controller: AbortController | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const wait = (delay: number) =>
+    new Promise<void>((resolve) => {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        resolve();
+      }, delay);
+    });
+
+  const close = () => {
+    closed = true;
+    controller?.abort();
+    if (retryTimer) clearTimeout(retryTimer);
+  };
+
+  void (async () => {
+    let retryMs = 750;
+    let firstAttempt = true;
+    while (!closed) {
+      handlers.onConnection?.(firstAttempt ? "connecting" : "reconnecting");
+      controller = new AbortController();
+      try {
+        const query = new URLSearchParams({ after_sequence: String(cursor) });
+        const headers: Record<string, string> = { Accept: "text/event-stream" };
+        const token = resolveAuthToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const response = await fetch(
+          `${API_BASE}/api/operator/conversations/${encodeURIComponent(conversationId)}/stream?${query}`,
+          { headers, signal: controller.signal },
+        );
+        if (!response.ok || !response.body) {
+          const fatal =
+            response.status < 500 &&
+            response.status !== 408 &&
+            response.status !== 425 &&
+            response.status !== 429;
+          const error = new Error(`Operator stream request failed: ${response.status}`);
+          handlers.onError?.(error, fatal);
+          if (fatal) {
+            closed = true;
+            break;
+          }
+          throw error;
+        }
+
+        handlers.onConnection?.("open");
+        retryMs = 750;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!closed) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const chunk = consumeOperatorSse(buffer);
+          buffer = chunk.rest;
+          for (const payload of chunk.data) {
+            let candidate: unknown;
+            try {
+              candidate = JSON.parse(payload);
+            } catch {
+              const error = new Error("Operator stream sent malformed JSON.");
+              handlers.onError?.(error, true);
+              closed = true;
+              controller.abort();
+              break;
+            }
+            if (!isOperatorFrame(candidate)) {
+              const error = new Error("Operator stream sent an unsupported protocol frame.");
+              handlers.onError?.(error, true);
+              closed = true;
+              controller.abort();
+              break;
+            }
+            if (candidate.conversationId !== conversationId) {
+              const error = new Error("Operator stream frame belongs to another conversation.");
+              handlers.onError?.(error, true);
+              closed = true;
+              controller.abort();
+              break;
+            }
+            cursor = Math.max(cursor, candidate.sequence);
+            handlers.onFrame(candidate);
+          }
+        }
+      } catch (error) {
+        if (closed || controller.signal.aborted) break;
+        reportConnectivityFailure();
+        handlers.onError?.(
+          error instanceof Error ? error : new Error("Operator stream disconnected."),
+          false,
+        );
+      }
+      if (!closed) {
+        firstAttempt = false;
+        await wait(retryMs);
+        retryMs = Math.min(Math.round(retryMs * 1.8), 10_000);
+      }
+    }
+  })();
+
+  return close;
+}
+
 // ─── Runs ─────────────────────────────────────────────────────────────────────
 
 export interface RunListParams {
@@ -177,20 +631,71 @@ export async function listRuns(params?: RunListParams): Promise<RunListResponse>
   if (params?.project) query.set("project", params.project);
   for (const value of params?.status ?? []) query.append("status", value);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return fetchJson<RunListResponse>(`/api/runs${suffix}`);
+  // The daemon registers this list route with a trailing slash (unlike
+  // /api/runs/{run_id}); omitting it triggers Starlette's redirect-with-
+  // absolute-Location, which the browser then blocks as cross-origin
+  // whenever the frontend is served from a different origin than the daemon.
+  return fetchJson<RunListResponse>(`/api/runs/${suffix}`);
 }
 
 export async function getRun(runId: string): Promise<RunDetail> {
   return fetchJson<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`);
 }
 
-// ─── Workers (playbooks) ──────────────────────────────────────────────────────
-
-interface PlaybookListEntry {
-  name: string;
-  path?: string;
-  description?: string;
+export async function resumeRun(
+  runId: string,
+  request: RunResumeRequest,
+): Promise<RunResumeResponse> {
+  return fetchJson<RunResumeResponse>(`/api/runs/${encodeURIComponent(runId)}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
 }
+
+export interface RunFileContent {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+}
+
+export type RunFileResult =
+  | { ok: true; data: RunFileContent }
+  | { ok: false; status: number; detail?: string };
+
+/** Read-only fetch of a run artifact's content, for the message-renderer's
+ * file viewer. Reports status/detail on failure (rather than throwing) so
+ * the click-time 404/403 path renders a graceful missing-file state instead
+ * of an unhandled error. */
+export async function getRunFile(runId: string, path: string): Promise<RunFileResult> {
+  const query = new URLSearchParams({ path });
+  const url = `${API_BASE}/api/runs/${encodeURIComponent(runId)}/file?${query.toString()}`;
+  const token = resolveAuthToken();
+  const headers: HeadersInit = {};
+  if (token) (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, { headers });
+  } catch (err) {
+    reportConnectivityFailure();
+    throw err;
+  }
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // not JSON — ignore
+    }
+    return { ok: false, status: response.status, detail };
+  }
+  return { ok: true, data: (await response.json()) as RunFileContent };
+}
+
+// ─── Workers (playbooks) ──────────────────────────────────────────────────────
 
 interface PlaybookDetail {
   name: string;
@@ -239,19 +744,6 @@ function parseGraphFromPlaybook(pb: PlaybookDetail): WorkerGraph {
     description: String(data.description ?? pb.description ?? ""),
     nodes,
     edges,
-  };
-}
-
-export async function listWorkers(): Promise<{ workers: WorkerSummary[] }> {
-  const data = await fetchJson<{ playbooks: PlaybookListEntry[] }>("/api/playbooks/");
-  return {
-    workers: (data.playbooks ?? []).map((p) => ({
-      name: p.name,
-      file: p.path,
-      description: p.description,
-      steps: 0,
-      links: 0,
-    })),
   };
 }
 
@@ -395,6 +887,70 @@ export async function startRun(workerName: string): Promise<{ run_id: string }> 
   });
 }
 
+// ─── User playbooks (list) + built-in playbook templates ─────────────────────
+//
+// "Playbooks" are YAML CLI templates read from ~/.lionagi/playbooks (the same
+// files `li play <name>` resolves). Built-in templates are read-only package
+// data shipped with lionagi (examples/playbooks/, bundled) — Studio's onboarding
+// set for the Workflows page. installBuiltinPlaybook() idempotently copies a
+// template into the user's own playbooks dir; it never overwrites a copy the
+// user has since customized.
+
+export interface PlaybookSummary {
+  name: string;
+  path?: string;
+  description?: string;
+}
+
+export async function listPlaybooks(): Promise<{ playbooks: PlaybookSummary[] }> {
+  return fetchJson<{ playbooks: PlaybookSummary[] }>("/api/playbooks/");
+}
+
+export interface PlaybookArgSpec {
+  type?: string;
+  default?: unknown;
+  help?: string;
+}
+
+export interface BuiltinPlaybookSummary {
+  name: string;
+  description: string;
+  args: Record<string, PlaybookArgSpec>;
+  argument_hint: string;
+  installed: boolean;
+}
+
+export async function listBuiltinPlaybooks(): Promise<{ playbooks: BuiltinPlaybookSummary[] }> {
+  return fetchJson<{ playbooks: BuiltinPlaybookSummary[] }>("/api/playbook-templates/");
+}
+
+export async function getBuiltinPlaybookRaw(name: string): Promise<WorkerRaw> {
+  return fetchJson<WorkerRaw>(`/api/playbook-templates/${encodeURIComponent(name)}`);
+}
+
+export interface InstallBuiltinPlaybookResult {
+  installed: boolean;
+  playbook: PlaybookSummary;
+}
+
+export async function installBuiltinPlaybook(name: string): Promise<InstallBuiltinPlaybookResult> {
+  return fetchJson<InstallBuiltinPlaybookResult>(
+    `/api/playbook-templates/${encodeURIComponent(name)}/install`,
+    { method: "POST" },
+  );
+}
+
+// Real, working launch path for playbooks. startRun() above (POST
+// /api/playbooks/{name}/run) is a 501 stub (# TODO(lift-backend-writes) in
+// services/playbooks.py) — this goes through /api/launches instead.
+export async function launchPlaybook(name: string): Promise<LaunchResult> {
+  return fetchJson<LaunchResult>(`/api/launches/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action_kind: "play", action_playbook: name }),
+  });
+}
+
 // ─── Agents ───────────────────────────────────────────────────────────────────
 
 export async function listAgents(): Promise<{ agents: AgentProfileSummary[] }> {
@@ -471,7 +1027,15 @@ export interface SessionBranch {
   id: string;
   name: string;
   created_at: number;
+  /** Persisted full-progression bounds, independent of the messages window. */
+  first_message_at?: number | null;
+  last_message_at?: number | null;
+  started_at?: number | null;
+  ended_at?: number | null;
   messages: SessionMessage[];
+  /** Full progression length; messages is a tail window of it. */
+  message_total?: number;
+  message_offset?: number;
   model?: string | null;
   provider?: string | null;
   agent_name?: string | null;
@@ -482,6 +1046,9 @@ export interface SessionDetail {
   name: string;
   created_at: number;
   updated_at: number;
+  status?: string | null;
+  started_at?: number | null;
+  ended_at?: number | null;
   branches: SessionBranch[];
   // ADR-0022: provenance disclosure — mirrors what list_sessions() exposes.
   model?: string | null;
@@ -489,17 +1056,44 @@ export interface SessionDetail {
   effort?: string | null;
   agent_hash?: string | null;
   invocation_id?: string | null;
+  // ADR-0028: denormalized status reason (services/sessions.py get_session
+  // already returns these; the type was just missing them).
+  status_reason_code?: string | null;
+  status_reason_summary?: string | null;
   // ADR-0029: artifact contract and verification result.
   artifact_contract_json?: ArtifactContract | null;
   artifact_verification_json?: ArtifactVerification | null;
+  // Absolute artifact-root path on disk (services/sessions.py get_session
+  // returns this verbatim) — the run's save root for file-link resolution.
+  artifacts_path?: string | null;
+  // Full-session aggregate (services/sessions.py get_session, computed over
+  // every branch's full progression, not the display window) — `files` is
+  // the run-wide known-file union, including files touched before the
+  // 200-message tail window this response's `branches[].messages` covers.
+  message_stats?: {
+    message_count: number;
+    roles: Record<string, number>;
+    tool_call_count: number;
+    error_count: number;
+    files: string[];
+  };
 }
 
 export async function listSessions(): Promise<{ sessions: SessionSummary[] }> {
   return fetchJson<{ sessions: SessionSummary[] }>("/api/sessions/");
 }
 
-export async function getSession(id: string): Promise<SessionDetail> {
-  return fetchJson<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`);
+export const SESSION_MESSAGE_PAGE = 200;
+
+export async function getSession(
+  id: string,
+  params?: { messageLimit?: number; messageOffset?: number },
+): Promise<SessionDetail> {
+  const query = new URLSearchParams();
+  if (params?.messageLimit != null) query.set("message_limit", String(params.messageLimit));
+  if (params?.messageOffset != null) query.set("message_offset", String(params.messageOffset));
+  const qs = query.toString();
+  return fetchJson<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`);
 }
 
 export function streamSession(
@@ -680,7 +1274,7 @@ export async function listDefinitions(
   kind?: string,
 ): Promise<{ definitions: DefinitionSummary[] }> {
   const query = kind ? `?kind=${encodeURIComponent(kind)}` : "";
-  return fetchJson<{ definitions: DefinitionSummary[] }>(`/api/definitions${query}`);
+  return fetchJson<{ definitions: DefinitionSummary[] }>(`/api/definitions/${query}`);
 }
 
 export async function getDefinition(kind: string, name: string): Promise<DefinitionDetail> {
@@ -828,7 +1422,7 @@ export interface PluginSkillDetail {
 }
 
 export async function listPlugins(): Promise<{ plugins: PluginSummary[] }> {
-  return fetchJson<{ plugins: PluginSummary[] }>("/api/plugins/");
+  return fetchJson<{ plugins: PluginSummary[] }>("/api/plugins");
 }
 
 export async function getPlugin(name: string): Promise<PluginDetail> {
@@ -953,46 +1547,6 @@ export async function deleteProject(name: string): Promise<unknown> {
   });
 }
 
-// ─── Teams ────────────────────────────────────────────────────────────────────
-
-export interface TeamSummary {
-  id: string;
-  name: string;
-  member_count: number;
-  last_modified: number;
-}
-
-export interface TeamListResponse {
-  teams: TeamSummary[];
-  limit: number;
-  offset: number;
-  total: number;
-  has_next: boolean;
-}
-
-export type TeamDetail = Record<string, unknown> & {
-  id?: string;
-  name?: string;
-  members?: unknown[];
-  messages?: unknown[];
-  created_at?: string | number | null;
-};
-
-export async function listTeams(params?: {
-  limit?: number;
-  offset?: number;
-}): Promise<TeamListResponse> {
-  const query = new URLSearchParams();
-  if (params?.limit != null) query.set("limit", String(params.limit));
-  if (params?.offset != null) query.set("offset", String(params.offset));
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return fetchJson<TeamListResponse>(`/api/teams${suffix}`);
-}
-
-export async function getTeam(teamId: string): Promise<TeamDetail> {
-  return fetchJson<TeamDetail>(`/api/teams/${encodeURIComponent(teamId)}`);
-}
-
 // ─── Stats (extended) ─────────────────────────────────────────────────────────
 
 export interface DbStats {
@@ -1018,10 +1572,38 @@ export interface StudioStats {
 }
 
 export async function getStats(): Promise<StudioStats> {
-  return fetchJson<StudioStats>("/api/stats/");
+  return fetchJson<StudioStats>("/api/stats");
+}
+
+export type ActivityWindow = "24h" | "7d";
+
+export interface ActivityBucket {
+  t: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  running: number;
+}
+
+export interface ActivityStats {
+  window: ActivityWindow;
+  buckets: ActivityBucket[];
+  completion_rate: number | null;
+  total: number;
+}
+
+export async function getActivityStats(window: ActivityWindow): Promise<ActivityStats> {
+  return fetchJson<ActivityStats>(`/api/stats/activity?window=${window}`);
 }
 
 // ─── Schedules (ADR-0027) ───────────────────────────────────────────────────
+
+export type GitHubEventFilter = "pr_merged" | "pr_opened" | "pr_updated" | "pr_closed";
+
+export interface GitHubFilter {
+  event?: GitHubEventFilter;
+  base?: string;
+}
 
 export interface ScheduleListResponse {
   schedules: ScheduleSummary[];
@@ -1137,6 +1719,12 @@ export async function getEngineRun(runId: string): Promise<EngineRunSummary> {
 
 // ─── Engine definitions ───────────────────────────────────────────────────────
 
+/** Per-stage override persisted on an engine definition. */
+export interface StageOverride {
+  role?: string;
+  model?: string;
+}
+
 export interface EngineDef {
   id: string;
   name: string;
@@ -1145,6 +1733,7 @@ export interface EngineDef {
   max_depth: number | null;
   max_agents: number | null;
   options: Record<string, string> | null;
+  stages: Record<string, StageOverride> | null;
   description: string | null;
   created_at: number;
   updated_at: number;
@@ -1157,6 +1746,7 @@ export interface CreateEngineDefRequest {
   max_depth?: number;
   max_agents?: number;
   options?: Record<string, string>;
+  stages?: Record<string, StageOverride>;
   description?: string;
 }
 
@@ -1167,6 +1757,7 @@ export interface UpdateEngineDefRequest {
   max_depth?: number;
   max_agents?: number;
   options?: Record<string, string>;
+  stages?: Record<string, StageOverride>;
   description?: string;
 }
 
@@ -1209,6 +1800,144 @@ export async function updateEngineDef(
 
 export async function deleteEngineDef(defId: string): Promise<{ ok: boolean }> {
   return fetchJson(`/api/engine-defs/${encodeURIComponent(defId)}`, { method: "DELETE" });
+}
+
+// ─── Workflow definitions ─────────────────────────────────────────────────────
+
+export type WorkflowNodeKind = "input" | "chat" | "parse" | "fanout" | "engine";
+
+export interface WorkflowNodePos {
+  x: number;
+  y: number;
+}
+
+export interface WorkflowEngineConfig {
+  engine_def_id: string;
+  model?: string;
+  max_depth?: number;
+  max_agents?: number;
+  options?: Record<string, string>;
+}
+
+export interface WorkflowNode {
+  id: string;
+  kind: WorkflowNodeKind;
+  label: string;
+  pos: WorkflowNodePos;
+  config?: WorkflowEngineConfig | Record<string, unknown>;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+  condition?: string;
+}
+
+export interface WorkflowSpec {
+  version: 1;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  inputs: string[];
+  outputs: string[];
+}
+
+export interface WorkflowDef {
+  id: string;
+  name: string;
+  description: string | null;
+  spec_json: WorkflowSpec | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CreateWorkflowDefRequest {
+  name: string;
+  description?: string;
+  spec_json?: WorkflowSpec;
+}
+
+export interface UpdateWorkflowDefRequest {
+  name?: string;
+  description?: string;
+  spec_json?: WorkflowSpec;
+}
+
+export async function listWorkflowDefs(): Promise<WorkflowDef[]> {
+  return fetchJson<WorkflowDef[]>("/api/workflow-defs/");
+}
+
+export async function getWorkflowDef(defId: string): Promise<WorkflowDef> {
+  return fetchJson<WorkflowDef>(`/api/workflow-defs/${encodeURIComponent(defId)}`);
+}
+
+export async function createWorkflowDef(
+  body: CreateWorkflowDefRequest,
+): Promise<{ id: string; name: string; created_at: number }> {
+  return fetchJson(`/api/workflow-defs/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateWorkflowDef(
+  defId: string,
+  body: UpdateWorkflowDefRequest,
+): Promise<{ ok: boolean }> {
+  return fetchJson(`/api/workflow-defs/${encodeURIComponent(defId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteWorkflowDef(defId: string): Promise<{ ok: boolean }> {
+  return fetchJson(`/api/workflow-defs/${encodeURIComponent(defId)}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Casts catalog — roles, modes, and their emission contracts (read-only)
+
+export interface CastEmission {
+  model: string;
+  key: string;
+}
+
+export interface CastRoleConfig {
+  active?: boolean;
+  model?: string | null;
+  effort?: string | null;
+  default_modes?: string[];
+  modes_allow?: string[];
+  authority?: string[];
+  boundaries?: string[];
+  escalations?: string[];
+}
+
+export interface CastRole {
+  name: string;
+  description: string | null;
+  emits: CastEmission[];
+  body?: string | null;
+  config?: CastRoleConfig | null;
+}
+
+export interface CastMode {
+  name: string;
+  description: string | null;
+  behaviors?: string | null;
+  conflicts_with?: string[];
+}
+
+export interface CastsCatalog {
+  roles: CastRole[];
+  modes: CastMode[];
+}
+
+export async function getCasts(): Promise<CastsCatalog> {
+  return fetchJson<CastsCatalog>("/api/casts/");
 }
 
 export async function launchEngine(body: {

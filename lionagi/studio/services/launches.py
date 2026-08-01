@@ -17,7 +17,7 @@ from lionagi.state.db import StateDB
 
 from .. import config
 from ..registry import studio_route
-from ..scheduler.subprocess import build_argv
+from ..scheduler.subprocess import build_argv, resolve_li_executable
 from ..services.schedules import (
     _svc_validate_action_model,
     _svc_validate_extra_args,
@@ -27,7 +27,9 @@ from ..services.schedules import (
 
 _log = logging.getLogger(__name__)
 
-_LAUNCH_VALID_KINDS = frozenset({"agent", "flow", "fanout", "play", "flow_yaml", "engine"})
+_LAUNCH_VALID_KINDS = frozenset(
+    {"agent", "flow", "fanout", "play", "flow_yaml", "engine", "command"}
+)
 
 _detached_tasks: set[asyncio.Task] = set()
 _user_cancelled: set[str] = set()
@@ -37,6 +39,10 @@ _launch_semaphore: asyncio.Semaphore | None = None
 
 class TooManyLaunchesError(Exception):
     """Raised when the in-flight launch count reaches the configured cap."""
+
+
+class LiExecutableUnavailableError(RuntimeError):
+    """The daemon cannot resolve the installed ``li`` console script."""
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -74,14 +80,27 @@ def _validate_request(data: dict[str, Any]) -> None:
         raise ValueError(
             "action_flow_yaml (the inline flow spec) is required for flow_yaml launches"
         )
+    if kind == "command":
+        from lionagi.studio.scheduler.subprocess import (
+            _validate_action_command,
+            _validate_command_allowlisted,
+        )
+
+        command = data.get("action_command") or ""
+        if not command.strip():
+            raise ValueError("action_command is required for command launches")
+        _validate_action_command(command)
+        _validate_command_allowlisted(command)
+        command_args = data.get("action_command_args")
+        if command_args is not None and not isinstance(command_args, list):
+            raise ValueError("action_command_args must be a list of strings")
 
 
 async def launch(data: dict[str, Any]) -> dict[str, Any]:
     """Validate *data*, record an invocation, spawn a detached process, return identifiers.
 
-    Raises TooManyLaunchesError when the in-flight cap is reached.
-    Returns ``{invocation_id, action_kind}``; session IDs appear in the DB only after the
-    process starts.
+    Raises TooManyLaunchesError at the in-flight cap; session IDs appear in the DB
+    only after the process starts.
     """
     _validate_request(data)
 
@@ -94,12 +113,13 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
         "action_project": data.get("action_project"),
         "action_extra_args": data.get("action_extra_args") or [],
         "action_flow_yaml": data.get("action_flow_yaml"),
+        "action_command": data.get("action_command"),
+        "action_command_args": data.get("action_command_args") or [],
     }
     if data["action_kind"] == "engine":
         defn = await _resolve_engine_def(data["action_engine_def"])
-        # The saved definition supplies the engine kind (via the action_agent
-        # slot), default model, and engine flags; the request supplies the spec
-        # prompt and may override the model.
+        # The saved definition supplies engine kind/model/flags; the request
+        # supplies the spec prompt and may override the model.
         schedule_dict["action_agent"] = defn["kind"]
         if not schedule_dict["action_model"]:
             schedule_dict["action_model"] = defn.get("model") or ""
@@ -108,7 +128,55 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
             if defn.get(k) is not None:
                 opts[k] = defn[k]
         schedule_dict["action_engine_options"] = opts
-    argv, tmp_path = build_argv(schedule_dict, {})
+    if data["action_kind"] == "command":
+        # Allow-listed command actions execute their own binary directly.
+        argv, tmp_path = build_argv(schedule_dict, {})
+    else:
+        executable_prefix, resolve_error = resolve_li_executable()
+        if executable_prefix is None:
+            raise LiExecutableUnavailableError(
+                "The Studio daemon could not resolve the installed `li` executable"
+                + (f": {resolve_error}" if resolve_error else "")
+            )
+        argv, tmp_path = build_argv(
+            schedule_dict,
+            {},
+            executable_prefix=executable_prefix,
+        )
+
+    inv_id = await launch_detached_argv(
+        argv,
+        skill=f"launch:{data['action_kind']}",
+        plugin="studio_launch",
+        prompt=data.get("action_prompt") or data.get("action_playbook"),
+        tmp_path=tmp_path,
+        action_kind=data["action_kind"],
+    )
+
+    return {
+        "invocation_id": inv_id,
+        "action_kind": data["action_kind"],
+    }
+
+
+async def launch_detached_argv(
+    argv: list[str],
+    *,
+    skill: str,
+    plugin: str,
+    prompt: str | None,
+    tmp_path: str | None = None,
+    action_kind: str | None = None,
+    node_metadata: dict[str, Any] | None = None,
+) -> str:
+    """Record and supervise one already-validated argv launch.
+
+    Callers own argv construction and validation. This helper owns the shared
+    launch admission cap, canonical invocation row, detached task retention,
+    cancellation lookup, and terminal status update.
+    """
+    if not argv or any(not isinstance(token, str) or "\x00" in token for token in argv):
+        raise ValueError("argv must be a non-empty list of NUL-free string tokens")
 
     sem = _get_semaphore()
     if sem.locked():
@@ -126,16 +194,17 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
             await db.create_invocation(
                 {
                     "id": inv_id,
-                    "skill": f"launch:{data['action_kind']}",
-                    "plugin": "studio_launch",
-                    "prompt": data.get("action_prompt") or data.get("action_playbook"),
+                    "skill": skill,
+                    "plugin": plugin,
+                    "prompt": prompt,
                     "started_at": now,
                     "status": "running",
+                    "node_metadata": node_metadata,
                 }
             )
 
         task = asyncio.create_task(
-            _spawn_detached(argv, inv_id, tmp_path=tmp_path),
+            _spawn_detached(argv, inv_id, tmp_path=tmp_path, action_kind=action_kind),
             name=f"launch-{inv_id}",
         )
     except BaseException:
@@ -145,11 +214,7 @@ async def launch(data: dict[str, Any]) -> dict[str, Any]:
     task.add_done_callback(lambda _t: sem.release())
     _detached_tasks.add(task)
     task.add_done_callback(_detached_tasks.discard)
-
-    return {
-        "invocation_id": inv_id,
-        "action_kind": data["action_kind"],
-    }
+    return inv_id
 
 
 async def _resolve_engine_def(ref: str) -> dict[str, Any]:
@@ -174,14 +239,18 @@ async def shutdown_launches() -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def _spawn_detached(argv: list[str], inv_id: str, *, tmp_path: str | None) -> None:
+async def _spawn_detached(
+    argv: list[str], inv_id: str, *, tmp_path: str | None, action_kind: str | None = None
+) -> None:
     """Spawn the process and update the invocation row when it exits."""
     from lionagi.state.reasons import RunReasons
 
     from ..scheduler.subprocess import spawn_and_wait
 
     try:
-        exit_code, _stderr = await spawn_and_wait(argv, inv_id, tmp_path=tmp_path)
+        exit_code, _stderr = await spawn_and_wait(
+            argv, inv_id, tmp_path=tmp_path, action_kind=action_kind
+        )
         if exit_code == 0:
             status, reason = "completed", RunReasons.COMPLETED_OK
         else:
@@ -245,6 +314,8 @@ class LaunchRequest(BaseModel):
     action_flow_yaml: str | None = None
     action_engine_def: str | None = None
     action_extra_args: list[str] | None = None
+    action_command: str | None = None
+    action_command_args: list[str] | None = None
 
 
 @studio_route("/launches/", method="POST", area="launches", status_code=202)
@@ -257,6 +328,8 @@ async def launch_run(body: LaunchRequest) -> dict[str, Any]:
         return await launch(body.model_dump(exclude_none=True))
     except TooManyLaunchesError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except LiExecutableUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

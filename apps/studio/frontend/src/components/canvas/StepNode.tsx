@@ -3,6 +3,7 @@
 import { memo, useEffect, useState } from "react";
 import { Handle, Position } from "reactflow";
 import type { NodeProps } from "reactflow";
+import { IconCheck, IconClose, IconPause, IconWarning } from "@/components/ui/icons";
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -27,6 +28,20 @@ const ROLE_VAR: Record<string, string> = {
   tester: "var(--role-tester)",
 };
 
+// "pending" = no lifecycle signal observed at all (never queued); "queued" =
+// an explicit NodeQueued signal was seen but execution has not started. Both
+// render as the same neutral card — the distinction matters for correctness
+// (a queued node must never be painted as running), not for a separate look.
+export type NodeExecStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "awaiting_approval"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "escalated";
+
 export interface StepNodeData {
   label: string;
   role: string;
@@ -36,7 +51,7 @@ export interface StepNodeData {
   timeout: number | null;
   inputs: string[];
   outputs: string[];
-  execStatus?: "pending" | "running" | "completed" | "failed";
+  execStatus?: NodeExecStatus;
   // optional badges
   durationSeconds?: number | null;
   errorCount?: number;
@@ -44,38 +59,49 @@ export interface StepNodeData {
 }
 
 function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
+  // roleColor arrives as a data-driven CSS var string — keep inline
   const roleColor = ROLE_VAR[data.role] || "var(--content-muted)";
   const status = data.execStatus ?? "pending";
   const reducedMotion = usePrefersReducedMotion();
+  const isTerminalError = status === "failed" || status === "escalated";
+
+  // These colors derive from status data (dag-* tokens) — keep inline
+  const isWarn = status === "awaiting_approval" || status === "paused";
 
   const borderColor =
     status === "running"
       ? "var(--dag-running-border)"
       : status === "completed"
         ? "var(--dag-completed-border)"
-        : status === "failed"
+        : isTerminalError
           ? "var(--dag-failed-border)"
-          : selected
-            ? "var(--status-selected)"
-            : "var(--edge-default)";
+          : isWarn
+            ? "var(--dag-warn-border)"
+            : selected
+              ? "var(--status-selected)"
+              : "var(--dag-pending-border)";
 
   const bgColor =
     status === "running"
       ? "var(--dag-running-bg)"
       : status === "completed"
         ? "var(--dag-completed-bg)"
-        : status === "failed"
+        : isTerminalError
           ? "var(--dag-failed-bg)"
-          : "var(--surface-raised)";
+          : isWarn
+            ? "var(--dag-warn-bg)"
+            : "var(--dag-pending-bg)";
 
   const labelColor =
     status === "running"
       ? "var(--dag-running-label)"
       : status === "completed"
         ? "var(--dag-completed-label)"
-        : status === "failed"
+        : isTerminalError
           ? "var(--dag-failed-label)"
-          : "var(--content-primary)";
+          : isWarn
+            ? "var(--dag-warn-label)"
+            : "var(--content-primary)";
 
   return (
     <div
@@ -91,7 +117,7 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
             : selected
               ? "0 0 0 2px color-mix(in srgb, var(--status-selected) 22%, transparent)"
               : "0 1px 3px rgba(0,0,0,0.12)",
-        transition: "border-color 0.2s, background 0.2s, box-shadow 0.2s",
+        transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
       }}
     >
       <Handle
@@ -108,30 +134,39 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
 
       <div className="flex items-center justify-between gap-1.5">
         <span
-          className="font-mono text-[11px] font-semibold leading-snug truncate"
+          className="truncate font-mono text-[length:var(--t-xs)] font-semibold leading-snug"
           style={{ color: labelColor }}
         >
           {data.label}
         </span>
         {status === "completed" && (
-          <span
-            className="shrink-0 text-[10px] font-semibold"
-            style={{ color: "var(--status-success)" }}
-          >
-            ✓
+          <span className="flex shrink-0 items-center text-status-success">
+            <IconCheck size={10} strokeWidth={2.5} />
           </span>
         )}
         {status === "failed" && (
-          <span
-            className="shrink-0 text-[10px] font-semibold"
-            style={{ color: "var(--status-error)" }}
-          >
-            ✕
+          <span className="flex shrink-0 items-center text-status-error">
+            <IconClose size={10} strokeWidth={2.5} />
+          </span>
+        )}
+        {status === "escalated" && (
+          <span className="flex shrink-0 items-center text-status-error">
+            <IconWarning size={10} strokeWidth={2.5} />
+          </span>
+        )}
+        {status === "awaiting_approval" && (
+          <span className="flex shrink-0 items-center text-status-warning">
+            <IconWarning size={10} strokeWidth={2.5} />
+          </span>
+        )}
+        {status === "paused" && (
+          <span className="flex shrink-0 items-center text-status-warning">
+            <IconPause size={10} strokeWidth={2.5} />
           </span>
         )}
         {status === "running" && (
           <span
-            className={`shrink-0 h-1.5 w-1.5 rounded-full${reducedMotion ? "" : " animate-pulse"}`}
+            className={`h-1.5 w-1.5 shrink-0 rounded-full${reducedMotion ? "" : " animate-pulse"}`}
             style={{ background: "var(--dag-running-border)" }}
           />
         )}
@@ -139,7 +174,7 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
 
       {data.role && (
         <span
-          className="mt-1 inline-block rounded px-1.5 py-px font-mono text-[9px] leading-tight tracking-wide"
+          className="mt-1 inline-block rounded px-1.5 py-px font-mono text-[length:var(--t-xs)] leading-tight tracking-wide"
           style={{
             backgroundColor: `color-mix(in srgb, ${roleColor} 14%, transparent)`,
             color: roleColor,
@@ -150,7 +185,7 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
       )}
 
       {data.assignment && (
-        <div className="mt-0.5 truncate font-mono text-[10px] leading-snug text-content-muted">
+        <div className="mt-0.5 truncate font-mono text-[length:var(--t-xs)] leading-snug text-content-muted">
           {data.assignment}
         </div>
       )}
@@ -158,12 +193,12 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
       {(data.durationSeconds != null ||
         (data.errorCount ?? 0) > 0 ||
         (data.toolCallCount ?? 0) > 0) && (
-        <div className="mt-1 flex items-center gap-2 font-mono text-[9px] tabular-nums text-content-muted">
+        <div className="mt-1 flex items-center gap-2 font-mono text-[length:var(--t-xs)] tabular-nums text-content-muted">
           {data.durationSeconds != null && data.durationSeconds >= 0 ? (
             <span>{formatStepDuration(data.durationSeconds)}</span>
           ) : null}
           {(data.errorCount ?? 0) > 0 ? (
-            <span style={{ color: "var(--status-error)" }}>{data.errorCount} err</span>
+            <span className="text-status-error">{data.errorCount} err</span>
           ) : null}
           {(data.toolCallCount ?? 0) > 0 ? <span>{data.toolCallCount} calls</span> : null}
         </div>
@@ -171,11 +206,10 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeData>) {
 
       {status === "running" && (
         <div
-          className="pointer-events-none absolute inset-0 rounded-md"
+          className="pointer-events-none absolute inset-0 rounded-md opacity-35"
           style={{
             border: "2px solid var(--dag-running-border)",
             animation: reducedMotion ? "none" : "pulse 1.5s ease-in-out infinite",
-            opacity: 0.35,
           }}
         />
       )}

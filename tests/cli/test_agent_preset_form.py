@@ -231,6 +231,21 @@ class TestFormToContextBlock:
 class TestFormValidationGate:
     """The validation gate must fire before any LLM call is attempted."""
 
+    def test_legacy_namespace_without_list_profiles_reaches_validation(self, tmp_path, monkeypatch):
+        """Namespaces created before newer flags still reach form validation."""
+        spec = tmp_path / "spec.yaml"
+        spec.write_text("fields:\n  repo:\n    type: str\n    required: true\nvalues: {}\n")
+
+        import lionagi.cli.agent as agent_mod
+
+        errors: list[str] = []
+        monkeypatch.setattr(agent_mod, "log_error", lambda msg: errors.append(msg))
+        args = _agent_args(form=str(spec))
+
+        assert not hasattr(args, "list_profiles")
+        assert run_agent(args) == 1
+        assert any("repo" in error for error in errors)
+
     def test_missing_form_file_returns_rc1_without_llm_call(self, tmp_path, monkeypatch):
         """--form pointing to a nonexistent file must exit rc=1 immediately."""
         llm_called = []
@@ -457,7 +472,15 @@ def _wire_run_agent_mocks(monkeypatch, tmp_path):
     async def fake_setup(*a, **kw):
         return None
 
-    async def fake_teardown(ctx, *, status="completed", exception=None):
+    async def fake_teardown(
+        ctx,
+        *,
+        status="completed",
+        exception=None,
+        cwd=None,
+        engine_session_uid=None,
+        defer_terminal=False,
+    ):
         return status
 
     monkeypatch.setattr(agent_mod, "setup_agent_persist", fake_setup)
@@ -679,6 +702,7 @@ async def test_run_agent_preset_and_profile_single_system_message_with_both(monk
         lion_system=True,
         artifact_defaults=None,
         timeout=None,
+        bypass=False,
         resume_on_timeout=False,
     )
     import lionagi.cli.agent as agent_mod
@@ -741,6 +765,7 @@ async def test_run_agent_profile_without_preset_system_prompt_unchanged(monkeypa
         system_prompt=PROFILE_PROMPT,
         artifact_defaults=None,
         timeout=None,
+        bypass=False,
         resume_on_timeout=False,
     )
     import lionagi.cli.agent as agent_mod
@@ -1048,14 +1073,13 @@ async def test_preset_and_real_profile_nolion_no_lion_system_message(monkeypatch
     """Real profile with lion_system:false + preset=coding → implementer content present,
     profile body present, ZERO occurrences of '# Welcome to LIONAGI'.
 
-    When lion_system=False the profile's raw_body is passed; AgentSpec.lion_system
-    remains True (the implementer preset owns that flag), so the factory adds the
-    header once for the role but NOT for the profile body.
-
-    Wait — AgentSpec.lion_system is always True for AgentSpec.coding(); the
-    flag on AgentProfile.lion_system controls ONLY whether the profile body
-    gets the header prepended.  The factory always prepends once for the spec.
-    So count=1 is expected even for lion_system:false profiles.
+    The profile's explicit `lion_system: false` opt-out must propagate onto the
+    AgentSpec built for the create_agent path (--preset coding or an opted-in
+    `role:` profile): AgentSpec.coding()/compose() default lion_system=True
+    regardless of the profile's own frontmatter, so _run_agent copies
+    profile.lion_system onto the spec before calling create_agent, exactly as
+    the non-preset path already achieves by folding lion_system into
+    profile.system_prompt ahead of time. count=0 is the correct outcome.
     """
     agents_dir = _make_agents_dir(tmp_path, monkeypatch)
     profile_body = "Custom coding instructions, no lion header."
@@ -1088,10 +1112,10 @@ async def test_preset_and_real_profile_nolion_no_lion_system_message(monkeypatch
 
     rendered = tool_branch.msgs.system.rendered
     count = rendered.count("# Welcome to LIONAGI")
-    # The spec itself has lion_system=True so the factory adds it once for the
-    # role; the profile body (raw_body, no header) is appended as extra_prompt.
-    assert count == 1, (
-        f"Expected 1 '# Welcome to LIONAGI' for lion_system:false profile + preset; "
+    assert count == 0, (
+        f"Expected 0 '# Welcome to LIONAGI' for lion_system:false profile + preset "
+        f"(the profile's opt-out must propagate onto the spec); "
         f"got {count}.\nMessage start: {rendered[:600]}"
     )
+    assert profile_body in rendered
     assert profile_body in rendered, "profile body must be present"

@@ -1,8 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 """Tests for `li agent status` / `li play status` / `li o ctl status` —
-read-only lifecycle surfaces that resolve BY ID regardless of terminal
-state (ADR-0085 section 6)."""
+read-only lifecycle surfaces that resolve BY ID regardless of terminal state."""
 
 from __future__ import annotations
 
@@ -181,8 +180,10 @@ def test_classify_session_failure():
 
 
 def test_classify_session_cancelled_is_failure():
-    """'cancelled' has no literal mention in the ADR-0085 exit-code list but
-    is a real terminal non-success status — lands in failure by elimination."""
+    """'cancelled' is terminal but not successful for a session (ADR-0035 D1).
+
+    The status renderer therefore classifies it as failure.
+    """
     assert _classify("session", "cancelled") == (True, "failure", 1)
 
 
@@ -787,7 +788,7 @@ def test_cli_play_status_help_subprocess():
     assert "audit-degraded" in result.stdout.lower()
 
 
-# ── pending_controls (ADR-0085 part 1: session_controls transport) ────────
+# ── pending_controls (ADR-0069 D1: session_controls transport) ─────────────
 
 
 @pytest.mark.asyncio
@@ -999,3 +1000,67 @@ def test_main_o_ctl_status_unknown_flag_is_argparse_error(temp_db_path: Path) ->
     with pytest.raises(SystemExit) as exc_info:
         main(["o", "ctl", "status", "some-id", "--jsonn"])
     assert exc_info.value.code == 2
+
+
+# ── Ambiguous short-id prefixes ─────────────────────────────────────────────
+#
+# Every status resolution stage (agent, play, generic) goes through the same
+# shared resolver, so a prefix matching two rows is reported, never guessed.
+
+
+async def _seed_session_with_id(db: StateDB, sid: str) -> str:
+    prog_id = str(uuid.uuid4())
+    await db.create_progression(prog_id)
+    await db.create_session(
+        {
+            "id": sid,
+            "progression_id": prog_id,
+            "status": "running",
+            "invocation_kind": "agent",
+            "started_at": time.time(),
+        }
+    )
+    return sid
+
+
+async def test_fetch_by_id_rejects_ambiguous_prefix(temp_db_path: Path) -> None:
+    from lionagi.cli._util import AmbiguousIdError
+    from lionagi.cli.status import _fetch_by_id
+
+    async with StateDB() as db:
+        first = await _seed_session_with_id(db, "abcde000-0000-0000-0000-000000000001")
+        second = await _seed_session_with_id(db, "abcde111-0000-0000-0000-000000000002")
+
+        with pytest.raises(AmbiguousIdError) as excinfo:
+            await _fetch_by_id(db, "sessions", "abcde")
+
+    assert set(excinfo.value.candidates) == {first, second}
+
+
+@pytest.mark.parametrize("command", ["agent", "play", "ctl"])
+async def test_status_ambiguous_prefix_reports_candidates_and_exits_unknown(
+    temp_db_path: Path, no_project: None, command: str
+) -> None:
+    async with StateDB() as db:
+        first = await _seed_session_with_id(db, "abcde000-0000-0000-0000-000000000001")
+        second = await _seed_session_with_id(db, "abcde111-0000-0000-0000-000000000002")
+
+    output, exit_code = await _run_status(command=command, entity_id="abcde", as_json=False)
+
+    assert exit_code == EXIT_UNKNOWN, "an ambiguous prefix must not be a success exit code"
+    assert "ambiguous" in output
+    assert first in output and second in output
+
+
+async def test_status_full_id_still_resolves_when_a_sibling_shares_a_prefix(
+    temp_db_path: Path, no_project: None
+) -> None:
+    """The guard is on prefixes only — an exact id is a primary key."""
+    async with StateDB() as db:
+        first = await _seed_session_with_id(db, "abcde000-0000-0000-0000-000000000001")
+        await _seed_session_with_id(db, "abcde111-0000-0000-0000-000000000002")
+
+    output, exit_code = await _run_status(command="agent", entity_id=first, as_json=True)
+
+    assert exit_code != EXIT_UNKNOWN
+    assert first in output

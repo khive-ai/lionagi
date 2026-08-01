@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Planning engine — reactive DAG flow as an Engine (ADR-0075 §4); the library-level backend for ``li o flow``."""
+"""Planning engine — reactive DAG flow as an Engine (ADR-0034 §4); the library-level backend for ``li o flow``."""
 
 from __future__ import annotations
 
@@ -24,9 +24,8 @@ class PlanError(RuntimeError):
     """Raised when the orchestrator produces an empty TaskAssignment list, so a planning run never silently no-ops."""
 
 
-# A small default roster the orchestrator may assign to. Callers pass their own
-# via ``roles=`` when they want a different set (the CLI uses the full casts ∪
-# user-profile roster).
+# A small default roster the orchestrator may assign to; callers pass their own
+# via ``roles=`` for a different set (the CLI uses the full casts ∪ user-profile roster).
 _DEFAULT_ROLES: tuple[str, ...] = ("researcher", "analyst", "critic", "architect", "synthesizer")
 
 
@@ -69,9 +68,8 @@ class PlanningEngine(Engine):
 
         assignments = await self._plan(run, prompt, max_ops)
 
-        # One role-template branch per distinct assignee; build_dag_graph runs
-        # each assignment on a clone. Every assignee role may grow the live DAG
-        # when reactive.
+        # One role-template branch per distinct assignee; build_dag_graph runs each
+        # assignment on a clone. Every assignee role may grow the live DAG when reactive.
         assignees = {ta.assignee for ta in assignments}
         spawners = tuple(assignees) if self.reactive else ()
         roles = await spawn_roles(run.session, {a: a for a in assignees}, spawners=spawners)

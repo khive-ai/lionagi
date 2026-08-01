@@ -19,8 +19,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 
 def _make_client(monkeypatch, fake_db: Path | None = None) -> TestClient:
-    from importlib import reload
+    """Build a fresh app to pick up monkeypatched env vars.
 
+    create_app() (not importlib.reload) means a fresh app instance every
+    call, so the monkeypatched values are baked in without mutating the
+    shared lionagi.studio.app.app singleton other code still imports.
+    """
     import lionagi.studio.app as app_mod
     import lionagi.studio.services.stats as stats_mod
 
@@ -28,8 +32,8 @@ def _make_client(monkeypatch, fake_db: Path | None = None) -> TestClient:
         monkeypatch.setattr(stats_mod, "DEFAULT_DB_PATH", fake_db)
         monkeypatch.setattr(stats_mod, "_DB", str(fake_db))
 
-    reload(app_mod)
-    return TestClient(app_mod.app, raise_server_exceptions=False)
+    app = app_mod.create_app()
+    return TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
 
 def _stub_db_and_spawn(monkeypatch):
@@ -326,15 +330,27 @@ class TestLaunchArgvPath:
         """launch() delegates argv construction to build_argv."""
         captured = {}
 
-        def _fake_build_argv(schedule, ctx):
+        def _consume(coro, **kw):
+            coro.close()
+            return MagicMock()
+
+        def _fake_build_argv(schedule, ctx, *, executable_prefix=None):
             captured["schedule"] = schedule
             captured["ctx"] = ctx
-            return (["uv", "run", "li", "agent", "--", "sonnet", "hi"], None)
+            captured["executable_prefix"] = executable_prefix
+            return ([*executable_prefix, "agent", "--", "sonnet", "hi"], None)
 
         with (
             patch("lionagi.studio.services.launches.build_argv", side_effect=_fake_build_argv),
+            patch(
+                "lionagi.studio.services.launches.resolve_li_executable",
+                return_value=(["/opt/lionagi/bin/li"], None),
+            ),
             patch("lionagi.studio.services.launches.StateDB") as MockDB,
-            patch("lionagi.studio.services.launches.asyncio.create_task"),
+            patch(
+                "lionagi.studio.services.launches.asyncio.create_task",
+                side_effect=_consume,
+            ),
         ):
             mock_db = AsyncMock()
             mock_db.create_invocation = AsyncMock()
@@ -352,6 +368,7 @@ class TestLaunchArgvPath:
         assert captured["schedule"]["action_model"] == "sonnet"
         assert captured["schedule"]["action_prompt"] == "hi"
         assert captured["ctx"] == {}
+        assert captured["executable_prefix"] == ["/opt/lionagi/bin/li"]
 
     def test_launch_returns_invocation_id_on_agent(self):
         """launch() must return a 12-char hex invocation_id for agent kind."""
@@ -377,6 +394,24 @@ class TestLaunchArgvPath:
 
         assert "invocation_id" in result
         assert len(result["invocation_id"]) == 12
+
+    def test_unresolved_installed_li_returns_503_before_recording(self, tmp_path, monkeypatch):
+        """A pip-installed daemon with no resolvable console script fails clearly."""
+        monkeypatch.setattr(
+            "lionagi.studio.services.launches.resolve_li_executable",
+            lambda: (None, "no 'li' console_scripts entry point registered"),
+        )
+        mock_db = _stub_db_and_spawn(monkeypatch)
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        response = client.post(
+            "/api/launches",
+            json={"action_kind": "agent", "action_model": "sonnet", "action_prompt": "hello"},
+        )
+
+        assert response.status_code == 503, response.text
+        assert "console_scripts entry point" in response.json()["detail"]
+        mock_db.create_invocation.assert_not_awaited()
 
     def test_validate_request_rejects_flag_model(self):
         """_validate_request must reject action_model starting with '-'."""
@@ -439,7 +474,7 @@ class TestSpawnDetachedTerminalUpdate:
 
         captured = {}
 
-        async def _fake_spawn(argv, inv_id, *, tmp_path=None):
+        async def _fake_spawn(argv, inv_id, *, tmp_path=None, cwd=None, action_kind=None):
             if spawn_exc is not None:
                 raise spawn_exc
             return (exit_code, "")
@@ -607,7 +642,7 @@ class TestShutdownDrains:
         mock_db.update_status = _capture_status
         mock_db.update_invocation = AsyncMock()
 
-        async def _blocking_spawn(argv, inv_id, *, tmp_path=None):
+        async def _blocking_spawn(argv, inv_id, *, tmp_path=None, cwd=None, action_kind=None):
             # Block until cancelled so CancelledError propagates naturally.
             await asyncio.sleep(999)
             return (0, "")
@@ -821,7 +856,7 @@ class TestEngineScheduleAssembly:
         _stub_engine_def(monkeypatch, defn)
         captured = {}
 
-        def _fake_build_argv(schedule, ctx):
+        def _fake_build_argv(schedule, ctx, *, executable_prefix=None):
             captured["schedule"] = schedule
             return (["uv", "run", "li", "engine", "run", "--", "research", "spec"], None)
 
@@ -1191,7 +1226,7 @@ class TestLaunchCancelRetrySmoke:
 
         mock_db.update_status = _capture_status
 
-        async def _blocking_spawn(argv, inv_id, *, tmp_path=None):
+        async def _blocking_spawn(argv, inv_id, *, tmp_path=None, cwd=None, action_kind=None):
             await asyncio.sleep(999)  # block until the task is cancelled
             return (0, "")
 
@@ -1299,7 +1334,7 @@ class TestLaunchFlowYamlKind:
 
         captured = {}
 
-        def _fake_build_argv(schedule, ctx):
+        def _fake_build_argv(schedule, ctx, *, executable_prefix=None):
             captured["schedule"] = schedule
             return (
                 ["uv", "run", "li", "o", "flow", "-f", "/tmp/x.yaml", "--", "sonnet"],
@@ -1331,3 +1366,267 @@ class TestLaunchFlowYamlKind:
 
         assert captured["schedule"]["action_kind"] == "flow_yaml"
         assert captured["schedule"]["action_flow_yaml"] == "prompt: hi\n"
+
+
+# ---------------------------------------------------------------------------
+# command kind — allow-listed executable, spawned directly (never through `li`)
+# ---------------------------------------------------------------------------
+
+_COMMAND_ALLOWLIST_ENV = "LIONAGI_SCHEDULER_COMMAND_ALLOWLIST"
+
+
+@pytest.mark.integration
+class TestLaunchCommandKind:
+    """POST /api/launches with action_kind='command' — every other action_kind
+    has coverage above; this one previously had none on the on-demand
+    /launches route."""
+
+    def test_launch_command_returns_202(self, tmp_path, monkeypatch):
+        """An allow-listed command must be accepted and return 202."""
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        _stub_db_and_spawn(monkeypatch)
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post(
+            "/api/launches",
+            json={
+                "action_kind": "command",
+                "action_command": "echo",
+                "action_command_args": ["hi"],
+            },
+        )
+        assert resp.status_code == 202, resp.text
+        data = resp.json()
+        assert "invocation_id" in data
+        assert data["action_kind"] == "command"
+
+    def test_launch_command_missing_command_422(self, tmp_path, monkeypatch):
+        """action_command is required for command launches."""
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post("/api/launches", json={"action_kind": "command"})
+        assert resp.status_code == 422, resp.text
+        assert "action_command is required" in resp.json()["detail"]
+
+    def test_launch_command_not_allowlisted_422(self, tmp_path, monkeypatch):
+        """A command absent from the allow-list must be rejected on this route."""
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "safe-cmd")
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post(
+            "/api/launches",
+            json={"action_kind": "command", "action_command": "rm"},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "is not in" in resp.json()["detail"]
+
+    def test_launch_command_empty_allowlist_refuses_everything(self, tmp_path, monkeypatch):
+        """With the allow-list env var unset, every command is refused — this is
+        the entire safety mechanism for a generic command runner; pin it here
+        on the on-demand launch route specifically."""
+        monkeypatch.delenv(_COMMAND_ALLOWLIST_ENV, raising=False)
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post(
+            "/api/launches",
+            json={"action_kind": "command", "action_command": "echo"},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "is not in" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("bad_command", ["../evil", "/bin/rm", "a/b", "sub\\dir"])
+    def test_command_path_separator_rejected(self, tmp_path, monkeypatch, bad_command):
+        """A command containing a path separator must be rejected regardless of
+        the allow-list — shape validation runs before the allow-list check."""
+        monkeypatch.delenv(_COMMAND_ALLOWLIST_ENV, raising=False)
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post(
+            "/api/launches",
+            json={"action_kind": "command", "action_command": bad_command},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "path separators" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("bad_command", ["-rf", "--bypass", "-x"])
+    def test_command_leading_dash_rejected(self, tmp_path, monkeypatch, bad_command):
+        """A command starting with '-' must be rejected regardless of the allow-list."""
+        monkeypatch.delenv(_COMMAND_ALLOWLIST_ENV, raising=False)
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post(
+            "/api/launches",
+            json={"action_kind": "command", "action_command": bad_command},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "starts with '-'" in resp.json()["detail"]
+
+    def test_launch_command_args_scalar_rejected_by_route(self, tmp_path, monkeypatch):
+        """action_command_args must be a JSON array; a scalar string must 422
+        (rejected by the Pydantic model's list[str] field on this route)."""
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        client = _make_client(monkeypatch, fake_db=tmp_path / "state.db")
+
+        resp = client.post(
+            "/api/launches",
+            json={
+                "action_kind": "command",
+                "action_command": "echo",
+                "action_command_args": "hi",
+            },
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_validate_request_rejects_command_args_scalar(self, monkeypatch):
+        """_validate_request carries its own defensive isinstance check for
+        callers that bypass the Pydantic model (e.g. direct launch() callers,
+        or a future non-HTTP caller) — a non-list action_command_args must
+        still be rejected at that layer."""
+        from lionagi.studio.services.launches import _validate_request
+
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        with pytest.raises(ValueError, match="must be a list"):
+            _validate_request(
+                {
+                    "action_kind": "command",
+                    "action_command": "echo",
+                    "action_command_args": 42,
+                }
+            )
+
+    def test_validate_request_accepts_valid_command(self, monkeypatch):
+        """_validate_request must not raise for a clean, allow-listed command request."""
+        from lionagi.studio.services.launches import _validate_request
+
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        _validate_request(
+            {
+                "action_kind": "command",
+                "action_command": "echo",
+                "action_command_args": ["hi"],
+            }
+        )
+
+    def test_command_schedule_carries_command_and_args(self, monkeypatch):
+        """launch() must forward action_command/action_command_args into the
+        schedule dict passed to build_argv (mirrors
+        test_flow_yaml_schedule_carries_yaml above)."""
+        import lionagi.studio.services.launches as svc
+
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        captured = {}
+
+        def _fake_build_argv(schedule, ctx, *, executable_prefix=None):
+            captured["schedule"] = schedule
+            return (["echo", "hi"], None)
+
+        def _consume(coro, **kw):
+            coro.close()
+            return MagicMock()
+
+        with (
+            patch("lionagi.studio.services.launches.build_argv", side_effect=_fake_build_argv),
+            patch("lionagi.studio.services.launches.StateDB") as MockDB,
+            patch("lionagi.studio.services.launches.asyncio.create_task", side_effect=_consume),
+        ):
+            mock_db = AsyncMock()
+            mock_db.create_invocation = AsyncMock()
+            MockDB.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            MockDB.return_value.__aexit__ = AsyncMock(return_value=False)
+            asyncio.run(
+                svc.launch(
+                    {
+                        "action_kind": "command",
+                        "action_command": "echo",
+                        "action_command_args": ["hi"],
+                    }
+                )
+            )
+
+        assert captured["schedule"]["action_kind"] == "command"
+        assert captured["schedule"]["action_command"] == "echo"
+        assert captured["schedule"]["action_command_args"] == ["hi"]
+
+    def test_spawn_detached_threads_command_action_kind(self):
+        """_spawn_detached must pass action_kind='command' through to
+        spawn_and_wait — that is what closes the TOCTOU window between
+        argv-build time and the actual subprocess exec: build_argv's allow-list
+        check runs once at schedule-dict-build time, but the caller performs
+        awaited DB work before the process actually spawns, so a second,
+        no-intervening-await check right at spawn_and_wait is required to
+        observe an allow-list revoked in that window."""
+        import lionagi.studio.services.launches as svc
+
+        captured = {}
+
+        async def _fake_spawn(argv, inv_id, *, tmp_path=None, cwd=None, action_kind=None):
+            captured["action_kind"] = action_kind
+            captured["argv"] = argv
+            return (0, "")
+
+        mock_db = AsyncMock()
+        mock_db.update_invocation = AsyncMock()
+        mock_db.update_status = AsyncMock()
+
+        async def _run():
+            with patch("lionagi.studio.services.launches.StateDB") as MockDB:
+                MockDB.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+                MockDB.return_value.__aexit__ = AsyncMock(return_value=False)
+                with patch(
+                    "lionagi.studio.scheduler.subprocess.spawn_and_wait",
+                    side_effect=_fake_spawn,
+                ):
+                    await svc._spawn_detached(
+                        ["echo", "hi"], "inv-cmd", tmp_path=None, action_kind="command"
+                    )
+
+        asyncio.run(_run())
+        assert captured["action_kind"] == "command"
+        assert captured["argv"] == ["echo", "hi"]
+
+    def test_launch_command_end_to_end_reaches_spawn_with_action_kind(self, monkeypatch):
+        """Full launch() -> _spawn_detached -> spawn_and_wait path (real
+        build_argv; only StateDB and the actual subprocess spawn are stubbed)
+        must carry action_kind='command' all the way to the spawn-time
+        re-check — the concrete on-demand-launch instance of the TOCTOU gate."""
+        import lionagi.studio.services.launches as svc
+
+        monkeypatch.setenv(_COMMAND_ALLOWLIST_ENV, "echo")
+        captured = {}
+
+        async def _fake_spawn(argv, inv_id, *, tmp_path=None, cwd=None, action_kind=None):
+            captured["action_kind"] = action_kind
+            captured["argv"] = argv
+            return (0, "")
+
+        mock_db = AsyncMock()
+        mock_db.create_invocation = AsyncMock()
+        mock_db.update_invocation = AsyncMock()
+        mock_db.update_status = AsyncMock()
+
+        async def _run():
+            with (
+                patch("lionagi.studio.services.launches.StateDB") as MockDB,
+                patch(
+                    "lionagi.studio.scheduler.subprocess.spawn_and_wait",
+                    side_effect=_fake_spawn,
+                ),
+            ):
+                MockDB.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+                MockDB.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                result = await svc.launch(
+                    {
+                        "action_kind": "command",
+                        "action_command": "echo",
+                        "action_command_args": ["hi"],
+                    }
+                )
+                inv_id = result["invocation_id"]
+                task = next(t for t in svc._detached_tasks if t.get_name() == f"launch-{inv_id}")
+                await task
+
+        asyncio.run(_run())
+        assert captured["action_kind"] == "command"
+        assert captured["argv"] == ["echo", "hi"]

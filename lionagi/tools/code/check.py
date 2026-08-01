@@ -17,9 +17,8 @@ from lionagi.protocols.action.tool import Tool
 
 from ..base import LionTool
 
-# Runtime availability of the ruff binary is checked lazily via shutil.which.
-# No hard Python import is required — if the binary is absent the tool degrades
-# to status='unavailable' with an actionable install message.
+# ruff availability is checked lazily via shutil.which (no hard import);
+# an absent binary degrades to status='unavailable' with an install hint.
 
 
 class CodeDiagnostic(BaseModel):
@@ -245,10 +244,8 @@ class CodeCheckTool(LionTool):
     async def handle_request(self, request: CodeCheckRequest) -> CodeCheckResponse:
         if isinstance(request, dict):
             request = CodeCheckRequest(**request)
-        # Enforce workspace containment before any subprocess call.  An empty
-        # paths list would let ruff fall back to scanning the process working
-        # directory, which may lie outside the workspace — default it to the
-        # workspace root instead.
+        # An empty paths list would let ruff scan the process cwd (possibly
+        # outside the workspace) — default to the workspace root instead.
         paths = request.paths or [str(self.workspace_root)]
         resolved_paths, err = _resolve_check_paths(paths, self.workspace_root)
         if err is not None:
@@ -270,27 +267,8 @@ class CodeCheckTool(LionTool):
         if self._tool is None:
 
             async def code_check(**kwargs):
-                """
-                Run static analysis on Python files and return structured diagnostics.
-
-                Call this after editing a file to get immediate IDE-grade feedback.
-                Each diagnostic is returned as file:line:col with code and message so
-                the agent can locate and fix the issue without re-reading the file.
-
-                Composability (edit -> check workflow):
-                  1. editor(action='edit', file_path=..., old_string=..., new_string=...)
-                  2. code_check(paths=[<same file_path>])
-                  3. Diagnostics list gives actionable file:line:col entries to fix next.
-
-                Supported tools:
-                - 'ruff': fast Python linter (default). Requires ruff in PATH.
-                  Returns status='unavailable' if the binary is absent — not an error.
-
-                Result status values:
-                - 'ok': no issues found
-                - 'diagnostics': one or more issues found (see diagnostics list)
-                - 'unavailable': tool binary not installed
-                - 'error': tool failed unexpectedly
+                """Run static analysis (ruff) on Python files and return structured file:line:col diagnostics.
+                Call after editing a file for immediate feedback; returns status='unavailable' if ruff is not installed.
                 """
                 return (await self.handle_request(CodeCheckRequest(**kwargs))).model_dump()
 

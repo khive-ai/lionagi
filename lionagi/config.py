@@ -75,6 +75,18 @@ class AppSettings(BaseSettings, frozen=True):
 
     LIONAGI_STATE_DB_URL: str | None = None
 
+    # First-output liveness window (seconds) for CLI-streaming run() turns —
+    # a worker whose subprocess produces no first stream chunk within this
+    # window is retried once (fresh subprocess), then fails loud with
+    # WorkerLivenessError instead of hanging as a zombie "running" leg.
+    # 0 disables the watchdog (deterministic / test runs).
+    LIONAGI_WORKER_LIVENESS_TIMEOUT: float = 120.0
+
+    # Antigravity print-mode cap (seconds). One hour is comfortably above
+    # expected caller deadlines while retaining a finite subprocess bound;
+    # deployments that need another ceiling can override this setting by name.
+    LIONAGI_ANTIGRAVITY_PRINT_TIMEOUT: float = 3600.0
+
     LOG_PERSIST_DIR: str = "./data/logs"
     LOG_SUBFOLDER: str | None = None
     LOG_CAPACITY: int = 50
@@ -84,6 +96,11 @@ class AppSettings(BaseSettings, frozen=True):
     LOG_FILE_PREFIX: str = "log"
     LOG_AUTO_SAVE_ON_EXIT: bool = True
     LOG_CLEAR_AFTER_DUMP: bool = True
+    # Keep base64 image/audio payloads out of the log files; each entry keeps a
+    # placeholder naming the field, media type and byte length. Set false to log
+    # payloads verbatim, at the cost of log files as large as the media.
+    LOG_REDACT_BINARY: bool = True
+    LOG_REDACT_BINARY_THRESHOLD: int = 1024
 
     _instance: ClassVar[Any] = None
 
@@ -116,6 +133,8 @@ class AppSettings(BaseSettings, frozen=True):
             "file_prefix": self.LOG_FILE_PREFIX,
             "auto_save_on_exit": self.LOG_AUTO_SAVE_ON_EXIT,
             "clear_after_dump": self.LOG_CLEAR_AFTER_DUMP,
+            "redact_binary": self.LOG_REDACT_BINARY,
+            "redact_binary_threshold": self.LOG_REDACT_BINARY_THRESHOLD,
         }
 
 

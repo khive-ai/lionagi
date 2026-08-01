@@ -16,9 +16,9 @@ __all__ = (
     "RelationError",
     "OperationError",
     "ExecutionError",
-    "AccessError",
     "ConfigurationError",
     "TimeoutError",
+    "EmptyOutgoingContentError",
     "ItemNotFoundError",
     "ItemExistsError",
 )
@@ -120,7 +120,7 @@ class ResourceError(LionError):
 
 
 class RateLimitError(LionError):
-    __slots__ = ("retry_after",)  # one extra attr
+    __slots__ = ("retry_after",)
     default_message = "Rate limit exceeded"
     default_status_code = 429
 
@@ -141,14 +141,6 @@ class ExecutionError(LionError, RuntimeError):
     pass
 
 
-class AccessError(LionError):
-    """Exception raised when access is denied."""
-
-    default_message = "Access denied"
-    default_status_code = 403
-    __slots__ = ()
-
-
 class ConfigurationError(LionError, ValueError):
     """Exception raised when configuration is invalid."""
 
@@ -162,6 +154,15 @@ class TimeoutError(LionError):  # noqa: A001 — intentional shadowing of builti
 
     default_message = "Operation timed out"
     default_status_code = 408
+    __slots__ = ()
+
+
+class EmptyOutgoingContentError(LionError, ValueError):
+    """Raised when a model call is about to go out with no user content
+    despite a non-empty instruction having been supplied."""
+
+    default_message = "Assembled outgoing message content is empty"
+    default_status_code = 500
     __slots__ = ()
 
 

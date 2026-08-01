@@ -2,32 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """`li agent status` / `li play status` / `li o ctl status` — read-only lifecycle surfaces.
 
-Pure reads over sessions/invocations/plays/session_signals. Resolves an id
-(or the latest matching run) regardless of terminal state, so a finished run
-is inspectable without already knowing whether it is still active — a plain
-`li monitor` table view only lists running/active rows. See
-docs/adrs/ADR-0085-flow-control-plane.md section 6.
-
-`--json` emits a single flat object with this stable key set (documented
-here since other lambdas/tools parse it):
-
-  id, entity_type, command, status, terminal, exit_class, exit_code,
-  current_phase, progress_completed, progress_total, model, provider,
-  project, last_activity_at, session_id, branch_id, invocation_id, label,
-  degraded, degraded_reason,
-  status_reason_code, status_reason_summary, status_evidence_refs,
-  pending_controls
-
-Exit codes: 0 terminal-success, 1 terminal-failure, 3 still running/active,
-2 lookup failed (unknown id, or state.db unreachable) — argparse itself
-owns exit code 2 for usage errors, so this reuses that convention for any
-other "could not produce a status" outcome.
-
-`pending_controls` lists unapplied session_controls rows (id, verb,
-created_at) for the resolved backing session, oldest first — queued via
-`li o ctl pause|resume|msg` and consumed by the control poller running
-alongside a live flow's heartbeat loop (ADR-0085 part 1). Always `[]` when
-there is no backing session or nothing queued.
+See docs/internals/cli.md for the `--json` output key-set and exit-code contract.
 """
 
 from __future__ import annotations
@@ -41,6 +16,7 @@ from typing import Any
 
 from ._logging import log_error
 from ._project import detect_project
+from ._util import AmbiguousIdError, fetch_unique_row, resolve_entity
 
 __all__ = (
     "run_agent_status",
@@ -49,26 +25,20 @@ __all__ = (
 )
 
 # ── Status vocabularies (mirror the CHECK constraints / VALID_* sets in state/db.py) ──
-# sessions/invocations share one vocabulary (VALID_SESSION_STATUSES); plays have
-# their own (_PLAY_STATUSES). "cancelled" has no literal mention in the ADR-0085
-# exit-code list but is a real terminal non-success status — it lands in FAILURE
-# by elimination (neither success nor still-running).
+# "cancelled" lands in FAILURE by elimination (neither success nor still-running).
 
 _SESSION_SUCCESS = frozenset({"completed"})
-_SESSION_FAILURE = frozenset({"failed", "timed_out", "aborted", "cancelled"})
+# "completed_empty" (ran clean but produced no commits/artifacts — the
+# completion-trust gate) is classified as failure here, not success.
+_SESSION_FAILURE = frozenset({"completed_empty", "failed", "timed_out", "aborted", "cancelled"})
 _PLAY_SUCCESS = frozenset({"merged"})
 _PLAY_FAILURE = frozenset({"gate_failed", "escalated", "blocked", "aborted_after_finish"})
 
 EXIT_RUNNING = 3
 EXIT_UNKNOWN = 2
 
-# Bound on a single status read's total DB time (open + resolve + render).
-# StateDB.open() always runs a schema-apply step under a write transaction
-# (BEGIN IMMEDIATE), even for a pure read — so a status check can, in the
-# pathological case of another writer holding a long transaction, wait far
-# longer than is reasonable for a diagnostic command. busy_timeout is already
-# 5s at the sqlite layer; this wraps the whole call so a stuck read fails
-# fast with a clear message instead of hanging indefinitely.
+# StateDB.open() always runs a schema-apply step under a write transaction,
+# even for pure reads — this bounds a status read so it fails fast, not hangs.
 _DB_BUSY_TIMEOUT_S = 10.0
 
 
@@ -76,23 +46,14 @@ _DB_BUSY_TIMEOUT_S = 10.0
 
 
 async def _fetch_by_id(db: Any, table: str, id_or_short: str) -> dict[str, Any] | None:
-    """Exact-id fetch for full ids, prefix (LIKE) fetch for short ids.
+    """Exact-id fetch, then unique-prefix fetch, scoped to one table (see
+    _util.resolve_entity for the multi-table sweep).
 
-    Mirrors _util.resolve_entity's length-gated match, scoped to one table
-    at a time so each command can define its own per-table resolution order
-    instead of the fixed 4-table sweep resolve_entity uses.
+    Raises `AmbiguousIdError` when a prefix matches more than one row; the
+    status entry points turn that into EXIT_UNKNOWN, never a status readout
+    for an arbitrarily chosen run.
     """
-    id_or_short = id_or_short.strip()
-    if len(id_or_short) < 36:
-        row = await db.fetch_one(
-            f"SELECT * FROM {table} WHERE id LIKE ?",  # noqa: S608
-            (id_or_short + "%",),
-        )
-    else:
-        row = await db.fetch_one(
-            f"SELECT * FROM {table} WHERE id = ?",  # noqa: S608
-            (id_or_short,),
-        )
+    row = await fetch_unique_row(db, table, id_or_short)
     return db._row_to_dict(row) if row is not None else None
 
 
@@ -112,13 +73,9 @@ async def _latest_session(
 
 
 async def _resolve_session_by_branch_id(db: Any, entity_id: str) -> dict[str, Any] | None:
-    """Fallback: treat *entity_id* as a branch_id (the resume token printed in
-    `li agent -r <branch_id> "..."` hints and echoed as `branch_id` in the status
-    view) and resolve it to its owning session.
+    """Fallback: resolve *entity_id* as a branch_id to its owning session.
 
-    There is no `branch_id` column on `sessions` — `branches` is a separate
-    table, and `branches.session_id` is a NOT NULL FK, so a matched branch row
-    always names exactly one owning session.
+    See docs/internals/cli.md for the branches/sessions schema note.
     """
     branch = await _fetch_by_id(db, "branches", entity_id)
     if branch is None:
@@ -129,20 +86,18 @@ async def _resolve_session_by_branch_id(db: Any, entity_id: str) -> dict[str, An
 async def _resolve_agent_target(
     db: Any, entity_id: str | None, project: str | None
 ) -> tuple[str, dict[str, Any]] | None:
-    """`li agent status` resolution: session (any kind), ADR-0020 invocation, or
-    a branch_id (resolved to its owning session), by id; default-latest is
-    scoped to agent-kind sessions for *project*.
+    """`li agent status` resolution: session (any kind), invocation, or a
+    branch_id, by id; default-latest is scoped to agent-kind sessions.
 
-    Kind scoping only gates the no-id default: an explicit id is honoured
-    regardless of invocation_kind, since the id is already unambiguous.
+    Sessions and invocations are searched together: a prefix that fits one of
+    each is ambiguous, and reporting the session because it is looked at first
+    is search order deciding a question it cannot answer.
     """
     if entity_id:
-        row = await _fetch_by_id(db, "sessions", entity_id)
-        if row is not None:
-            return "session", row
-        row = await _fetch_by_id(db, "invocations", entity_id)
-        if row is not None:
-            return "invocation", row
+        hit = await resolve_entity(db, entity_id, tables=("sessions", "invocations"))
+        if hit is not None:
+            _table, entity_type, row = hit
+            return entity_type, row
         row = await _resolve_session_by_branch_id(db, entity_id)
         if row is not None:
             return "session", row
@@ -154,39 +109,37 @@ async def _resolve_agent_target(
 async def _resolve_play_target(
     db: Any, entity_id: str | None, project: str | None
 ) -> tuple[str, dict[str, Any]] | None:
-    """`li play status` resolution: session, then ADR-0020 invocation, then a show
-    sub-play row, by id; default-latest is scoped to play/flow-kind sessions.
+    """`li play status` resolution: session, invocation, or a show sub-play
+    row, by id; default-latest is scoped to play/flow-kind sessions.
+
+    The three kinds are searched together, for the same reason `li agent
+    status` searches its two together.
     """
     if entity_id:
-        row = await _fetch_by_id(db, "sessions", entity_id)
-        if row is not None:
-            return "session", row
-        row = await _fetch_by_id(db, "invocations", entity_id)
-        if row is not None:
-            return "invocation", row
-        row = await _fetch_by_id(db, "plays", entity_id)
-        if row is not None:
-            return "play", row
+        hit = await resolve_entity(db, entity_id, tables=("sessions", "invocations", "plays"))
+        if hit is not None:
+            _table, entity_type, row = hit
+            return entity_type, row
         return None
     row = await _latest_session(db, invocation_kinds=("play", "flow"), project=project)
     return ("session", row) if row is not None else None
 
 
 async def _resolve_any_target(db: Any, entity_id: str) -> tuple[str, dict[str, Any]] | None:
-    """`li o ctl status <id>` resolution: no kind scoping, id required (no latest).
+    """`li o ctl status <id>` resolution: no kind scoping, id required (no
+    latest). Falls back to branch_id last, after sessions/invocations/plays.
 
-    Falls back to branch_id (resolved to its owning session) last, after
-    sessions/invocations/plays all miss — see _resolve_session_by_branch_id.
+    The kinds are searched together rather than one after another. Trying each
+    in turn and keeping the first hit resolves a prefix that fits a session and
+    an invocation to whichever is looked at first, and the commands built on
+    this resolver act: `li o ctl pause` would queue a control for a flow the
+    caller never identified. The branch fallback stays last and applies only
+    when no entity matched at all.
     """
-    row = await _fetch_by_id(db, "sessions", entity_id)
-    if row is not None:
-        return "session", row
-    row = await _fetch_by_id(db, "invocations", entity_id)
-    if row is not None:
-        return "invocation", row
-    row = await _fetch_by_id(db, "plays", entity_id)
-    if row is not None:
-        return "play", row
+    hit = await resolve_entity(db, entity_id, tables=("sessions", "invocations", "plays"))
+    if hit is not None:
+        _table, entity_type, row = hit
+        return entity_type, row
     row = await _resolve_session_by_branch_id(db, entity_id)
     if row is not None:
         return "session", row
@@ -210,7 +163,7 @@ async def _resolve_primary_session(
     return None
 
 
-# ── Op progress (session_signals → lane_for reduction, ADR-0083) ───────────
+# ── Op progress (session_signals → lane_for reduction, ADR-0033) ───────────
 
 
 async def _all_session_signals(db: Any, session_id: str) -> list[dict[str, Any]]:
@@ -278,25 +231,8 @@ def _classify(entity_type: str, status: str) -> tuple[bool, str, int]:
 def _detect_degraded(
     *, entity_type: str, status: str, primary_session: dict[str, Any] | None
 ) -> tuple[bool, str | None]:
-    """Terminal-success record whose backing session shows no sign the normal
-    teardown path (persist_session_end / SESSION_END hook) ever ran — a proxy
-    for an orphan/limit-exit that forced a "completed" status.
-
-    Deliberately narrower than a literal "current_phase non-terminal OR
-    duration_ms is NULL" check: current_phase is only ever written as
-    "executing"/"synthesizing" (lionagi/cli/orchestrate/flow.py) and is never
-    reset to a terminal marker on ANY path, healthy or not, so alone it would
-    flag every successful flow/play run. duration_ms is never populated by
-    the CLI teardown path at all (_collect_branch_usage's return has no
-    duration_ms key) — checking it alone would flag every completed session,
-    healthy or not. num_turns IS populated by that path (persist_session_end
-    receives it from _collect_branch_usage, default 0, not None), so its
-    absence is a real signal — scoped to source_kind='live' because mirrored
-    Claude Code transcripts (source_kind='imported_fs') use a dormancy-based
-    "completed" with no usage metrics by design
-    (lionagi/state/claude_mirror.reconcile_session_status) and must not be
-    flagged as degraded.
-    """
+    """Detect a terminal-success record whose backing session shows no sign
+    normal teardown ran. See docs/internals/cli.md for the heuristic rationale."""
     if primary_session is None:
         return False, None
     success = status in (_PLAY_SUCCESS if entity_type == "play" else _SESSION_SUCCESS)
@@ -464,19 +400,22 @@ def _render_human(view: dict[str, Any]) -> str:
 async def _run_status_inner(
     *, command: str, entity_id: str | None, as_json: bool
 ) -> tuple[str, int]:
-    from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+    from lionagi.state.db import StateDB, state_db_known_absent
 
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return f"state.db not found — no {command} runs recorded yet", EXIT_UNKNOWN
 
     async with StateDB() as db:
         project = detect_project(Path.cwd())[0]
-        if command == "agent":
-            target = await _resolve_agent_target(db, entity_id, project)
-        elif command == "play":
-            target = await _resolve_play_target(db, entity_id, project)
-        else:  # "ctl" — generic, id required (enforced by argparse), no kind scoping
-            target = await _resolve_any_target(db, entity_id) if entity_id else None
+        try:
+            if command == "agent":
+                target = await _resolve_agent_target(db, entity_id, project)
+            elif command == "play":
+                target = await _resolve_play_target(db, entity_id, project)
+            else:  # "ctl" — generic, id required (enforced by argparse), no kind scoping
+                target = await _resolve_any_target(db, entity_id) if entity_id else None
+        except AmbiguousIdError as exc:
+            return str(exc), EXIT_UNKNOWN
 
         if target is None:
             who = f"id {entity_id!r}" if entity_id else f"latest {command} run"
@@ -522,18 +461,8 @@ def _dispatch(command: str, entity_id: str | None, as_json: bool) -> int:
 
 
 async def _audit_degraded(db: Any) -> dict[str, Any]:
-    """Scan terminal-success play/flow records once; count how many never
-    recorded run-usage metrics per _detect_degraded — a trust-debt baseline.
-
-    Known coverage gap: setup_orchestration_persist() (cli/orchestrate/_orchestration.py)
-    never populates a singular ctx["branch"] for multi-leg DAG sessions (it tracks
-    per-leg branches via ctx["hooks"] instead), so teardown_persist()'s
-    `if _branch is not None` guard (cli/_runs.py) always skips _collect_branch_usage()
-    for invocation_kind IN ('play', 'flow') — num_turns/duration_ms/tokens/cost are
-    therefore never recorded for ANY such session, healthy or not. Until that's fixed,
-    a 100% (or near-100%) sessions_degraded rate reflects this detector-coverage gap,
-    not a real degradation rate — see the printed note in _dispatch_audit.
-    """
+    """Scan terminal-success play/flow records; count degraded per
+    _detect_degraded. See docs/internals/cli.md for a known coverage gap."""
     sessions = await db.fetch_all(
         "SELECT * FROM sessions WHERE invocation_kind IN ('play', 'flow') AND status = 'completed'"
     )
@@ -569,9 +498,9 @@ async def _audit_degraded(db: Any) -> dict[str, Any]:
 
 def _dispatch_audit(*, as_json: bool) -> int:
     from lionagi.ln.concurrency import run_async
-    from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+    from lionagi.state.db import StateDB, state_db_known_absent
 
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         log_error("state.db not found — no runs recorded yet")
         return EXIT_UNKNOWN
 
@@ -617,10 +546,19 @@ def run_agent_status(argv: list[str]) -> int:
     """Entry point for `li agent status [<id>] [--json]`."""
     parser = argparse.ArgumentParser(prog="li agent status", add_help=True)
     parser.add_argument(
-        "id", nargs="?", default=None, help="Session or invocation ID (or short prefix)."
+        "id",
+        nargs="?",
+        default=None,
+        help=(
+            "Session id, invocation id or branch id to report on — full, or an unambiguous "
+            "prefix. Omit it for the most recent agent run in this project."
+        ),
     )
     parser.add_argument(
-        "--json", action="store_true", dest="as_json", help="Emit a stable JSON object."
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Print one JSON object with stable keys instead of the human table, for scripting.",
     )
     args = parser.parse_args(argv)
     return _dispatch("agent", args.id, args.as_json)
@@ -630,10 +568,19 @@ def run_play_status(argv: list[str]) -> int:
     """Entry point for `li play status [<id>] [--json] [--audit-degraded]`."""
     parser = argparse.ArgumentParser(prog="li play status", add_help=True)
     parser.add_argument(
-        "id", nargs="?", default=None, help="Session, invocation, or play ID (or short prefix)."
+        "id",
+        nargs="?",
+        default=None,
+        help=(
+            "Session, invocation or play id to report on — full, or an unambiguous prefix. "
+            "Omit it for the most recent play or flow run in this project."
+        ),
     )
     parser.add_argument(
-        "--json", action="store_true", dest="as_json", help="Emit a stable JSON object."
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Print one JSON object with stable keys instead of the human table, for scripting.",
     )
     parser.add_argument(
         "--audit-degraded",
@@ -652,5 +599,5 @@ def run_play_status(argv: list[str]) -> int:
 
 
 def run_ctl_status(args: argparse.Namespace) -> int:
-    """`li o ctl status <id> [--json]` — generic alias, no kind scoping (ADR-0085)."""
+    """`li o ctl status <id> [--json]` — generic alias, with no kind scoping."""
     return _dispatch("ctl", args.id, args.as_json)

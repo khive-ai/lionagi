@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0028 status reason model tests."""
+"""ADR-0057 status reason model tests."""
 
 from __future__ import annotations
 
@@ -77,6 +77,52 @@ class TestReasonNamespace:
         assert PlayReasons.PENDING_WAITING_DEPS in VALID_REASON_CODES
         assert ShowReasons.BLOCKED_NO_READY_PLAYS in VALID_REASON_CODES
         assert ScheduleReasons.FIRED_DUE in VALID_REASON_CODES
+
+    def test_schedule_skipped_prefix_holds_exactly_three_codes(self):
+        """Pin the ``schedule.skipped.`` namespace, and only that.
+
+        This guards a claim about the PREFIX. It is deliberately not a claim
+        about which reasons a skipped ``schedule_run`` can carry -- see the
+        companion test below for why that set cannot be closed here.
+        """
+        prefixed = {
+            value
+            for name, value in vars(ScheduleReasons).items()
+            if not name.startswith("_")
+            and isinstance(value, str)
+            and value.startswith("schedule.skipped.")
+        }
+        assert prefixed == {
+            ScheduleReasons.SKIPPED_PRECONDITION,
+            ScheduleReasons.SKIPPED_OVERLAP,
+            ScheduleReasons.SKIPPED_MISSED_FIRE,
+        }
+
+    def test_skipped_schedule_runs_carry_codes_outside_the_skipped_prefix(self):
+        """Guard the trap, because the prefix reads like the whole answer.
+
+        Filtering skipped ``schedule_run`` rows by the ``schedule.skipped.``
+        prefix loses rows, and loses them quietly: capacity deferrals and budget
+        exhaustion are stamped from this class without the prefix, and the
+        task-admission path stamps a schedule_run from ``RunReasons`` entirely.
+        The class docstring warns about exactly this, and prose goes stale in
+        silence.
+
+        Asserting the negative is the point. If someone renames these into the
+        prefix, or drops the cross-class writer, this test reds and whoever did
+        it has to correct the warning a consumer is relying on.
+        """
+        for code in (ScheduleReasons.DEFERRED_CAPACITY, ScheduleReasons.BUDGET_EXHAUSTED):
+            assert not code.startswith("schedule.skipped."), (
+                f"{code!r} moved into the skipped prefix -- the class docstring's warning "
+                "about prefix filtering is now wrong and must be updated"
+            )
+            assert code in VALID_REASON_CODES
+
+        # A reason from another class reaches a skipped schedule_run, so no
+        # enumeration drawn from ScheduleReasons alone can be complete.
+        assert RunReasons.SKIPPED_WAITER_CAP_EXCEEDED.startswith("run.")
+        assert RunReasons.SKIPPED_WAITER_CAP_EXCEEDED in VALID_REASON_CODES
 
 
 class TestValidators:
@@ -196,7 +242,7 @@ class TestMigration:
         assert "idx_status_transitions_created" in names
 
     async def test_sessions_status_updated_index_for_failed_queries(self, db: StateDB):
-        # ADR-0030's attention queue needs this for failed/timed_out lookups.
+        # The attention queue needs this for failed/timed_out lookups.
         async with db._read() as conn:
             row = (
                 (
@@ -255,7 +301,8 @@ class TestUpdateStatusAtomic:
                     await conn.execute(
                         text(
                             "SELECT entity_type, entity_id, previous_status, status, "
-                            "       reason_code, source FROM status_transitions WHERE entity_id = :id"
+                            "       reason_code, source FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
                         ),
                         {"id": sid},
                     )
@@ -288,12 +335,18 @@ class TestUpdateStatusAtomic:
             new_status="failed",
             reason_code=RunReasons.FAILED_EXCEPTION,
             reason_summary="RuntimeError: x",
+            override=True,
+            override_actor="test",
+            override_justification="exercise multi-transition audit accumulation",
         )
         async with db._read() as conn:
             row = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": sid},
                     )
                 )
@@ -316,6 +369,9 @@ class TestUpdateStatusAtomic:
             sid,
             new_status="failed",
             reason_code=RunReasons.FAILED_EXCEPTION,
+            override=True,
+            override_actor="test",
+            override_justification="exercise alias route + table resolution",
         )
         async with db._read() as conn:
             rows = (
@@ -323,7 +379,8 @@ class TestUpdateStatusAtomic:
                     await conn.execute(
                         text(
                             "SELECT entity_type, COUNT(*) AS n FROM status_transitions "
-                            "WHERE entity_id = :id GROUP BY entity_type"
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL "
+                            "GROUP BY entity_type"
                         ),
                         {"id": sid},
                     )
@@ -384,7 +441,7 @@ class TestUpdateStatusValidation:
             )
         row = dict(row)
         assert row["status"] == "running"
-        assert row["status_reason_code"] is None
+        assert row["status_reason_code"] == RunReasons.STARTED_OK
 
     async def test_invalid_entity_type_raises_valueerror(self, db: StateDB):
         with pytest.raises(ValueError, match="invalid entity_type"):
@@ -457,7 +514,10 @@ class TestUpdateStatusValidation:
             count = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": sid},
                     )
                 )
@@ -511,8 +571,53 @@ class TestTeardownReasonResolution:
         assert "ValueError" in summary
         assert "bad input" in summary
 
+    def test_non_provider_exception_stays_generic_failed_exception(self):
+        """A plain RuntimeError (not a classified ProviderError) must keep the
+        generic bucket — only provider-classified failures get the retryable
+        split below."""
+        from lionagi.cli._runs import resolve_run_reason as _resolve_run_reason
 
-# ── ADR-0028 Phase 2: invocation transition writes reason ────────────
+        code, _, _ = _resolve_run_reason(status="failed", exception=RuntimeError("boom"))
+        assert code == RunReasons.FAILED_EXCEPTION
+
+    @pytest.mark.parametrize(
+        "cls_name,message,expected",
+        [
+            ("ProviderQuotaError", "usage limit reached", "retryable"),
+            ("ProviderCapacityError", "model is at capacity", "retryable"),
+            ("ProviderStreamDisconnectError", "stream disconnected before completion", "retryable"),
+            ("ProviderAdapterError", "agy returned status=ERROR", "retryable"),
+            ("ProviderAuthError", "not logged in", "nonretryable"),
+            ("ProviderContextError", "context window exceeded", "nonretryable"),
+            ("ProviderUnsupportedModelError", "model is not supported", "nonretryable"),
+            ("ProviderSafetyError", "flagged for cybersecurity risk", "nonretryable"),
+            # The unclassified base class defaults to non-retryable.
+            ("ProviderError", "something unrecognized went wrong", "nonretryable"),
+        ],
+    )
+    def test_classified_provider_error_maps_to_retryable_reason_code(
+        self, cls_name, message, expected
+    ):
+        """A terminal ProviderError subclass must carry a reason code that
+        distinguishes retryable from non-retryable — the rank-2 reliability
+        cohort's classification requirement (ADR-0057 vocabulary)."""
+        import lionagi.providers._provider_errors as provider_errors
+        from lionagi.cli._runs import resolve_run_reason as _resolve_run_reason
+
+        error_cls = getattr(provider_errors, cls_name)
+        code, summary, _ = _resolve_run_reason(status="failed", exception=error_cls(message))
+
+        expected_code = (
+            RunReasons.FAILED_PROVIDER_RETRYABLE
+            if expected == "retryable"
+            else RunReasons.FAILED_PROVIDER_NONRETRYABLE
+        )
+        assert code == expected_code
+        assert code in VALID_REASON_CODES
+        assert cls_name in summary
+
+
+# ── ADR-0057 Phase 2: invocation transition writes reason ────────────
 
 
 async def _create_invocation(db: StateDB, *, status: str = "running") -> str:
@@ -571,7 +676,8 @@ class TestInvocationTransition:
                     await conn.execute(
                         text(
                             "SELECT entity_type, previous_status, status, reason_code "
-                            "FROM status_transitions WHERE entity_id = :id"
+                            "FROM status_transitions WHERE entity_id = :id "
+                            "AND previous_status IS NOT NULL"
                         ),
                         {"id": inv_id},
                     )
@@ -587,7 +693,7 @@ class TestInvocationTransition:
         assert rows[0]["reason_code"] == RunReasons.COMPLETED_OK
 
     async def test_update_invocation_routes_status_through_update_status(self, db: StateDB):
-        """ADR-0028 Phase 2: update_invocation(status=...) writes reason atomically."""
+        """ADR-0057 Phase 2: update_invocation(status=...) writes reason atomically."""
         inv_id = await _create_invocation(db)
         await db.update_invocation(
             inv_id,
@@ -621,7 +727,10 @@ class TestInvocationTransition:
             count = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": inv_id},
                     )
                 )
@@ -629,6 +738,33 @@ class TestInvocationTransition:
                 .first()
             )
         assert count["n"] == 1
+
+    async def test_update_invocation_guards_ended_at_with_terminal_status(
+        self, db: StateDB, monkeypatch: pytest.MonkeyPatch
+    ):
+        from lionagi.state.lifecycle.service import SQLAlchemyLifecycleService
+
+        inv_id = await _create_invocation(db)
+        ended_at = time.time()
+        original_write = SQLAlchemyLifecycleService._write
+
+        async def _write_then_fail(self, conn, table, command, **kwargs):
+            assert command.patch["ended_at"] == ended_at
+            await original_write(self, conn, table, command, **kwargs)
+            raise RuntimeError("forced rollback")
+
+        monkeypatch.setattr(SQLAlchemyLifecycleService, "_write", _write_then_fail)
+        with pytest.raises(RuntimeError, match="forced rollback"):
+            await db.update_invocation(
+                inv_id,
+                status="completed",
+                ended_at=ended_at,
+                reason_code=RunReasons.COMPLETED_OK,
+            )
+
+        row = await db.get_invocation(inv_id)
+        assert row["status"] == "running"
+        assert row["ended_at"] is None
 
     async def test_update_invocation_compat_warns_when_reason_omitted(self, db: StateDB):
         """Legacy callers that pass status without reason_code get a deprecation
@@ -675,13 +811,16 @@ class TestInvocationTransition:
             )
         row = dict(row)
         assert row["status"] == "running"  # unchanged
-        assert row["status_reason_code"] is None  # never touched
+        assert row["status_reason_code"] == RunReasons.STARTED_OK
 
         async with db._read() as conn:
             count = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": inv_id},
                     )
                 )
@@ -730,7 +869,8 @@ class TestUpdateSessionRoutesStatusThroughHistory:
                     await conn.execute(
                         text(
                             "SELECT entity_type, previous_status, status, reason_code "
-                            "FROM status_transitions WHERE entity_id = :id"
+                            "FROM status_transitions WHERE entity_id = :id "
+                            "AND previous_status IS NOT NULL"
                         ),
                         {"id": sid},
                     )
@@ -761,7 +901,10 @@ class TestUpdateSessionRoutesStatusThroughHistory:
             count = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": sid},
                     )
                 )
@@ -792,7 +935,10 @@ class TestUpdateSessionRoutesStatusThroughHistory:
             count = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": sid},
                     )
                 )
@@ -847,13 +993,16 @@ class TestUpdateStatusSourceValidation:
             )
         row = dict(row)
         assert row["status"] == "running", "entity row must be unchanged on invalid source"
-        assert row["status_reason_code"] is None
+        assert row["status_reason_code"] == RunReasons.STARTED_OK
 
         async with db._read() as conn:
             count = (
                 (
                     await conn.execute(
-                        text("SELECT COUNT(*) AS n FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT COUNT(*) AS n FROM status_transitions "
+                            "WHERE entity_id = :id AND previous_status IS NOT NULL"
+                        ),
                         {"id": sid},
                     )
                 )
@@ -876,7 +1025,10 @@ class TestUpdateStatusSourceValidation:
             row = (
                 (
                     await conn.execute(
-                        text("SELECT source FROM status_transitions WHERE entity_id = :id"),
+                        text(
+                            "SELECT source FROM status_transitions WHERE entity_id = :id "
+                            "AND previous_status IS NOT NULL"
+                        ),
                         {"id": sid},
                     )
                 )

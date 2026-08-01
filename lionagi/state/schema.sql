@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   value   TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1');
+-- Must match SCHEMA_VERSION in db.py, which re-stamps this row on every open
+-- so a migrated database reports the shape it now has.
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '2');
 INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('created_at', strftime('%s', 'now'));
 
 -- ── Message types (int enum for lion_class) ───────────────────────────────
@@ -43,7 +45,7 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at    REAL    NOT NULL,
   node_metadata JSON,
   content       JSON    NOT NULL,
-  embedding     BLOB,                         -- packed float32 vec or NULL; sqlite-vec indexes these
+  embedding     BLOB,                         -- packed little-endian float32 vec or NULL
   sender        TEXT,
   recipient     TEXT,
   channel       TEXT,
@@ -72,7 +74,7 @@ CREATE TABLE IF NOT EXISTS progressions (
   collection    TEXT    NOT NULL DEFAULT '[]' -- JSON array of message id strings
 );
 
--- ── Projects (ADR-0026) ───────────────────────────────────────────────────
+-- ── Projects (ADR-0063) ───────────────────────────────────────────────────
 -- Auto-registered from session detection; also created explicitly via Studio.
 -- Uses name as primary key (project names are unique + used as FK in sessions.project).
 
@@ -90,12 +92,26 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS idx_projects_source ON projects(source);
 CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC);
 
+-- ── Run tags ──────────────────────────────────────────────────────────────
+-- User-defined m2m labels over runs (a run == a session). Free-form strings.
+CREATE TABLE IF NOT EXISTS run_tags (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    tag        TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (session_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_run_tags_tag ON run_tags(tag);
+
 -- ── Sessions ──────────────────────────────────────────────────────────────
 -- Scope boundary.  Owns a progression (the session-level message pool)
 -- and zero or more branches.
 
 CREATE TABLE IF NOT EXISTS sessions (
   id              TEXT    PRIMARY KEY,
+  cc_session_id   TEXT,
+  -- The CLI run this session belongs to. NULL for a session no run started,
+  -- and for rows written before this column existed.
+  run_id          TEXT,
   created_at      REAL    NOT NULL,
   node_metadata   JSON,
   name            TEXT,
@@ -117,17 +133,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   artifacts_path  TEXT,
   source_kind     TEXT    DEFAULT 'live' CHECK(
                     source_kind IS NULL
-                    OR source_kind IN ('live', 'imported_fs')
+                    OR source_kind IN ('live', 'imported_fs', 'imported_codex')
                   ),
-  -- ── Lifecycle (ADR-0025, supersedes ADR-0017) ─────────────────────
-  -- No CHECK constraint: ADR-0025 makes Python the source of truth for
+  -- ── Lifecycle (ADR-0057) ─────────────────────
+  -- No CHECK constraint: ADR-0057 makes Python the source of truth for
   -- session.status (VALID_SESSION_STATUSES in lionagi/state/db.py). The
   -- six-value vocabulary (running, completed, failed, timed_out, aborted,
   -- cancelled) can evolve without a SQLite table rebuild.
   status          TEXT,
   started_at      REAL,
   ended_at        REAL,
-  -- ── Activity (ADR-0019) ────────────────────────────────────────────
+  -- ── Activity ────────────────────────────────────────────
   -- Bumped on every message INSERT so staleness_check() can answer
   -- "is this running session still active?" without scanning messages.
   last_message_at REAL,
@@ -136,7 +152,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- surfaced as the PHASE column in `li monitor`. NULL for non-flow
   -- sessions, which fall back to agent_name/playbook_name in the reader.
   current_phase   TEXT,
-  -- ── Skill invocation (ADR-0020) ────────────────────────────────────
+  -- ── Skill invocation ────────────────────────────────────
   -- Optional FK to the higher-order skill orchestration (e.g. /show or
   -- /codex-pr-review) that spawned this session. NULL when the CLI
   -- ran standalone. Orthogonal to invocation_kind, which describes the
@@ -152,7 +168,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   provider        TEXT,
   effort          TEXT,
   agent_hash      TEXT,
-  -- ── Project detection (ADR-0026) ────────────────────────────────────
+  -- ── Project detection (ADR-0063) ────────────────────────────────────
   project         TEXT,
   project_source  TEXT,
   -- ── Status reason (ADR-0028) ────────────────────────────────────────
@@ -186,16 +202,35 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated
 -- status='running' only.
 CREATE INDEX IF NOT EXISTS idx_sessions_status_updated
   ON sessions(status, updated_at DESC);
--- ADR-0019: lets the staleness query (running sessions sorted by oldest
+-- Lets the staleness query (running sessions sorted by oldest
 -- activity) skip the full table scan.
 CREATE INDEX IF NOT EXISTS idx_sessions_status_last_msg
   ON sessions(status, last_message_at) WHERE status = 'running';
--- ADR-0020: grouped runs view fetches all sessions for an invocation.
+-- The grouped runs view fetches all sessions for an invocation.
 CREATE INDEX IF NOT EXISTS idx_sessions_invocation
   ON sessions(invocation_id) WHERE invocation_id IS NOT NULL;
--- ADR-0026: project-scoped session listing in Studio.
+-- Project-scoped session listing in Studio.
 CREATE INDEX IF NOT EXISTS idx_sessions_project
   ON sessions(project) WHERE project IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_cc_session
+  ON sessions(cc_session_id) WHERE cc_session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_run_id
+  ON sessions(run_id) WHERE run_id IS NOT NULL;
+-- first_msg_id / last_msg_id are child keys of messages(id). Deleting a
+-- message makes sqlite look for rows here that still point at it, and with
+-- no index on the column that search is a scan of the whole table, once per
+-- deleted row -- a cost that is a function of the store rather than of the
+-- delete. Measured on a 3.9 GB store, indexing these two columns and
+-- branches(system_msg_id) took a message delete from 8.47 ms/row to
+-- 0.86 ms/row. Not partial: the search sqlite runs for a foreign key is not
+-- the query planner's, and only a plain index is certain to serve it.
+CREATE INDEX IF NOT EXISTS idx_sessions_first_msg_id
+  ON sessions(first_msg_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_msg_id
+  ON sessions(last_msg_id);
+-- Same shape one level up: progressions(id) is this column's parent.
+CREATE INDEX IF NOT EXISTS idx_sessions_progression_id
+  ON sessions(progression_id);
 
 -- ── Branches ──────────────────────────────────────────────────────────────
 -- A progression with identity.  Branch config (provider, model,
@@ -226,6 +261,11 @@ CREATE TABLE IF NOT EXISTS branches (
 
 CREATE INDEX IF NOT EXISTS idx_branches_session
   ON branches(session_id);
+-- Child keys of messages(id) / progressions(id); see idx_sessions_first_msg_id.
+CREATE INDEX IF NOT EXISTS idx_branches_system_msg_id
+  ON branches(system_msg_id);
+CREATE INDEX IF NOT EXISTS idx_branches_progression_id
+  ON branches(progression_id);
 
 -- ── Definitions (versioned agent + playbook files) ───────────────────────────
 -- Disk files remain source of truth; this table tracks edit history.
@@ -315,7 +355,7 @@ CREATE INDEX IF NOT EXISTS idx_plays_status ON plays(status);
 CREATE INDEX IF NOT EXISTS idx_plays_session ON plays(session_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plays_show_name ON plays(show_id, name);
 
--- ── Teams (ADR-0019) ─────────────────────────────────────────────────────
+-- ── Teams ────────────────────────────────────────────────────────────────
 -- Mirrors the JSON files at ~/.lionagi/teams/{id}.json (still primary
 -- write path; populated via dual-write or `li state import-teams`).
 -- Storing teams in the DB unlocks queries, cross-session linkage, and
@@ -359,7 +399,7 @@ CREATE INDEX IF NOT EXISTS idx_team_msgs_created ON team_messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_team_msgs_session ON team_messages(session_id)
   WHERE session_id IS NOT NULL;
 
--- ── Invocations (ADR-0020) ───────────────────────────────────────────────
+-- ── Invocations ──────────────────────────────────────────────────────────
 -- Skill-level orchestration records. One invocation row per /show,
 -- /codex-pr-review, etc., aggregating the N sessions that the skill
 -- spawned. invocation_id is FK'd from sessions; invocation_kind on
@@ -373,8 +413,8 @@ CREATE TABLE IF NOT EXISTS invocations (
   started_at      REAL    NOT NULL,
   ended_at        REAL,
   status          TEXT    NOT NULL DEFAULT 'running' CHECK(
-                    status IN ('running', 'completed', 'failed',
-                               'timed_out', 'aborted', 'cancelled')
+                    status IN ('running', 'completed', 'completed_empty',
+                               'failed', 'timed_out', 'aborted', 'cancelled')
                   ),
   session_count   INTEGER NOT NULL DEFAULT 0,
   created_at      REAL    NOT NULL,
@@ -398,7 +438,7 @@ CREATE TABLE IF NOT EXISTS schedules (
   enabled             INTEGER NOT NULL DEFAULT 1
                       CHECK(enabled IN (0, 1)),
   trigger_type        TEXT    NOT NULL
-                      CHECK(trigger_type IN ('cron', 'interval', 'github_poll')),
+                      CHECK(trigger_type IN ('cron', 'interval', 'github_poll', 'at')),
   cron_expr           TEXT,
   interval_sec        INTEGER,
   github_repo         TEXT,
@@ -406,14 +446,24 @@ CREATE TABLE IF NOT EXISTS schedules (
   github_cursor       TEXT,
   poll_interval_sec   INTEGER,
   action_kind         TEXT    NOT NULL
-                      CHECK(action_kind IN ('agent', 'flow', 'fanout', 'play', 'flow_yaml')),
+                      CHECK(action_kind IN ('agent', 'flow', 'fanout', 'play', 'flow_yaml', 'command')),
   action_model        TEXT,
   action_prompt       TEXT,
   action_agent        TEXT,
   action_playbook     TEXT,
   action_flow_yaml    TEXT,
   action_project      TEXT,
+  -- lifts ADR-0070 delta 1: the schedule's own persisted execution root,
+  -- captured once at creation time so a scheduled fire never depends on
+  -- wherever the Studio daemon happened to be started from. NULL only on
+  -- pre-migration rows (see MIGRATION_COLUMNS backfill).
+  action_cwd          TEXT,
   action_extra_args   JSON    DEFAULT '[]',
+  -- The 'command' action kind spawns an allow-listed
+  -- executable directly (never through `li`); action_command_args are
+  -- {{var}} templates rendered against trigger_context at fire time.
+  action_command       TEXT,
+  action_command_args  JSON    DEFAULT '[]',
   on_success          JSON,
   on_fail             JSON,
   last_fired_at       REAL,
@@ -422,7 +472,76 @@ CREATE TABLE IF NOT EXISTS schedules (
                       CHECK(missed_fire_policy IN ('skip', 'run_once')),
   overlap_policy      TEXT    NOT NULL DEFAULT 'skip'
                       CHECK(overlap_policy IN ('skip', 'allow')),
+  -- One-shot / bounded-run semantics: NULL means unlimited. Once the number
+  -- of fired top-level runs (chain children excluded) reaches max_runs, the
+  -- engine auto-disables the schedule via the existing enabled flag.
+  max_runs            INTEGER,
+  -- Cumulative spend budget: NULL means unlimited. Checked pre-fire against
+  -- the sum of total_cost_usd / (input_tokens + output_tokens) across the
+  -- schedule's prior sessions; either bound tripping auto-disables the
+  -- schedule the same way max_runs does.
+  budget_usd          REAL,
+  budget_tokens       INTEGER,
+  -- Rolling-window fire cap. NULL means unlimited; otherwise the JSON shape
+  -- is {max_fires, window_sec}. Exhaustion defers a due fire without
+  -- disabling or advancing the schedule.
+  rate_limit          JSON,
   project             TEXT,
+  -- Metric threshold alerts: when set, this schedule's own cron/interval
+  -- cadence only evaluates a metric (does not unconditionally fire); the
+  -- schedule's action fires only when the metric breaches the configured
+  -- threshold. Shape: {metric, op, value, window_minutes}. last_alert_at
+  -- tracks the most recent breach fire so the window doubles as a cooldown
+  -- (no refire until window_minutes has elapsed since the last alert).
+  threshold_config    JSON,
+  last_alert_at       REAL,
+  -- Observer self-health (github_poll poller): last_healthy_poll_at is
+  -- stamped on any 2xx/304 github_poll() read (including a healthy-empty
+  -- one); poller_consecutive_401 counts consecutive 401s and resets only
+  -- on a healthy read (a transient error/non-200 between 401s does not
+  -- reset the run). Read by the github_poll_healthy_age_minutes /
+  -- github_poll_consecutive_401 threshold metrics.
+  last_healthy_poll_at    REAL,
+  poller_consecutive_401  INTEGER NOT NULL DEFAULT 0,
+  -- Bounded retry for a github_poll fire that refuses before it dispatches
+  -- anything. Such a refusal holds github_cursor back so the event is
+  -- re-offered, but the refusal can be a property of that one event's
+  -- rendered values rather than of the schedule, so an unbounded hold would
+  -- block every later event forever. predispatch_refusal_event names the
+  -- event (its updated_at, the cursor value being held back) the streak
+  -- applies to and predispatch_refusal_count counts the consecutive
+  -- refusals of that same event; both reset when a different event refuses
+  -- or when a fire dispatches.
+  predispatch_refusal_event  TEXT,
+  predispatch_refusal_count  INTEGER NOT NULL DEFAULT 0,
+  -- Declarative ScheduleSet layer: versioned document identity, resolved
+  -- target/trigger snapshot + digest, and set ownership. NULL on every row
+  -- created before this layer (legacy) or by an unmanaged quick-create.
+  spec_version        TEXT,
+  managed_by          TEXT
+                      CHECK(managed_by IS NULL OR managed_by IN ('cli', 'declaration')),
+  owner_key           TEXT,
+  authored_spec       JSON,
+  resolved_target     JSON,
+  resolved_digest     TEXT,
+  resolved_timezone   TEXT,
+  -- The zone this schedule's cron expression was last actually interpreted
+  -- in, and how that zone was arrived at (declared on this row, the
+  -- process-wide configured default and its own provenance, or a UTC
+  -- fallback). Written by the scheduler whenever it resolves a fire time and
+  -- never read back when resolving, so it records the outcome without being
+  -- able to change it. The name alone is not diagnostic -- a requested UTC
+  -- and a fallback UTC are the same string -- which is why the source is
+  -- stored beside it. NULL for triggers that resolve no wall-clock fields
+  -- (interval/at/github_poll) and for cron rows not yet armed or fired.
+  effective_timezone        TEXT,
+  effective_timezone_source TEXT,
+  -- Terminal notification (declaration-layer `notify`): registers the
+  -- existing run terminal-callback machinery on the invocation this
+  -- schedule spawns, filtered to notify_on. Replaces on_fail for
+  -- declaration-managed schedules; NULL/empty means no callback.
+  notify_on           JSON,
+  notify_command      TEXT,
   created_at          REAL    NOT NULL,
   updated_at          REAL    NOT NULL
 );
@@ -433,18 +552,26 @@ CREATE INDEX IF NOT EXISTS idx_schedules_name
   ON schedules(name);
 CREATE INDEX IF NOT EXISTS idx_schedules_project
   ON schedules(project) WHERE project IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_schedules_owner_key
+  ON schedules(owner_key) WHERE owner_key IS NOT NULL;
 
 -- ── Schedule Runs (ADR-0027) ─────────────────────────────────────────────────
+-- ADR-0071 D2: generalized into the durable task-application entity. schedule_id
+-- is nullable so an ad-hoc task application (schedule_id IS NULL) can share this
+-- table with schedule-fired runs; the status CHECK is widened to the ADR-0062
+-- lifecycle; queued_at/leased_by/lease_expires_at/concurrency_key are ADR-0071's
+-- queue columns.
 CREATE TABLE IF NOT EXISTS schedule_runs (
   id                  TEXT    PRIMARY KEY,
-  schedule_id         TEXT    NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+  schedule_id         TEXT    REFERENCES schedules(id) ON DELETE CASCADE,
   invocation_id       TEXT    REFERENCES invocations(id),
   trigger_context     JSON    NOT NULL,
   action_kind         TEXT    NOT NULL,
   action_args         JSON    NOT NULL,
   status              TEXT    NOT NULL DEFAULT 'running'
-                      CHECK(status IN ('running', 'completed', 'failed',
-                                       'skipped', 'cancelled')),
+                      CHECK(status IN ('queued', 'waiting_dependency', 'running',
+                                       'retry_wait', 'completed', 'failed',
+                                       'timed_out', 'skipped', 'cancelled')),
   exit_code           INTEGER,
   chain_parent_id     TEXT    REFERENCES schedule_runs(id),
   chain_depth         INTEGER NOT NULL DEFAULT 0,
@@ -459,7 +586,33 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
   -- ADR-0028: see sessions table for the denormalization rationale.
   status_reason_code     TEXT,
   status_reason_summary  TEXT,
-  status_evidence_refs   JSON
+  status_evidence_refs   JSON,
+  -- ADR-0071 D2: durable queue columns.
+  queued_at           REAL,
+  leased_by           TEXT,
+  lease_expires_at    REAL,
+  concurrency_key     TEXT,
+  -- ADR-0071 D4: bounds the lease-expiry recovery loop (worker.py's reaper).
+  lease_attempts      INTEGER NOT NULL DEFAULT 0,
+  -- ADR-0071 D2: task-application provenance.
+  required_capabilities  JSON,
+  execution_target       TEXT,
+  library_ref             TEXT,
+  library_content_hash    TEXT,
+  -- Delivery-contract marker: stamped the moment the scheduler engine
+  -- confirms the external process for this occurrence was actually
+  -- launched (create_subprocess_exec returned), separate from fired_at
+  -- (when the occurrence + cursor advance committed) and updated_at (any
+  -- write). NULL means the occurrence's transaction committed but launch
+  -- was never confirmed -- the signal a startup recovery scan uses to
+  -- distinguish "crashed before dispatch, safe to re-fire" from
+  -- "dispatched, outcome merely lost" (see SchedulerEngine._fire_inner and
+  -- SchedulerEngine._recover_undispatched_fires).
+  dispatched_at           REAL,
+  -- Nullable sidecar metadata blob for resuming a run, shaped like an
+  -- Element.to_dict(mode="db") payload (arbitrary JSON-serializable dict).
+  -- NULL means no resume state has been captured for this run.
+  resume_packet           JSON
 );
 
 CREATE INDEX IF NOT EXISTS idx_sched_runs_schedule
@@ -468,6 +621,30 @@ CREATE INDEX IF NOT EXISTS idx_sched_runs_status
   ON schedule_runs(status) WHERE status = 'running';
 CREATE INDEX IF NOT EXISTS idx_sched_runs_invocation
   ON schedule_runs(invocation_id) WHERE invocation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_queue
+  ON schedule_runs(status, queued_at)
+  WHERE status IN ('queued', 'retry_wait');
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_concurrency
+  ON schedule_runs(concurrency_key, status)
+  WHERE status IN ('queued', 'running', 'retry_wait');
+
+-- ── Workers (ADR-0071 D5) ─────────────────────────────────────────────────
+-- Capability-matching worker registry -- the only genuinely new table this
+-- ADR pair adds. A worker upserts its own row (worker_tick's heartbeat pass)
+-- with its advertised capability tokens and the execution targets it can
+-- serve; a heartbeat older than the worker.py TTL makes it ineligible for
+-- NEW claims only. In-flight leases still recover solely via
+-- schedule_runs.lease_expires_at (ADR-0071, unchanged by this table).
+CREATE TABLE IF NOT EXISTS workers (
+  worker_id                 TEXT    PRIMARY KEY,
+  advertised_capabilities   JSON    NOT NULL DEFAULT '[]',
+  execution_targets         JSON    NOT NULL DEFAULT '[]',
+  last_heartbeat_at         REAL    NOT NULL,
+  leased_run_id             TEXT    REFERENCES schedule_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workers_heartbeat
+  ON workers(last_heartbeat_at);
 
 -- ── Admin event log (ADR-0024) ───────────────────────────────────────────
 -- Append-only audit log following NIST SP 800-92 pattern. Every admin
@@ -575,6 +752,24 @@ CREATE INDEX IF NOT EXISTS idx_status_transitions_reason
 CREATE INDEX IF NOT EXISTS idx_status_transitions_created
   ON status_transitions(created_at DESC);
 
+-- ── Terminal deliveries (run-terminal callbacks) ────────────────────────────
+-- Durable reconciliation-consumer acknowledgment ledger for post-commit
+-- terminal-event callbacks. Never written by the in-process push path (that
+-- stays fire-and-forget); only a registered reconciliation consumer inserts a
+-- row here, once, when it has durably processed a terminal event. The
+-- composite primary key makes concurrent/repeated acks of the same event by
+-- the same consumer a single-row no-op (INSERT ... ON CONFLICT DO NOTHING).
+
+CREATE TABLE IF NOT EXISTS terminal_deliveries (
+  transition_id   TEXT    NOT NULL REFERENCES status_transitions(id),
+  consumer        TEXT    NOT NULL,
+  acked_at        REAL    NOT NULL,
+  PRIMARY KEY (transition_id, consumer)
+);
+
+CREATE INDEX IF NOT EXISTS idx_terminal_deliveries_consumer
+  ON terminal_deliveries(consumer, acked_at);
+
 -- ── Session signals (Phase C Move 1) ─────────────────────────────────────────
 -- Append-only lifecycle signal log emitted by SessionObserver.emit().
 -- seq is a monotonic per-session counter (assigned at INSERT via MAX+1).
@@ -649,14 +844,33 @@ CREATE INDEX IF NOT EXISTS idx_engine_defs_kind
 CREATE INDEX IF NOT EXISTS idx_engine_defs_updated
   ON engine_defs(updated_at DESC);
 
--- ── Session controls (ADR-0085 part 1: run control plane transport) ───────────
+-- ── Workflow definitions ──────────────────────────────────────────────────────
+-- Named, persisted workflow graphs authored in the Studio Designer.  The
+-- spec_json holds the canvas graph (nodes, edges, inputs, outputs) that the
+-- frontend renders and serializes to YAML.
+
+CREATE TABLE IF NOT EXISTS workflow_defs (
+  id          TEXT    PRIMARY KEY,
+  name        TEXT    NOT NULL UNIQUE,
+  description TEXT,
+  spec_json   JSON,
+  created_at  REAL    NOT NULL,
+  updated_at  REAL    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_defs_name
+  ON workflow_defs(name);
+CREATE INDEX IF NOT EXISTS idx_workflow_defs_updated
+  ON workflow_defs(updated_at);
+
+-- ── Session controls (ADR-0069 D1–D3: live-control transport) ───────────
 -- One row per operator control verb queued against a live session.  A poller
--- task in cli/orchestrate/flow.py's _execute_dag (same lifecycle as the
--- heartbeat loop) reads unapplied rows (applied_at IS NULL) and applies them
+-- task in cli/orchestrate/flow.py's _execute_dag reads unapplied rows
+-- (applied_at IS NULL) and applies them
 -- against the running executor.  Apply/stamp ordering is verb-classed:
--- pause/resume/stop are idempotent (apply, then stamp), message is not
+-- pause/resume are idempotent (apply, then stamp), message is not
 -- (stamp 'applying', then apply, then finalize).  'stop' is schema-reserved
--- for a later slice (the checkpoint writer); no CLI verb emits it yet.
+-- and rejected by the current poller as unsupported; no CLI verb emits it yet.
 
 CREATE TABLE IF NOT EXISTS session_controls (
   id          TEXT    PRIMARY KEY,         -- uuid4 hex
@@ -671,3 +885,93 @@ CREATE TABLE IF NOT EXISTS session_controls (
 
 CREATE INDEX IF NOT EXISTS idx_session_controls_pending
   ON session_controls(session_id, applied_at) WHERE applied_at IS NULL;
+
+-- ── Dispatch outbox (ADR-0092: durable dispatch outbox) ────────────────────────
+-- Producer-driven at-least-once outbound delivery. A row survives independent
+-- of any consumer's liveness; the scheduler tick re-attempts the configured
+-- notify template until it succeeds, backs off, or exhausts max_attempts.
+
+CREATE TABLE IF NOT EXISTS dispatch_outbox (
+  id                TEXT PRIMARY KEY,
+  kind              TEXT NOT NULL,              -- 'revival_ping' | 'terminal_notify' | ...
+  deliver_to        TEXT NOT NULL,              -- opaque routing key for the transport template
+  payload           JSON NOT NULL,              -- DispatchSignal contract
+  dedup_key         TEXT,                       -- cross-submission idempotency
+  status            TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending', 'delivering', 'delivered', 'acked', 'dead_letter', 'expired')),
+  attempt           INTEGER NOT NULL DEFAULT 0,
+  max_attempts      INTEGER NOT NULL DEFAULT 8,
+  next_attempt_at   REAL NOT NULL,              -- backoff schedule; drives the tick scan
+  ack_required      INTEGER NOT NULL DEFAULT 0, -- opt-in retry-until-ack tier
+  ack_token         TEXT,                       -- consumer presents this to `li dispatch ack`
+  session_id        TEXT REFERENCES sessions(id),        -- denormalized, nullable
+  schedule_run_id   TEXT REFERENCES schedule_runs(id),   -- denormalized, nullable
+  last_error        TEXT,
+  created_at        REAL NOT NULL,
+  expires_at        REAL,
+  updated_at        REAL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_outbox_dedup
+  ON dispatch_outbox(dedup_key) WHERE dedup_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dispatch_outbox_due
+  ON dispatch_outbox(status, next_attempt_at)
+  WHERE status IN ('pending', 'delivering');
+
+-- ── Approvals (studio operator permission ledger) ──────────────────────────
+-- Server-side confirm-flow: a mutating action is proposed, a human grants or
+-- denies it, and the real endpoint consumes the granted approval exactly
+-- once. params_hash is a sha256 over canonical (sorted-keys) JSON of the
+-- action's parameters, checked at consume time so a granted approval can
+-- only execute the exact action it was granted for.
+
+CREATE TABLE IF NOT EXISTS approvals (
+  id            TEXT    PRIMARY KEY,
+  action_kind   TEXT    NOT NULL,
+  params_hash   TEXT    NOT NULL,
+  session_id    TEXT    REFERENCES sessions(id),
+  status        TEXT    NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'granted', 'consumed', 'expired', 'denied')),
+  proposed_at   REAL    NOT NULL,
+  granted_at    REAL,
+  consumed_at   REAL,
+  expires_at    REAL    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_approvals_status
+  ON approvals(status) WHERE status IN ('pending', 'granted');
+CREATE INDEX IF NOT EXISTS idx_approvals_session
+  ON approvals(session_id) WHERE session_id IS NOT NULL;
+
+-- ── Approval evidence (hash-chained audit trail) ────────────────────────────
+-- Append-only: every approval lifecycle event (proposed/granted/denied/
+-- consumed/expired) writes one row here, in the same transaction as the
+-- approvals status change. chain_hash = sha256(content_hash + previous_hash);
+-- genesis previous_hash is 64 zero chars. content_hash is a sha256 over
+-- canonical (sorted-keys) JSON of the row's payload fields. Never stores raw
+-- action params -- only the params_hash already computed for the approval.
+-- hmac_sig is populated only when LIONAGI_STUDIO_EVIDENCE_HMAC_KEY is set.
+
+CREATE TABLE IF NOT EXISTS approval_evidence (
+  id                    TEXT    PRIMARY KEY,
+  sequence              INTEGER NOT NULL,
+  event_type            TEXT    NOT NULL
+                        CHECK(event_type IN ('proposed', 'granted', 'denied', 'consumed', 'expired')),
+  approval_id           TEXT    NOT NULL REFERENCES approvals(id),
+  action_kind           TEXT    NOT NULL,
+  status_from           TEXT,
+  status_to             TEXT    NOT NULL,
+  params_hash           TEXT    NOT NULL,
+  justification_class   TEXT,
+  justification_reason  TEXT,
+  created_at            REAL    NOT NULL,
+  content_hash          TEXT    NOT NULL,
+  previous_hash         TEXT    NOT NULL,
+  chain_hash            TEXT    NOT NULL,
+  hmac_sig              TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_evidence_sequence
+  ON approval_evidence(sequence);
+CREATE INDEX IF NOT EXISTS idx_approval_evidence_approval
+  ON approval_evidence(approval_id);

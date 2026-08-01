@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""ADR-0020 invocations service — backs /api/invocations endpoints."""
+"""Invocations service — backs /api/invocations endpoints."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import Query
 
 from lionagi._errors import NotFoundError
-from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+from lionagi.state.db import StateDB, state_db_known_absent
 
 from ..registry import studio_route
 from ._io import parse_json_col as _parse_json_col
@@ -23,7 +23,7 @@ async def list_invocations(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return []
     async with StateDB() as db:
         rows = await db.list_invocations(skill=skill, status=status, limit=limit, offset=offset)
@@ -51,17 +51,21 @@ async def list_invocations(
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
                 "node_metadata": node_meta,
-                # ADR-0026: project provenance from the most-recently updated
+                # ADR-0063: project provenance from the most-recently updated
                 # child session.  NULL when the invocation has no sessions yet.
                 "project": r.get("project"),
                 "project_source": r.get("project_source"),
+                # From the schedule_run that fired this invocation (ADR-0070),
+                # when it was a scheduled run. NULL for interactive invocations.
+                "schedule_run_exit_code": r.get("schedule_run_exit_code"),
+                "schedule_run_error_detail": r.get("schedule_run_error_detail"),
             }
         )
     return out
 
 
 async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return None
     async with StateDB() as db:
         row = await db.get_invocation(invocation_id)
@@ -74,8 +78,11 @@ async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
             except json.JSONDecodeError:
                 node_meta = None
         sessions = await db.list_sessions_for_invocation(invocation_id)
-        # ADR-0021: structured outcomes alongside child sessions for the invocation detail page.
+        # Structured outcomes alongside child sessions for the invocation detail page.
         artifacts = await db.list_artifacts_for_invocation(invocation_id)
+        # The schedule_run that fired this invocation, when scheduled, so the
+        # detail page can show exit_code/error_detail without correlating IDs.
+        schedule_run = await db.get_schedule_run_by_invocation(invocation_id)
     return {
         "id": row["id"],
         "skill": row["skill"],
@@ -91,6 +98,8 @@ async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "node_metadata": node_meta,
+        "schedule_run_exit_code": schedule_run.get("exit_code") if schedule_run else None,
+        "schedule_run_error_detail": schedule_run.get("error_detail") if schedule_run else None,
         "sessions": [
             {
                 "id": s["id"],
@@ -102,7 +111,7 @@ async def get_invocation(invocation_id: str) -> dict[str, Any] | None:
                 "last_message_at": s.get("last_message_at"),
                 "started_at": s.get("started_at"),
                 "ended_at": s.get("ended_at"),
-                # ADR-0022: model disclosure on the child sessions list.
+                # Model disclosure on the child sessions list.
                 "model": s.get("model"),
                 "effort": s.get("effort"),
             }
@@ -132,11 +141,11 @@ def _serialize_artifact(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── Artifacts (ADR-0021) ──────────────────────────────────────────────────────
+# ── Artifacts (ADR-0077) ──────────────────────────────────────────────────────
 
 
 async def list_artifacts_for_session(session_id: str) -> list[dict[str, Any]]:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return []
     async with StateDB() as db:
         rows = await db.list_artifacts_for_session(session_id)
@@ -144,7 +153,7 @@ async def list_artifacts_for_session(session_id: str) -> list[dict[str, Any]]:
 
 
 async def get_artifact(artifact_id: str) -> dict[str, Any] | None:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return None
     async with StateDB() as db:
         row = await db.get_artifact(artifact_id)
@@ -163,9 +172,7 @@ async def list_invocations_route(
         "invocations": rows,
         "limit": limit,
         "offset": offset,
-        # We don't compute total separately — the page is the slice the
-        # client asked for. Studio's pagination uses has_next instead of
-        # absolute totals.
+        # No separate total: pagination uses has_next instead of absolute totals.
         "has_next": len(rows) == limit,
     }
 
@@ -194,9 +201,8 @@ async def get_artifact_route(artifact_id: str) -> dict[str, Any]:
     return data
 
 
-# Convenience: sessions don't have their own router-level artifacts endpoint
-# (sessions.router predates ADR-0021). This sub-route under /api/artifacts
-# keeps the artifact concern in one place.
+# Sessions have no router-level artifacts endpoint; this sub-route keeps
+# the artifact concern in one place.
 @studio_route(
     "/artifacts/by-session/{session_id}", method="GET", area="invocations", tags=["artifacts"]
 )

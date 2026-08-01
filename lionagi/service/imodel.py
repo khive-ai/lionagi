@@ -24,6 +24,23 @@ from .hooks import (
 from .rate_limited_processor import RateLimitedAPIExecutor
 
 
+def _terminal_stream_error(api_call: APICalling) -> BaseException | None:
+    """The captured cause when a streamed call ended FAILED, else None.
+
+    ``Event.stream()`` records a transport/provider failure as ``FAILED`` and
+    stops yielding rather than re-raising, so the shared processor can run
+    events concurrently without one failure cancelling the batch. Always
+    returns a ``BaseException`` (never a bare string) so it is safe to chain
+    with ``raise ... from``.
+    """
+    if api_call.status != EventStatus.FAILED:
+        return None
+    err = api_call.execution.error
+    if isinstance(err, BaseException):
+        return err
+    return RuntimeError(str(err) if err is not None else "stream failed without a recorded cause")
+
+
 class iModel:  # noqa: N801
     """Provider endpoint wrapper with rate-limiting, hooks, and streaming."""
 
@@ -72,15 +89,47 @@ class iModel:  # noqa: N801
 
                     provider = settings.LIONAGI_CHAT_PROVIDER
 
+            # Effort-suffixed model names ("gpt-5.6-luna-high") work at every
+            # construction site: strip the suffix and route it to the
+            # provider's effort kwarg. Gated to providers with an effort kwarg
+            # so a real model name can never be mangled; an explicit effort
+            # kwarg always wins over the suffix.
+            from .providers import (
+                _CLAUDE_PROVIDER_NAMES,
+                _EFFORT_SUFFIX_RE,
+                PROVIDER_EFFORT_KWARG,
+                _clamp_claude_effort,
+                normalize_effort,
+            )
+
+            _effort_kwarg = PROVIDER_EFFORT_KWARG.get(provider) if provider else None
+            _model_name = kwargs.get("model")
+            if _effort_kwarg and isinstance(_model_name, str):
+                _suffix = _EFFORT_SUFFIX_RE.match(_model_name)
+                if _suffix:
+                    kwargs["model"] = _suffix.group(1)
+                    if _effort_kwarg not in kwargs:
+                        _eff = normalize_effort(_suffix.group(2))
+                        if provider in _CLAUDE_PROVIDER_NAMES:
+                            _eff = _clamp_claude_effort(_eff, kwargs["model"])
+                        kwargs[_effort_kwarg] = _eff
+
         if api_key is not None:
             kwargs["api_key"] = api_key
         if isinstance(endpoint, Endpoint):
             self.endpoint = endpoint
         else:
+            match_kwargs = dict(kwargs)
+            if base_url:
+                # A caller-supplied base_url is the same explicit signal that
+                # already means "route this custom host through the generic
+                # OpenAI-compatible endpoint" -- surface it to match_endpoint
+                # so an unregistered provider name doesn't raise here.
+                match_kwargs.setdefault("base_url", base_url)
             self.endpoint = match_endpoint(
                 provider=provider,
                 endpoint=endpoint,
-                **kwargs,
+                **match_kwargs,
             )
         if provider:
             self.endpoint.config.provider = provider
@@ -121,7 +170,7 @@ class iModel:  # noqa: N801
         post_invoke_event_hook_timeout: float = 30.0,
         post_invoke_event_hook_params: dict = None,
         **kwargs,
-    ) -> tuple[HookEvent | None, APICalling]:
+    ) -> APICalling:
         h_ev = None
         if self.hook_registry._can_handle(ht_=HookEventTypes.PreEventCreate):
             h_ev = HookEvent(
@@ -140,7 +189,11 @@ class iModel:  # noqa: N801
 
         if issubclass(create_event_type, HookedEvent):
             api_call = None
-            if create_event_type is APICalling:
+            if h_ev and isinstance(h_ev.execution.response, create_event_type):
+                # PreEventCreate replaced the event outright — use it as-is
+                # instead of building a fresh one from the original kwargs.
+                api_call = h_ev.execution.response
+            elif create_event_type is APICalling:
                 api_call = self.create_api_calling(**kwargs)
             else:
                 api_call = create_event_type(**kwargs)
@@ -253,26 +306,38 @@ class iModel:  # noqa: N801
 
         if self.executor.processor._concurrency_sem:
             async with self.executor.processor._concurrency_sem:
+                stream_error = None
                 try:
                     async for i in api_call.stream():
                         result = await self.process_chunk(i)
                         yield result if result is not None else i
+                    # api_call.stream() captures a transport/provider failure as
+                    # FAILED instead of raising (so the shared processor can fire
+                    # events concurrently without one failure cancelling the batch).
+                    # This public boundary must not report that as a clean end —
+                    # surface it after iteration so the caller sees the error.
+                    stream_error = _terminal_stream_error(api_call)
                 except Exception as e:
                     raise ValueError(f"Failed to stream API call: {e}") from e
                 finally:
-                    # Pop without yielding — yield-in-finally swallows
-                    # CancelledError during generator cleanup, breaking
-                    # anyio.fail_after timeout enforcement.
+                    # Pop without yielding — yield-in-finally would swallow CancelledError
+                    # during generator cleanup, breaking anyio.fail_after timeout enforcement.
                     self.executor.pile.pop(api_call.id, None)
+                if stream_error is not None:
+                    raise ValueError(f"Failed to stream API call: {stream_error}") from stream_error
         else:
+            stream_error = None
             try:
                 async for i in api_call.stream():
                     result = await self.process_chunk(i)
                     yield result if result is not None else i
+                stream_error = _terminal_stream_error(api_call)
             except Exception as e:
                 raise ValueError(f"Failed to stream API call: {e}") from e
             finally:
                 self.executor.pile.pop(api_call.id, None)
+            if stream_error is not None:
+                raise ValueError(f"Failed to stream API call: {stream_error}") from stream_error
 
     async def invoke(self, api_call: APICalling = None, **kw) -> APICalling:
         try:
@@ -297,7 +362,7 @@ class iModel:  # noqa: N801
                         timeout=10.0,
                     )
                 except asyncio.TimeoutError:
-                    pass  # Fall through — same as old ctr>100 break
+                    pass
 
             completed_call = self.executor.pile.pop(api_call.id)
             if (
@@ -334,8 +399,9 @@ class iModel:  # noqa: N801
     async def close(self) -> None:
         await self.executor.stop()
 
-    def copy(self, share_session: bool = False) -> iModel:
-        """Create a new iModel with same config but fresh ID and executor."""
+    def copy(self, share_session: bool = False, share_executor: bool = False) -> iModel:
+        """Create a new iModel with the same config but a fresh ID. See
+        docs/internals/runtime.md for what state is/isn't shared with the copy."""
         endpoint_cls = type(self.endpoint)
         new_endpoint = endpoint_cls(
             config=self.endpoint.config.model_copy(deep=True),
@@ -349,7 +415,7 @@ class iModel:  # noqa: N801
             and isinstance(self.endpoint, AgenticEndpoint)
         ):
             new_endpoint.session_id = self.endpoint.session_id
-        return iModel(
+        new = iModel(
             endpoint=new_endpoint,
             provider_metadata=self.provider_metadata.copy(),
             streaming_process_func=self.streaming_process_func,
@@ -357,6 +423,9 @@ class iModel:  # noqa: N801
             exit_hook=self.exit_hook,
             **self.executor.config,
         )
+        if share_executor:
+            new.executor = self.executor
+        return new
 
     def to_dict(
         self,
@@ -381,12 +450,18 @@ class iModel:  # noqa: N801
     def from_dict(cls, data: dict):
         endpoint = Endpoint.from_dict(data.get("endpoint", {}))
 
+        # openai_compatible=True: rehydrating a persisted iModel must never
+        # raise just because its provider isn't (or is no longer) registered
+        # -- the deserialized `endpoint` below is already a complete,
+        # authoritative config either way, this lookup only exists to recover
+        # a registered subclass and a freshly env-sourced API key when one
+        # applies.
         if e1 := match_endpoint(
             provider=endpoint.config.provider,
             endpoint=endpoint.config.endpoint,
+            openai_compatible=True,
         ):
-            # Preserve the API key from the freshly matched endpoint
-            # (reads from env), then apply the serialized config on top
+            # Preserve the freshly resolved (env-sourced) API key before overwriting config
             fresh_api_key = e1.config._api_key
             e1.config = endpoint.config
             if e1.config._api_key is None and fresh_api_key:

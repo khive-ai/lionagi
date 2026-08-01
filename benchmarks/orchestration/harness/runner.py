@@ -43,7 +43,7 @@ logger = logging.getLogger("orchbench.runner")
 # must stay generous — this bounds a runaway subprocess, not typical trials.
 _CELL_TIMEOUT_S = 1800
 
-# Ocean's allowed model set → canonical CLI specs (the bare `claude` alias is
+# Allowed model set → canonical CLI specs (the bare `claude` alias is
 # claude_code; `claude/x` provider isn't the CLI provider, so map to claude-code).
 _MODEL_ALIASES = {
     "claude/haiku": "claude-code/haiku",
@@ -198,6 +198,7 @@ async def _run_once_inprocess(task: Task, config: OrchestrationConfig, trial: in
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             cached_tokens=usage.cached_tokens,
+            cache_write_tokens=usage.cache_write_tokens,
             num_turns=usage.num_turns,
             n_calls=usage.n_calls,
             usage_source=usage.source,

@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import uuid
 from collections import deque
 from collections.abc import Callable
 from time import monotonic
@@ -17,9 +19,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lionagi.agent import AgentSpec, create_agent
 from lionagi.ln.concurrency import Semaphore, gather
+from lionagi.ln.concurrency._compat import (
+    ExceptionGroup,
+    get_exception_group_exceptions,
+    is_exception_group,
+)
 from lionagi.ln.types import TypeFilter
 from lionagi.session.session import Session
-from lionagi.session.signal import NodeCompleted, NodeFailed, NodeQueued, NodeStarted, Signal
+from lionagi.session.signal import Signal
 
 if TYPE_CHECKING:
     from lionagi.protocols.generic.pile import Pile
@@ -59,6 +66,84 @@ class JudgeVerdict(EngineEvent):
 
 class EngineBudgetError(RuntimeError):
     """The run's hard agent budget is exhausted; no further agents may be made."""
+
+
+def _is_all_budget_error(exc: BaseException) -> bool:
+    """True iff every leaf exception is an EngineBudgetError, recursing into nested groups."""
+    if isinstance(exc, EngineBudgetError):
+        return True
+    if is_exception_group(exc):
+        return all(_is_all_budget_error(e) for e in get_exception_group_exceptions(exc))
+    return False
+
+
+_ROLE_PROFILE_CACHE: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+
+
+def _profile_cache_key(role: str) -> tuple[str, str]:
+    # Profile resolution is project-local (load_agent_profile searches from
+    # Path.cwd() outward), so the cache key must include the resolved project
+    # dir — a role-only key lets a long-lived process retain the first
+    # project's routing after a cwd change.
+    return (role, os.getcwd())
+
+
+def role_profile_route(role: str) -> tuple[str | None, str | None]:
+    """(model, effort) from the role's agent profile (``.lionagi/agents/<role>.md``),
+    (None, None) when no profile exists. Configuring a role's profile routes every
+    engine stage that uses the role; explicit engine/stage settings still win."""
+    if not isinstance(role, str) or not role:
+        return (None, None)
+    key = _profile_cache_key(role)
+    if key in _ROLE_PROFILE_CACHE:
+        return _ROLE_PROFILE_CACHE[key]
+    try:
+        from lionagi.cli._providers import load_agent_profile  # noqa: PLC0415
+
+        prof = load_agent_profile(role)
+    except FileNotFoundError:
+        # No profile configured for this role. Do not cache: a profile added
+        # later (or a cwd change back to a project that has one) must be
+        # picked up on the very next call, not masked by a stale (None, None).
+        logger.debug("role_profile_route(%r): no agent profile found", role)
+        return (None, None)
+    except Exception as exc:
+        # Malformed profile or a transient filesystem error — same
+        # do-not-cache rule, distinguished only in the log line so a parse
+        # failure isn't confused with "no profile configured".
+        logger.warning("role_profile_route(%r): profile failed to parse: %s", role, exc)
+        return (None, None)
+    route = (prof.model, prof.effort)
+    _ROLE_PROFILE_CACHE[key] = route
+    return route
+
+
+_ROLE_INJECTION_CACHE: dict[tuple[str, str], Any] = {}
+
+
+def role_profile_injection(role: str) -> Any:
+    """The role's agent-profile ``khive_injection`` opt-in, or None when the
+    profile is absent or silent. Kept separate from :func:`role_profile_route`
+    so model/effort routing and context-injection policy stay independently
+    overridable."""
+    if not isinstance(role, str) or not role:
+        return None
+    key = _profile_cache_key(role)
+    if key in _ROLE_INJECTION_CACHE:
+        return _ROLE_INJECTION_CACHE[key]
+    try:
+        from lionagi.cli._providers import load_agent_profile  # noqa: PLC0415
+
+        value = getattr(load_agent_profile(role), "khive_injection", None)
+    except FileNotFoundError:
+        # Do not cache — see role_profile_route's identical rule.
+        logger.debug("role_profile_injection(%r): no agent profile found", role)
+        return None
+    except Exception as exc:
+        logger.warning("role_profile_injection(%r): profile failed to parse: %s", role, exc)
+        return None
+    _ROLE_INJECTION_CACHE[key] = value
+    return value
 
 
 def _event_dict(event: Any) -> dict[str, Any]:
@@ -130,8 +215,8 @@ def _minimal_valid_json(m: type) -> dict:
     return kwargs  # pragma: no cover
 
 
-def _cli_repair_instruction(schema_hint: str, emits: tuple[type, ...]) -> str:
-    """Repair instruction for CLI workers; supplies a complete fenced-JSON example because CLI workers emit prose, not a malformed schema."""
+def _emission_example(emits: tuple[type, ...]) -> str:
+    """Complete fenced-JSON example for the given emission types."""
     import json as _json
 
     from lionagi.casts.emission import field_name_for
@@ -140,7 +225,26 @@ def _cli_repair_instruction(schema_hint: str, emits: tuple[type, ...]) -> str:
     for m in emits:
         key = field_name_for(m)
         obj[key] = _minimal_valid_json(m)
-    example = f"```json\n{_json.dumps(obj, indent=2)}\n```" if obj else ""
+    return f"```json\n{_json.dumps(obj, indent=2)}\n```" if obj else ""
+
+
+def _cli_emission_primer(schema_hint: str, emits: tuple[type, ...]) -> str:
+    """Appended to a CLI worker's FIRST instruction: CLI workers default to prose,
+    so the fenced-JSON contract and a complete example go up front rather than
+    only in the repair re-prompt."""
+    example = _emission_example(emits)
+    if not example:
+        return ""
+    return (
+        "\n\n# Output contract\n"
+        "Your final reply MUST contain a fenced ```json block with the emission "
+        f"object. {schema_hint}\n\nExample structure:\n{example}"
+    )
+
+
+def _cli_repair_instruction(schema_hint: str, emits: tuple[type, ...]) -> str:
+    """Repair instruction for CLI workers; supplies a complete fenced-JSON example because CLI workers emit prose, not a malformed schema."""
+    example = _emission_example(emits)
     return (
         "Your previous response contained no fenced JSON block, so the pipeline "
         "received nothing. Reply with ONLY a fenced ```json block containing the "
@@ -158,6 +262,28 @@ def emission_keys(emits: tuple[type, ...]) -> str:
     return f"Expected top-level key(s): {names}." if names else ""
 
 
+def _namespaced_injection(injection: Any, namespace: str) -> Any:
+    """Stamp a run-derived namespace onto a khive_injection config unless the
+    caller already pinned one — closes the cross-run/cross-project memory
+    exposure a default (or profile-level) opt-in would otherwise have."""
+    if injection is True:
+        return {"namespace": namespace}
+    if isinstance(injection, dict):
+        if injection.get("namespace"):
+            return injection
+        return {**injection, "namespace": namespace}
+
+    from lionagi.tools.khive_injection import KhiveInjectionPolicy  # noqa: PLC0415
+
+    if isinstance(injection, KhiveInjectionPolicy):
+        if injection.namespace:
+            return injection
+        import dataclasses
+
+        return dataclasses.replace(injection, namespace=namespace)
+    return injection
+
+
 class EngineRun:
     """Per-run context: session, dedup set, in-flight tasks, semaphore, and hard budget (agents + deadline)."""
 
@@ -167,11 +293,16 @@ class EngineRun:
         *,
         session: Session | None = None,
         on_event: EventCallback | None = None,
+        on_branch_created: Callable[[Any], None] | None = None,
     ) -> None:
         self.engine = engine
         self.session = session if session is not None else Session()
         self.on_event = on_event
+        self._on_branch_created = on_branch_created
         self.root: str = ""
+        # Unique per run: stamped into every stage agent's khive-injection
+        # namespace so recall/writeback never crosses runs or projects.
+        self.run_id: str = uuid.uuid4().hex[:12]
         self.agents_made: int = 0
         self._sem = Semaphore(engine.max_concurrent)
         self._active: set[asyncio.Task] = set()
@@ -180,15 +311,15 @@ class EngineRun:
         self._t0 = monotonic()
         self._deadline = None if engine.deadline_s is None else self._t0 + engine.deadline_s
         self._budget_notified = False
-        # Holds the asyncio.Task wrapping the engine's _run() coroutine.
-        # Set by Engine.run() before awaiting; the deadline watchdog cancels it
-        # so in-flight sequential work (operate_with_repair, branch.operate) is
-        # interrupted promptly rather than continuing past the deadline.
+        # Wraps the engine's _run() coroutine; the deadline watchdog cancels this
+        # to interrupt in-flight sequential work promptly, not just spawned tasks.
         self._run_task: asyncio.Task | None = None
-        # Collects emission-missing diagnostics so the CLI can write them to
-        # the engine_runs.error column even when the overall status is "completed".
-        # Each entry is a string like "<agent> x<attempts>".
+        # Emission-missing diagnostics for the CLI's engine_runs.error column,
+        # e.g. "<agent> x<attempts>", even when overall status is "completed".
         self._emission_failures: list[str] = []
+        # Terminal sub-agent failures (e.g. missing API key), so a run where
+        # every agent errored can be surfaced as failed instead of green.
+        self._agent_errors: list[str] = []
 
     @property
     def events(self) -> Pile:
@@ -231,6 +362,8 @@ class EngineRun:
         return self.session.observe(*keys, handler=handler, role=role)
 
     def notify(self, kind: str, **data: Any) -> None:
+        if kind == "agent_error":
+            self._agent_errors.append(f"{data.get('agent')}: {data.get('error')}")
         if self.on_event:
             self.on_event({"type": kind, **data})
 
@@ -248,6 +381,7 @@ class EngineRun:
         name: str | None = None,
         modes: list[str] | None = None,
         model: str | None = None,
+        effort: str | None = None,
         tools: tuple[str, ...] = (),
         emits: tuple[type, ...] = (),
         permissions: Any = None,
@@ -256,24 +390,54 @@ class EngineRun:
         exempt: bool = False,
         mcp_servers: list[str] | None = None,
         extra_prompt: str | None = None,
+        khive_injection: Any = None,
     ) -> Branch:
-        # ``exempt`` is for terminal stages (synthesis/verdict) that must run
-        # even when the expansion budget is gone — degrade, don't lose the run.
+        # exempt = terminal stages (synthesis/verdict) that must run even when
+        # the expansion budget is gone — degrade, don't lose the run.
         if not exempt and not self.budget_left():
             self._notify_budget_once("make_agent")
             raise EngineBudgetError(
                 f"agent budget exhausted ({self.agents_made}/{self.engine.max_agents})"
             )
         self.agents_made += 1
+        if cwd is None:
+            cwd = self.engine.agent_cwd
+        if extra_prompt is None:
+            extra_prompt = self.engine.agent_extra_prompt
+        # Resolution order: explicit call > engine-wide > the role's agent
+        # profile. An effort baked into the model spec's suffix outranks the
+        # profile default too — only apply prof_effort when the resolved
+        # model has no suffix of its own, so a profile can't silently
+        # override an explicit `codex/gpt-5.6-luna-high`-style effort.
+        prof_model, prof_effort = role_profile_route(role)
+        resolved_model = model or self.engine.model or prof_model
+        resolved_effort = effort or self.engine.effort
+        if not resolved_effort and resolved_model:
+            from lionagi.service.providers import parse_model_spec  # noqa: PLC0415
+
+            if not parse_model_spec(resolved_model).effort:
+                resolved_effort = prof_effort
+        # Same precedence for khive injection; an explicit False at any level
+        # disables and stops the profile fallback.
+        injection = khive_injection
+        if injection is None:
+            injection = self.engine.khive_injection
+        if injection is None:
+            injection = role_profile_injection(role)
+        if injection is not None and injection is not False:
+            namespace = f"{type(self.engine).__name__.lower()}:{self.run_id}"
+            injection = _namespaced_injection(injection, namespace)
         spec = AgentSpec.compose(
             role,
             modes=modes,
-            model=model or self.engine.model,
+            model=resolved_model,
+            effort=resolved_effort,
             tools=tuple(tools),
             permissions=permissions,
             emits=tuple(emits) if emits else None,
             cwd=cwd,
             system_prompt=extra_prompt,
+            khive_injection=injection,
         )
         if mcp_servers is not None:
             spec.mcp_servers = mcp_servers
@@ -287,6 +451,8 @@ class EngineRun:
         if name:
             branch.name = name
         self.session.include_branches(branch)
+        if self._on_branch_created is not None:
+            self._on_branch_created(branch)
         return branch
 
     async def operate_with_repair(
@@ -297,13 +463,29 @@ class EngineRun:
         arrived: Callable[[], bool],
         emits: tuple[type, ...] = (),
         retries: int = 1,
+        actions: bool = False,
     ) -> Any:
-        """Operate then re-prompt up to *retries* times while *arrived*() is false; CLI workers get a full fenced-JSON example, API workers get key hints."""
-        res = await branch.operate(instruction=instruction)
-        attempt = 0
-        # Determine repair template once: CLI workers need the full example form.
+        """Operate then re-prompt up to *retries* times while *arrived*() is false; CLI workers get a full fenced-JSON example, API workers get key hints.
+
+        ``actions`` must be True when the branch was given tools (e.g. bash)
+        that the stage instruction requires it to actually call — CLI
+        providers execute their own tools regardless, but a non-CLI (API)
+        model only gets lionagi's registered tool schemas, and therefore only
+        invokes them, when ``branch.operate(actions=True)``.
+        """
+        # CLI workers emit prose, not fenced JSON — they need the full example form.
         is_cli = bool(getattr(getattr(branch, "chat_model", None), "is_cli", False))
         hint = emission_keys(emits)
+        if is_cli:
+            # Front-load the contract: waiting for the repair pass costs a whole
+            # extra CLI process per worker that defaults to prose.
+            instruction = f"{instruction}{_cli_emission_primer(hint, emits)}"
+        # actions=False is branch.operate()'s own default: omit the kwarg
+        # entirely in that (common) case rather than passing it explicitly,
+        # so a minimal test double's operate(self, *, instruction) still works.
+        operate_kwargs: dict[str, Any] = {"actions": True} if actions else {}
+        res = await branch.operate(instruction=instruction, **operate_kwargs)
+        attempt = 0
         while not arrived() and attempt < retries:
             attempt += 1
             self.notify(
@@ -316,7 +498,7 @@ class EngineRun:
                 repair_msg = _cli_repair_instruction(hint, emits)
             else:
                 repair_msg = _repair_instruction(hint)
-            res = await branch.operate(instruction=repair_msg)
+            res = await branch.operate(instruction=repair_msg, **operate_kwargs)
         if retries and not arrived():
             _agent_name = getattr(branch, "name", "") or ""
             _attempts = attempt + 1
@@ -353,16 +535,8 @@ class EngineRun:
             task.add_done_callback(self._active.discard)
 
     async def cancel_active(self) -> None:
-        """Cancel and await all in-flight spawned tasks.
-
-        Waits up to ``engine.cancel_timeout_s`` for tasks to finish after
-        cancellation is requested.  Tasks that do not settle within that window
-        (e.g. they catch CancelledError and loop) are abandoned: a loud warning
-        is logged naming the count, and cancel_active() returns so the caller's
-        lifetime guarantee is preserved.  Cooperative tasks that finish before
-        the deadline are awaited normally — the timeout path only fires when at
-        least one task remains after the window expires.
-        """
+        """Cancel and await all in-flight spawned tasks; tasks that don't settle
+        within ``engine.cancel_timeout_s`` are abandoned with a logged warning."""
         if not self._active:
             return
         tasks = list(self._active)
@@ -386,28 +560,29 @@ class EngineRun:
         self._active.clear()
 
     async def _deadline_watchdog(self) -> None:
-        """Sleep until the deadline, then cancel _run_task (and spawned tasks via Engine.run's finally block)."""
+        """Sleep until the deadline, then cancel _run_task."""
         if self._deadline is None:
             return
         delay = self._deadline - monotonic()
         if delay > 0:
             await asyncio.sleep(delay)
         self._notify_budget_once("deadline_watchdog")
-        # Cancel _run_task first so the in-flight sequential stage
-        # (branch.operate / operate_with_repair) is interrupted promptly.
-        # Spawned tasks (_active) are drained in Engine.run()'s finally block.
+        # Cancel _run_task to interrupt the in-flight sequential stage promptly;
+        # spawned tasks (_active) are drained separately in Engine.run()'s finally block.
         if self._run_task is not None and not self._run_task.done():
             self._run_task.cancel()
 
     async def wait_quiescence(self) -> None:
-        """Block until all spawned tasks settle; re-raise any non-cancellation failures."""
+        """Block until all spawned tasks settle; re-raise non-cancellation, non-budget
+        failures. EngineBudgetError is benign (discretionary work declined) and swallowed."""
         task_errors: list[BaseException] = []
         while self._active:
             results = await gather(*list(self._active), return_exceptions=True)
             task_errors.extend(
                 r
                 for r in results
-                if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError)
+                if isinstance(r, BaseException)
+                and not isinstance(r, asyncio.CancelledError | EngineBudgetError)
             )
         if task_errors:
             for exc in task_errors:
@@ -460,78 +635,14 @@ class EngineRun:
         verbose: bool = False,
         executor_ref: dict[str, Any] | None = None,
         context: dict[str, Any] | None = None,
+        on_branch_created: Any = None,
+        spawn_branch_setup: Any = None,
+        on_op_complete: Any = None,
     ) -> dict[str, Any]:
         """Execute a prebuilt operation DAG on the run's session and return operation results."""
-        from lionagi.operations.node import Operation  # noqa: PLC0415
+        from .flow_signals import flow_progress_signals  # noqa: PLC0415
 
-        emits: list[asyncio.Future] = []
-
-        # Build a live lookup of op_id → {parent_id, depends_on} from graph
-        # edges.  Populated at start from the static graph, then updated as
-        # reactive spawns add new nodes (they write parent_id into metadata).
-        node_edge_meta: dict[str, dict] = {}
-        for node in graph.internal_nodes.values():
-            if not isinstance(node, Operation):
-                continue
-            preds = [
-                str(e.head) for e in graph.internal_edges.values() if str(e.tail) == str(node.id)
-            ]
-            node_edge_meta[str(node.id)] = {
-                "parent_id": preds[0] if len(preds) == 1 else None,
-                "depends_on": preds,
-            }
-
-        def _on_progress(op_id: str, name: str, status: str, elapsed: float) -> None:
-            meta = node_edge_meta.get(op_id) or {}
-            parent_id = meta.get("parent_id")
-            depends_on = meta.get("depends_on", [])
-            if status == "queued":
-                sig: Any = NodeQueued(
-                    op_id=op_id, name=name, parent_id=parent_id, depends_on=depends_on
-                )
-            elif status == "started":
-                sig = NodeStarted(
-                    op_id=op_id, name=name, parent_id=parent_id, depends_on=depends_on
-                )
-            elif status == "completed":
-                sig = NodeCompleted(
-                    op_id=op_id,
-                    name=name,
-                    elapsed=elapsed,
-                    parent_id=parent_id,
-                    depends_on=depends_on,
-                )
-            elif status == "failed":
-                sig = NodeFailed(
-                    op_id=op_id,
-                    name=name,
-                    elapsed=elapsed,
-                    parent_id=parent_id,
-                    depends_on=depends_on,
-                )
-            else:
-                return
-            # on_progress is sync (called from inside the executor); fan the
-            # signal onto the async bus. Collected so the caller can await the
-            # observers before reading state they populate. The suppress guards
-            # the no-running-loop case (nothing would observe anyway).
-            with contextlib.suppress(RuntimeError):
-                emits.append(asyncio.ensure_future(self.session.emit(sig)))
-
-        # Intercept NodeSpawned to update node_edge_meta for newly spawned nodes.
-        def _on_spawned(sig: Any, _ctx: Any) -> None:
-            if sig.op_id and sig.parent_id is not None:
-                node_edge_meta[sig.op_id] = {
-                    "parent_id": sig.parent_id,
-                    "depends_on": [sig.parent_id],
-                }
-            elif sig.op_id:
-                node_edge_meta.setdefault(sig.op_id, {"parent_id": None, "depends_on": []})
-
-        from lionagi.session.signal import NodeSpawned  # noqa: PLC0415
-
-        self.session.observe(NodeSpawned, handler=_on_spawned)
-        try:
+        async with flow_progress_signals(self.session, graph) as on_progress:
             result = await self.session.flow(
                 graph,
                 context=context,
@@ -541,13 +652,12 @@ class EngineRun:
                 max_spawn=max_spawn,
                 max_concurrent=max_concurrent,
                 verbose=verbose,
-                on_progress=_on_progress,
+                on_progress=on_progress,
                 executor_ref=executor_ref,
+                on_branch_created=on_branch_created,
+                spawn_branch_setup=spawn_branch_setup,
+                on_op_complete=on_op_complete,
             )
-        finally:
-            self.session.observer.unobserve(_on_spawned)
-        if emits:
-            await gather(*emits, return_exceptions=True)
         return result
 
 
@@ -590,6 +700,41 @@ class ChainRun(EngineRun):
         return self.store.get(event_type, [])
 
 
+class EngineResult(str):
+    """Return type of Engine.run(): a str (back-compat) carrying the run's structured
+    outcome. ``.run`` is a live handle — don't retain it, it keeps the Session alive."""
+
+    text: str
+    skipped: list[str]
+    degraded: bool
+    degrade_reason: str
+    run: EngineRun
+    _events_by_type: Callable[[type], list[Any]]
+
+    def __new__(
+        cls,
+        text: str,
+        *,
+        events_by_type: Callable[[type], list[Any]],
+        skipped: list[str],
+        degraded: bool,
+        run: EngineRun,
+        degrade_reason: str = "",
+    ) -> EngineResult:
+        self = super().__new__(cls, text)
+        self.text = str(self)
+        self._events_by_type = events_by_type
+        self.skipped = list(skipped)
+        self.degraded = bool(degraded)
+        self.degrade_reason = degrade_reason
+        self.run = run
+        return self
+
+    def events_by_type(self, event_type: type) -> list[Any]:
+        """Snapshot of the run's stored events matching *event_type*."""
+        return self._events_by_type(event_type)
+
+
 class Engine:
     """Stateless event-driven engine base; subclasses implement ``_run()``. See docs/reference/engines.md for parameter details."""
 
@@ -600,6 +745,8 @@ class Engine:
         *,
         model: str | None = None,
         models: dict[str, str] | None = None,
+        effort: str | None = None,
+        efforts: dict[str, str] | None = None,
         max_depth: int = 3,
         max_concurrent: int = 5,
         max_agents: int = 50,
@@ -607,9 +754,23 @@ class Engine:
         judge_model: str | None = None,
         judge_role: str = "critic",
         cancel_timeout_s: float = 30.0,
+        agent_cwd: str | None = None,
+        agent_extra_prompt: str | None = None,
+        khive_injection: Any = None,
     ) -> None:
+        # Run-wide agent defaults: pin every agent to a working directory (e.g. a
+        # provisioned worktree) and/or a shared standards prompt; per-call
+        # make_agent(cwd=..., extra_prompt=...) still wins.
+        self.agent_cwd = agent_cwd
+        self.agent_extra_prompt = agent_extra_prompt
+        # Run-wide khive context-injection default for every stage agent
+        # (True/mapping/policy enable, False disables even a profile opt-in,
+        # None defers to each stage role's agent profile).
+        self.khive_injection = khive_injection
         self.model = model
         self.models = dict(models) if models else {}
+        self.effort = effort
+        self.efforts = dict(efforts) if efforts else {}
         self.max_depth = max_depth
         self.max_concurrent = max_concurrent
         self.max_agents = max_agents
@@ -620,6 +781,9 @@ class Engine:
 
     def model_for(self, stage: str) -> str | None:
         return self.models.get(stage) or self.model
+
+    def effort_for(self, stage: str) -> str | None:
+        return self.efforts.get(stage) or self.effort
 
     async def judge(self, run: EngineRun, eid: str, subject: str) -> bool:
         """Quality gate before an expansion point; returns True to expand, False to stop. No-op when judge_model is unset. Errors fail open."""
@@ -632,6 +796,9 @@ class Engine:
                     name=f"judge-{eid}",
                     model=self.judge_model,
                     emits=(JudgeVerdict,),
+                    # Judge legs are cheap yes/no gates that fire per item;
+                    # a recall round-trip per verdict is pure overhead.
+                    khive_injection=False,
                 )
                 res = await agent.operate(instruction=_judge_instruction(eid, subject, run.root))
             for v in run.by_type(JudgeVerdict):
@@ -654,102 +821,132 @@ class Engine:
         *,
         session: Session | None = None,
         on_event: EventCallback | None = None,
+        on_branch_created: Callable[[Any], None] | None = None,
     ) -> EngineRun:
-        return self.run_context_cls(self, session=session, on_event=on_event)
+        return self.run_context_cls(
+            self, session=session, on_event=on_event, on_branch_created=on_branch_created
+        )
+
+    async def _degrade_export(self, run: EngineRun, args: tuple, kwargs: dict) -> Any:
+        """Cancel in-flight spawned tasks, then run _partial_export shielded + timeout-
+        bounded. Returns _UNSET on failure/timeout; an external cancel still propagates."""
+        # Cancel background tasks so synthesis sees a stable snapshot and no
+        # work burns tokens past budget exhaustion (no-op if _active is empty).
+        if run._active:
+            await run.cancel_active()
+        # asyncio.shield keeps the export running outside the cancelled scope;
+        # the hard timeout bounds it so a hung synthesis call can't extend the run.
+        partial_coro = self._partial_export(run, *args, **kwargs)
+        partial_task = asyncio.ensure_future(partial_coro)
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(partial_task),
+                timeout=_PARTIAL_EXPORT_TIMEOUT_S,
+            )
+        except asyncio.CancelledError:
+            # wait_for turns its own timeout into TimeoutError, so CancelledError
+            # here is always an external cancel — clean up and re-raise.
+            if not partial_task.done():
+                partial_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await partial_task
+            raise
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning("partial export after degrade failed: %s", exc)
+            if not partial_task.done():
+                partial_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await partial_task
+            return _UNSET
+
+    def _wrap_result(self, result: Any, run: EngineRun, *, degrade_reason: str) -> Any:
+        """Wrap a str _run()/_partial_export() result into EngineResult; pass through anything else unchanged (e.g. CodingEngine's structured CodeResultRecorded)."""
+        if not isinstance(result, str) or isinstance(result, EngineResult):
+            return result
+        skipped = list(run._emission_failures)
+        # A dimension/agent whose emission never arrived is a skipped part of
+        # the result regardless of whether a deadline/budget also fired — a
+        # result blind to a skipped agent is degraded by construction, so
+        # this must never depend solely on degrade_reason being set.
+        if not degrade_reason and skipped:
+            degrade_reason = "emission_failure: " + "; ".join(skipped)
+        return EngineResult(
+            result,
+            events_by_type=run.by_type,
+            skipped=skipped,
+            degraded=bool(degrade_reason) or bool(skipped),
+            degrade_reason=degrade_reason,
+            run=run,
+        )
 
     async def run(
         self,
         *args: Any,
         session: Session | None = None,
         on_event: EventCallback | None = None,
+        on_branch_created: Callable[[Any], None] | None = None,
         **kwargs: Any,
     ) -> Any:
         """Execute the engine pipeline; on internal budget cancellation calls _partial_export instead of raising. External cancellation propagates as CancelledError."""
-        run = self.new_run(session=session, on_event=on_event)
-        # Reset per-run diagnostics on the engine instance so a reused engine
-        # never carries emission failures from a previous run into the next one.
+        run = self.new_run(session=session, on_event=on_event, on_branch_created=on_branch_created)
+        # Reset so a reused engine never carries diagnostics from a prior run.
         self._emission_failures: list[str] = []
+        self._agent_errors: list[str] = []
+        self._total_agent_failure: bool = False
         watchdog: asyncio.Task | None = None
         if run._deadline is not None:
             watchdog = asyncio.ensure_future(run._deadline_watchdog())
-        # Wrap _run() in a task so the deadline watchdog can cancel it.
-        # This is what makes the deadline bound *all* in-flight work — not just
-        # spawned background tasks, but also sequential awaits inside _run().
+        # Wrapping _run() in a task lets the deadline bound *all* in-flight work —
+        # sequential awaits inside _run(), not just spawned background tasks.
         run_task = asyncio.ensure_future(self._run(run, *args, **kwargs))
         run._run_task = run_task
+        result: Any = _UNSET
         partial_result: Any = _UNSET
+        degrade_reason: str = ""
         try:
-            return await run_task
+            result = await run_task
+            # A "successful" run may still have silently dropped a discretionary
+            # budget-capped subtree — flag it so a clean-looking result doesn't hide it.
+            if run._budget_notified:
+                degrade_reason = "budget"
         except asyncio.CancelledError:
-            # Distinguish internal cancellation (engine's own deadline/budget
-            # watchdog) from external cancellation (the caller cancelled run()).
-            # The watchdog sets _budget_notified before cancelling run_task.
-            # On Python >=3.11, task.cancelling() > 0 additionally detects a
-            # simultaneous external cancel (caller + watchdog fire at the same
-            # instant).  On Python 3.10, task.cancelling() does not exist, so
-            # we fall back to _budget_notified alone.  The concrete consequence
-            # on 3.10: if the caller cancels at the exact instant the budget is
-            # hit, _budget_notified wins and partial export runs instead of
-            # raising — an acceptable edge-case given the platform limitation.
+            # Distinguish internal (watchdog) vs external (caller) cancellation via
+            # task.cancelling() (3.11+; 3.10 falls back to _budget_notified alone).
             current = asyncio.current_task()
             caller_cancelled = (
                 current is not None and hasattr(current, "cancelling") and current.cancelling() > 0
             )
             if run._budget_notified and not caller_cancelled:
-                # Internal cancellation only.
-                # Step 1: cancel any background tasks spawned via run.spawn()
-                # so synthesis sees a stable snapshot and no work burns tokens
-                # past budget exhaustion.  cancel_active() is a no-op if
-                # _active is already empty (idempotent).
-                if run._active:
-                    await run.cancel_active()
-                # Step 2: synthesize and export under asyncio.shield so the
-                # await runs outside the cancelled scope.  A hard timeout
-                # bounds the phase so a hung synthesis call cannot extend the
-                # run indefinitely.
-                partial_coro = self._partial_export(run, *args, **kwargs)
-                partial_task = asyncio.ensure_future(partial_coro)
-                try:
-                    partial_result = await asyncio.wait_for(
-                        asyncio.shield(partial_task),
-                        timeout=_PARTIAL_EXPORT_TIMEOUT_S,
-                    )
-                except asyncio.CancelledError:
-                    # The caller cancelled Engine.run() while we were in the
-                    # partial-export phase.  wait_for converts its own internal
-                    # timeout into TimeoutError, so a CancelledError here is
-                    # always external — clean up partial_task and re-raise so
-                    # the caller's cancellation is honoured.
-                    if not partial_task.done():
-                        partial_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError, Exception):
-                            await partial_task
-                    raise
-                except (asyncio.TimeoutError, Exception) as exc:
-                    logger.warning("partial export after budget cancellation failed: %s", exc)
-                    if not partial_task.done():
-                        partial_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError, Exception):
-                            await partial_task
+                # The watchdog is the only thing that cancels run_task, so
+                # internal-only cancellation here means a deadline hit.
+                degrade_reason = "deadline"
+                partial_result = await self._degrade_export(run, args, kwargs)
             else:
                 # External cancellation — surface it after cleanup (below).
                 raise
+        except (EngineBudgetError, ExceptionGroup) as exc:
+            # A root-level make_agent() budget hit routes to partial-export; a
+            # non-budget leaf anywhere in the group must not be laundered into one.
+            if not _is_all_budget_error(exc):
+                raise
+            degrade_reason = "budget"
+            partial_result = await self._degrade_export(run, args, kwargs)
         finally:
-            # Copy per-run emission diagnostics back onto the engine instance so
-            # the CLI read site (getattr(engine, "_emission_failures", [])) sees
-            # the real list regardless of which return/exception path was taken.
-            # Uses a fresh list copy so no shared-reference aliasing between runs.
+            # Copy diagnostics onto the engine instance (fresh list) so the CLI's
+            # getattr(engine, "_emission_failures", []) sees them on every exit path.
             self._emission_failures = list(run._emission_failures)
+            # Flag total failure only when every agent made for this run
+            # terminally errored, so partial/soft-empty runs aren't over-flagged.
+            self._agent_errors = list(run._agent_errors)
+            self._total_agent_failure = (
+                run.agents_made > 0 and len(run._agent_errors) >= run.agents_made
+            )
             if watchdog is not None and not watchdog.done():
                 watchdog.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watchdog
-            # Drain any tasks still in _active so nothing leaks past run().
-            # Runs whether _run() succeeded, failed, or was cancelled by the
-            # deadline watchdog.  The drain is shielded so it completes even
-            # if the caller cancels run() mid-cleanup, but that external
-            # CancelledError is re-raised — swallowing it would hand the
-            # caller a stale _run() result and break structured cancellation.
+            # Drain tasks still in _active regardless of how run() exited; shielded so
+            # cleanup finishes even under a caller cancel (which still re-raises below).
             if run._active:
                 drain = asyncio.ensure_future(run.cancel_active())
                 try:
@@ -757,10 +954,8 @@ class Engine:
                 except asyncio.CancelledError:
                     if drain.cancelled():
                         raise
-                    # External cancellation of run() itself.  The drain keeps
-                    # running under shield — wait it out (absorbing repeated
-                    # cancellations) so no run-owned task outlives run() from
-                    # the caller's perspective, then surface the cancellation.
+                    # External cancel: keep waiting the shielded drain (absorbing
+                    # repeat cancels) so no run-owned task outlives run().
                     while not drain.done():
                         try:
                             await asyncio.shield(drain)
@@ -775,7 +970,10 @@ class Engine:
                 except Exception:
                     logger.exception("engine active-task drain failed")
         if partial_result is not _UNSET:
-            return partial_result
+            result = partial_result
+        if result is _UNSET:
+            result = None
+        return self._wrap_result(result, run, degrade_reason=degrade_reason)
 
     async def _partial_export(self, run: EngineRun, *args: Any, **kwargs: Any) -> Any:
         """Called under asyncio.shield after budget cancellation; override in subclasses to return a partial result. Default returns None."""

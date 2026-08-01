@@ -62,10 +62,31 @@ and ordering are independent — multiple `Progression` objects can reference th
 same item set. Index with `pile[uuid]`, not `pile[0]` (integer indexing goes
 through `Progression`, which is O(n)).
 
-## ObservableProto — V0/V1 compatibility
+## Observable — Pile admission contract
 
-`ObservableProto` is a `@runtime_checkable` structural protocol: any object
-with an `id` property satisfies it without explicit inheritance. All V0
-`Element` subclasses automatically satisfy it. `Observable` is an alias for
-`ObservableProto`. The legacy nominal `Observable` ABC (`LegacyObservable`) is
-kept for `issubclass(...)` checks in `Pile` and must not be removed.
+`Observable` (`lionagi.protocols._concepts.Observable`)
+is a runtime-checkable **structural protocol**: `isinstance(item, Observable)`
+is true for any object exposing an `id`, whether or not it inherits anything.
+`Pile` admits on that contract — a duck-typed object with a UUID `id` is a
+first-class item that can be included, found, retrieved, and removed by
+identity. `Element` satisfies the protocol through its `id` field without
+inheriting it (a runtime-checkable Protocol cannot be a pydantic base), so
+every `Element` subclass conforms automatically.
+
+Id resolution (`ID.get_id`, `validate_order`) is structural to match, so
+nothing Pile admits is later unreachable by identity. `item_type` normalizes
+the classes you pass but deliberately does not judge conformance: a class that
+only assigns `self.id` in `__init__` declares nothing at class level while its
+instances conform perfectly, so any class-level test would reject exactly the
+types the pile itself accepts. Conformance is checked per item at admission,
+where there is a real object to inspect.
+
+Serializing a Pile is the one Element-shaped boundary that remains: dumping
+calls `to_dict()` on each item, which a bare duck-typed object does not
+provide.
+
+This is intentional. A 2026-07 change briefly made admission nominal
+(inheritance-only) and removed the structural contract; that was a regression
+and has been reverted. Structural admission is the designed behavior, guarded
+by `tests/protocols/test_observable_protocol.py` — it should not be "fixed"
+back toward inheritance-only admission.

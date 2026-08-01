@@ -28,6 +28,10 @@ class HooksMixin:
         self.hook_handlers.setdefault(f"pre:{tool_name}", []).append(handler)
         return self
 
+    def security_pre(self, tool_name: str, handler: Callable) -> HooksMixin:
+        self.hook_handlers.setdefault(f"security_pre:{tool_name}", []).append(handler)
+        return self
+
     def post(self, tool_name: str, handler: Callable) -> HooksMixin:
         self.hook_handlers.setdefault(f"post:{tool_name}", []).append(handler)
         return self
@@ -40,15 +44,16 @@ class HooksMixin:
 def _wire_secure_guards(obj: HooksMixin, cwd: str | None) -> None:
     """Register the standard destructive-command + path-containment guards.
 
-    ``obj`` must support .pre() (HooksMixin).
+    Uses the security_pre bucket (not user pre) so these guards participate
+    in the security -> user -> security recheck (ADR-0086 delta row 1).
     """
     from lionagi.agent.hooks import guard_destructive, guard_paths
 
-    obj.pre("bash", guard_destructive)
+    obj.security_pre("bash", guard_destructive)
     workspace_root = str(Path(cwd) if cwd else Path.cwd())
     path_guard = guard_paths(allowed_paths=[workspace_root])
-    obj.pre("reader", path_guard)
-    obj.pre("editor", path_guard)
+    obj.security_pre("reader", path_guard)
+    obj.security_pre("editor", path_guard)
 
 
 @dataclass
@@ -66,10 +71,13 @@ class AgentSpec(HooksMixin):
     lion_system: bool = True
     extra_prompt: str | None = None
     hook_handlers: dict[str, list[Callable]] = field(default_factory=dict)
+    external_hooks: list[dict[str, Any]] = field(default_factory=list)
     cwd: str | None = None
     yolo: bool = False
     mcp_servers: list[str] | None = None
     mcp_config_path: str | None = None
+    context_management: bool = True
+    khive_injection: Any = None
 
     @classmethod
     def compose(
@@ -87,6 +95,7 @@ class AgentSpec(HooksMixin):
         system_prompt: str | None = None,
         cwd: str | None = None,
         yolo: bool = False,
+        khive_injection: Any = None,
     ) -> AgentSpec:
         """Build an AgentSpec from a role name/object; ``emits=None`` uses role's declared contract."""
         prof = Profile.compose(role, modes=modes)
@@ -103,22 +112,28 @@ class AgentSpec(HooksMixin):
             extra_prompt=system_prompt or None,
             cwd=cwd,
             yolo=yolo,
+            khive_injection=khive_injection,
         )
 
     @classmethod
     def coding(
         cls,
         *,
+        role: str = "implementer",
         model: str | None = None,
         effort: str | None = "high",
         system_prompt: str | None = None,
         cwd: str | None = None,
         secure: bool = True,
+        context_management: bool = True,
         **kwargs: Any,
     ) -> AgentSpec:
-        """Preset for a coding agent; ``secure=True`` wires guard_destructive + guard_paths."""
+        """Preset for a coding agent; ``secure=True`` wires guard_destructive + guard_paths.
+
+        ``context_management=False`` drops the context tool and its system-prompt one-liner.
+        """
         spec = cls.compose(
-            "implementer",
+            role,
             model=model,
             effort=effort,
             tools=["coding"],
@@ -126,6 +141,7 @@ class AgentSpec(HooksMixin):
             cwd=cwd,
             **kwargs,
         )
+        spec.context_management = context_management
         if secure:
             _wire_secure_guards(spec, cwd)
         return spec
@@ -153,6 +169,10 @@ class AgentSpec(HooksMixin):
         # restored explicitly or it would be silently dropped.
         if "lion_system" in data:
             spec.lion_system = bool(data["lion_system"])
+        if "context_management" in data:
+            spec.context_management = bool(data["context_management"])
+        if "khive_injection" in data:
+            spec.khive_injection = data["khive_injection"]
         return spec
 
     def build_system_message(self) -> str:
@@ -186,9 +206,12 @@ class AgentSpec(HooksMixin):
             "system_prompt": self.extra_prompt,
             "yolo": self.yolo,
             "lion_system": self.lion_system,
+            "context_management": self.context_management,
         }
         if self.cwd:
             data["cwd"] = self.cwd
+        if isinstance(self.khive_injection, (bool, dict)):
+            data["khive_injection"] = self.khive_injection
         with open(path, "w") as f:
             import yaml
 
@@ -200,9 +223,17 @@ class AgentSpec(HooksMixin):
         pack = _load_pack(self.pack)
         if pack is None:
             return ""
-        policy = pack.policy(self.profile.role.name)
+        role_name = self.profile.role.name
+        policy = pack.policy(role_name)
         if policy is None:
-            return ""
+            # Missing pack entry = privilege gap, fails loud (not a silent
+            # no-op). An explicit empty entry (`{}`) opts into unconstrained.
+            raise ValueError(
+                f"Role {role_name!r} has no policy entry in pack {pack.name!r}. "
+                "Add an entry under `roles:` in the pack yaml — an empty entry "
+                "(e.g. `{}`) is the explicit way to run this role unconstrained; "
+                "a missing entry is treated as a configuration error, not intent."
+            )
 
         lines: list[str] = []
         if policy.authority:

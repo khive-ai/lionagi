@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import contextlib
 import json
 import logging
 import shutil
@@ -13,7 +14,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from lionagi.libs.path_safety import contain_and_resolve
+from lionagi.libs.path_safety import contain_and_resolve, has_traversal
 from lionagi.libs.schema.as_readable import as_readable
 from lionagi.ln._proc import aterminate_process_group
 
@@ -30,9 +31,20 @@ async def ndjson_from_cli(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     stdin: Any = asyncio.subprocess.DEVNULL,
+    stdin_data: str | bytes | None = None,
     tail_repair: Callable[[str], dict | None] | None = None,
 ) -> AsyncIterator[dict]:
-    """Yield dicts from an NDJSON-emitting CLI subprocess; tail_repair handles malformed final chunks."""
+    """Yield dicts from an NDJSON-emitting CLI subprocess; tail_repair handles malformed final chunks.
+
+    ``stdin_data`` feeds text to the child over a pipe instead of the command
+    line, which is how an arbitrarily large prompt is delivered without
+    hitting the OS argument-length limit. It overrides ``stdin``: the child
+    always gets a pipe, the data is written by a task that runs concurrently
+    with the stdout/stderr readers below (a sequential write would deadlock as
+    soon as the data exceeds the pipe buffer and the child is blocked writing
+    output nobody is draining), and the pipe is closed afterwards so the child
+    sees EOF rather than waiting forever for more input.
+    """
     kwargs: dict[str, Any] = dict(
         cwd=str(cwd) if cwd else None,
         env=env,
@@ -40,13 +52,13 @@ async def ndjson_from_cli(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
-    if stdin is not _INHERIT_STDIN:
+    if stdin_data is not None:
+        kwargs["stdin"] = asyncio.subprocess.PIPE
+    elif stdin is not _INHERIT_STDIN:
         kwargs["stdin"] = stdin
     proc = await asyncio.create_subprocess_exec(*cmd, **kwargs)
-    # Capture PGID immediately — if we wait until teardown, the child may have
-    # exited and been reaped, and os.getpgid(proc.pid) would raise
-    # ProcessLookupError. start_new_session=True makes pgid == proc.pid.
-    # The pid-guard and platform check live in aterminate_process_group.
+    # Capture PGID immediately — waiting until teardown risks ProcessLookupError
+    # if the child already exited. See docs/internals/runtime.md.
 
     decoder = codecs.getincrementaldecoder("utf-8")()
     json_decoder = json.JSONDecoder()
@@ -79,6 +91,28 @@ async def ndjson_from_cli(
             log.debug("stderr drain ended: %s", exc)
 
     stderr_task = asyncio.create_task(_drain_stderr())
+
+    async def _write_stdin(payload: bytes) -> None:
+        if proc.stdin is None:
+            return
+        try:
+            proc.stdin.write(payload)
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            # The child exited or closed its end before consuming everything;
+            # its exit status is the real signal, so don't mask it here.
+            log.debug("stdin write ended early: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("stdin write failed: %s", exc)
+        finally:
+            # Without this close the child waits for an EOF that never comes.
+            with contextlib.suppress(Exception):
+                proc.stdin.close()
+
+    stdin_task: asyncio.Task | None = None
+    if stdin_data is not None:
+        payload = stdin_data.encode() if isinstance(stdin_data, str) else stdin_data
+        stdin_task = asyncio.create_task(_write_stdin(payload))
 
     try:
         while True:
@@ -136,18 +170,27 @@ async def ndjson_from_cli(
     finally:
         await aterminate_process_group(proc, grace=5.0)
 
-        # Reap the stderr drain task — contextlib.suppress(Exception) does NOT
+        # Reap the helper tasks — contextlib.suppress(Exception) does NOT
         # catch CancelledError (BaseException), so we suppress it explicitly.
-        stderr_task.cancel()
-        try:
-            await stderr_task
-        except (asyncio.CancelledError, Exception):  # noqa: S110, BLE001
-            pass
+        for task in (stderr_task, stdin_task):
+            if task is None:
+                continue
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: S110, BLE001
+                pass
 
 
 def resolve_cli_workspace(repo: Path | None, workspace: str | None) -> Path:
     if repo is None:
         repo = Path.cwd()
+    # A user-supplied repo/cwd that doesn't exist must fail here, before any
+    # caller can spawn a subprocess into it (or, worse, silently mkdir it —
+    # every CLI-backed provider's spawn path shares this helper, so this is
+    # the single point that catches a nonexistent cwd regardless of surface).
+    if not repo.is_dir():
+        raise ValueError(f"cwd does not exist or is not a directory: {repo}")
     if not workspace:
         return repo
 
@@ -156,18 +199,14 @@ def resolve_cli_workspace(repo: Path | None, workspace: str | None) -> Path:
     if ws_path.is_absolute():
         raise ValueError(f"Workspace path must be relative, got absolute: {workspace}")
 
-    if ".." in ws_path.parts:
+    if has_traversal(ws_path):
         raise ValueError(f"Directory traversal detected in workspace path: {workspace}")
 
     return contain_and_resolve(ws_path, repo)
 
 
 def validate_message_prompt(data: dict) -> dict:
-    """Extract prompt from a messages list when prompt is not already set.
-
-    Shared by Gemini, Pi, and Codex request models. Extracts non-system message
-    content into prompt; hoists the first system message into system_prompt.
-    """
+    """Derive prompt/system_prompt from messages when prompt is unset (shared by Gemini, Pi, Codex request models)."""
     from lionagi import ln
 
     if data.get("prompt"):

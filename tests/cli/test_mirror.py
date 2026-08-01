@@ -238,6 +238,138 @@ async def test_mirror_session_creates_rich_session_row(temp_db_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_mirror_session_persists_and_queries_cc_session_id(temp_db_path: Path) -> None:
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=SID,
+            events=_conversation(),
+            tool_names={},
+            status="running",
+        )
+        row = await db.get_session_by_cc_id(SID)
+        missing = await db.get_session_by_cc_id("missing-session")
+
+    assert row is not None
+    assert row["id"] == session_db_id(SID)
+    assert row["cc_session_id"] == SID
+    assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_mirror_session_backfills_cc_session_id_on_existing_row(
+    temp_db_path: Path,
+) -> None:
+    sprog = _det(SID, "sprog")
+    async with StateDB() as db:
+        await db.create_progression(sprog)
+        await db.create_session(
+            {
+                "id": session_db_id(SID),
+                "progression_id": sprog,
+                "name": "Legacy Claude Code session",
+                "status": "running",
+            }
+        )
+        before = await db.get_session(session_db_id(SID))
+
+        await mirror_session(
+            db,
+            session_uid=SID,
+            events=_conversation(),
+            tool_names={},
+            status="running",
+        )
+        after = await db.get_session_by_cc_id(SID)
+
+    assert before is not None
+    assert before["cc_session_id"] is None
+    assert after is not None
+    assert after["cc_session_id"] == SID
+
+
+@pytest.mark.asyncio
+async def test_cc_session_id_backfill_does_not_bump_updated_at(
+    temp_db_path: Path,
+) -> None:
+    # The cc_session_id backfill is not activity: it must not move the liveness
+    # clock, or a concurrent reconcile_session_status CAS (expected_updated_at)
+    # can be silently defeated by this one-time backfill.
+    from lionagi.state.reasons import RunReasons
+
+    sprog = _det(SID, "sprog")
+    sid = session_db_id(SID)
+    async with StateDB() as db:
+        await db.create_progression(sprog)
+        await db.create_session(
+            {
+                "id": sid,
+                "progression_id": sprog,
+                "name": "Legacy Claude Code session",
+                "status": "running",
+                "updated_at": 1000.0,
+                "last_message_at": 1000.0,
+            }
+        )
+        before = await db.get_session(sid)
+        expected_updated_at = before["updated_at"]
+
+        # No new events on this pass -- only the one-time cc_session_id backfill
+        # runs; a real new message would legitimately bump updated_at via
+        # touch_session_activity, which is not what's under test here.
+        await mirror_session(
+            db,
+            session_uid=SID,
+            events=[],
+            tool_names={},
+            status="running",
+        )
+        after = await db.get_session(sid)
+        assert after["cc_session_id"] == SID
+        assert after["updated_at"] == expected_updated_at
+
+        # A concurrent reconciler that read updated_at before the backfill must
+        # still win its compare-and-set afterward.
+        written = await db.update_status(
+            "session",
+            sid,
+            new_status="completed",
+            reason_code=RunReasons.COMPLETED_OK,
+            expected_statuses={"running"},
+            expected_updated_at=expected_updated_at,
+        )
+    assert written is True
+
+
+@pytest.mark.asyncio
+async def test_mirror_session_preserves_empty_cc_session_id(temp_db_path: Path) -> None:
+    sprog = _det(SID, "sprog")
+    async with StateDB() as db:
+        await db.create_progression(sprog)
+        await db.create_session(
+            {
+                "id": session_db_id(SID),
+                "cc_session_id": "",
+                "progression_id": sprog,
+                "name": "Claude Code session with an empty external id",
+                "status": "running",
+            }
+        )
+
+        await mirror_session(
+            db,
+            session_uid=SID,
+            events=_conversation(),
+            tool_names={},
+            status="running",
+        )
+        after = await db.get_session(session_db_id(SID))
+
+    assert after is not None
+    assert after["cc_session_id"] == ""
+
+
+@pytest.mark.asyncio
 async def test_mirror_session_is_idempotent(temp_db_path: Path) -> None:
     events = _conversation()
     async with StateDB() as db:
@@ -301,6 +433,108 @@ async def test_reconcile_idle_session_stays_completed_across_passes(temp_db_path
         second = await db.get_session(session_db_id(SID))
     assert first["status"] == "completed"
     assert second["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_reactivates_cancelled_terminal_when_fresh(temp_db_path: Path) -> None:
+    # A mirror session independently marked "cancelled" (or any non-"completed"
+    # terminal status) must reactivate to "running" the same way a dormant
+    # "completed" one does, instead of raising the ADR-0035 terminal-status
+    # floor as an ordinary, unguarded transition attempt would.
+    async with StateDB() as db:
+        await mirror_session(
+            db, session_uid=SID, events=_conversation(), tool_names={}, status="running"
+        )
+        before = await db.get_session(session_db_id(SID))
+        await db.update_status(
+            "session",
+            session_db_id(SID),
+            new_status="cancelled",
+            reason_code="run.cancelled.system",
+            source="admin",
+            actor="test",
+        )
+        cancelled = await db.get_session(session_db_id(SID))
+        # "now" within the live window of the last message -> reactivate to running.
+        await reconcile_session_status(
+            db, SID, now=cancelled["last_message_at"] + 1, live_window=300
+        )
+        after = await db.get_session(session_db_id(SID))
+    assert before["status"] == "running"
+    assert cancelled["status"] == "cancelled"
+    assert after["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_one_pass_non_completed_terminal_reactivation_does_not_crash(
+    temp_db_path: Path, tmp_path: Path
+) -> None:
+    # The CLI's per-tail-pass loop must not propagate a TransitionRejectedError
+    # out of _one_pass() when a live mirror session sits on a non-"completed"
+    # terminal status (e.g. independently marked "failed" or "cancelled").
+    root = tmp_path / "projects"
+    uid = "dddddddd-0000-0000-0000-00000000000d"
+    async with StateDB() as db:
+        await mirror_session(
+            db, session_uid=uid, events=_conversation(), tool_names={}, status="running"
+        )
+        await db.update_status(
+            "session",
+            session_db_id(uid),
+            new_status="failed",
+            reason_code="run.failed.exception",
+            source="admin",
+            actor="test",
+        )
+        _write_session_file(root / "-w-proj" / f"{uid}.jsonl", uid, age_secs=5)
+        await _one_pass(db, root, {}, {}, since=None, live_window=300)
+        row = await db.get_session(session_db_id(uid))
+    assert row["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_one_pass_terminal_reactivation_does_not_skip_later_uid_or_lineage(
+    temp_db_path: Path, tmp_path: Path
+) -> None:
+    # A live, non-"completed" terminal session reconciled earlier in the same
+    # pass must not abort the loop before it reaches lineage resolution for an
+    # unrelated pair of sessions processed in the same pass.
+    root = tmp_path / "projects"
+    terminal_uid = "eeeeeeee-0000-0000-0000-00000000000e"
+    a, b = "aaaaaaaa-1111-0000-0000-000000000001", "bbbbbbbb-1111-0000-0000-000000000002"
+    async with StateDB() as db:
+        await mirror_session(
+            db, session_uid=terminal_uid, events=_conversation(), tool_names={}, status="running"
+        )
+        await db.update_status(
+            "session",
+            session_db_id(terminal_uid),
+            new_status="cancelled",
+            reason_code="run.cancelled.system",
+            source="admin",
+            actor="test",
+        )
+        _write_session_file(root / "-w-proj" / f"{terminal_uid}.jsonl", terminal_uid, age_secs=5)
+        _write_lineage_file(
+            root / "-w-proj" / f"{a}.jsonl",
+            [
+                _lineage_event(a, "a-1", None, "user", "start the work"),
+                _lineage_event(a, "a-leaf", "a-1", "assistant", "done, ending here"),
+            ],
+        )
+        _write_lineage_file(
+            root / "-w-proj" / f"{b}.jsonl",
+            [
+                _lineage_event(b, "b-1", "a-leaf", "user", "continuing from before"),
+                _lineage_event(b, "b-2", "b-1", "assistant", "picking it up"),
+            ],
+        )
+        await _one_pass(db, root, {}, {}, since=None, live_window=300)
+        terminal_row = await db.get_session(session_db_id(terminal_uid))
+        child = await db.get_session(session_db_id(b))
+    assert terminal_row["status"] == "running"
+    lineage = child["node_metadata"]["lineage"]
+    assert lineage["parent_session_uid"] == a
 
 
 @pytest.mark.asyncio
@@ -505,13 +739,13 @@ def test_read_new_events_buffers_partial_line(tmp_path: Path) -> None:
     path = tmp_path / "t.jsonl"
     path.write_text('{"a":1}\n{"a":2}\n{"a":3')  # last line incomplete
     state = _FileState(session_uid="x")
-    first, new_offset = _read_new_events(path, state)
+    first, new_offset, _ = _read_new_events(path, state)
     assert [e["a"] for e in first] == [1, 2]
     state.offset = new_offset  # caller commits the cursor only after a durable mirror
     # Complete the dangling line; the next read picks up only the new event.
     with path.open("a") as fh:
         fh.write("}\n")
-    second, _ = _read_new_events(path, state)
+    second, _, _ = _read_new_events(path, state)
     assert [e["a"] for e in second] == [3]
 
 
@@ -519,7 +753,7 @@ def test_read_new_events_resets_on_truncation(tmp_path: Path) -> None:
     path = tmp_path / "t.jsonl"
     path.write_text('{"a":1}\n')
     state = _FileState(session_uid="x", offset=9999)  # offset past EOF
-    out, _ = _read_new_events(path, state)
+    out, _, _ = _read_new_events(path, state)
     assert [e["a"] for e in out] == [1]
 
 
@@ -527,8 +761,11 @@ def test_read_new_events_skips_corrupt_lines(tmp_path: Path) -> None:
     path = tmp_path / "t.jsonl"
     path.write_text('{"a":1}\nnot json\n{"a":2}\n')
     state = _FileState(session_uid="x")
-    out, _ = _read_new_events(path, state)
+    out, _, unreadable = _read_new_events(path, state)
     assert [e["a"] for e in out] == [1, 2]
+    # The dropped line is reported, not silently absorbed: a damaged transcript
+    # and an uninteresting one must not read the same downstream.
+    assert unreadable == 1
 
 
 def test_read_new_events_skips_non_dict_json_without_losing_followers(tmp_path: Path) -> None:
@@ -538,8 +775,9 @@ def test_read_new_events_skips_non_dict_json_without_losing_followers(tmp_path: 
     path = tmp_path / "t.jsonl"
     path.write_text('[]\n{"a":1}\n42\n{"a":2}\n')
     state = _FileState(session_uid="x")
-    out, _ = _read_new_events(path, state)
+    out, _, unreadable = _read_new_events(path, state)
     assert [e["a"] for e in out] == [1, 2]
+    assert unreadable == 2  # both the bare list and the bare scalar
 
 
 def test_first_prompt_skips_meta_and_command_noise() -> None:
@@ -886,3 +1124,129 @@ async def test_lineage_resolves_after_restart(
     lineage = child["node_metadata"]["lineage"]
     assert lineage["parent_session_uid"] == a
     assert lineage["parent_event_uuid"] == "a-leaf"
+
+
+async def test_codex_file_that_mirrors_nothing_is_reported_not_skipped(tmp_path, caplog):
+    """A rollout read in full that produces no messages is surfaced, not passed over.
+
+    Without this it is indistinguishable from a file the mirror has not reached:
+    mirror_session writes no session row when a batch yields nothing, so there is
+    no row carrying the counts either. The measured cause on a real corpus is the
+    pre-2025-09-20 flat rollout format, which matches no record type read here.
+    """
+    import logging
+
+    from lionagi.cli.mirror import _FileState, _mirror_one_codex
+    from lionagi.state.db import StateDB
+
+    path = tmp_path / "rollout-legacy.jsonl"
+    # Flat legacy records: a type at the top level and no payload envelope.
+    path.write_text(
+        '{"id":"x","instructions":"y","timestamp":"2025-09-01T09:34:37Z"}\n'
+        '{"type":"message","role":"user","content":[{"text":"hi"}]}\n'
+        '{"type":"function_call","name":"shell","arguments":"{}"}\n'
+    )
+    state = _FileState(session_uid="")
+
+    async with StateDB(f"sqlite+aiosqlite:///{tmp_path / 'state.db'}") as db:
+        with caplog.at_level(logging.WARNING):
+            written = await _mirror_one_codex(db, path, state, {})
+
+    assert written == 0
+    text = " ".join(r.message for r in caplog.records)
+    assert "rollout-legacy.jsonl" in text
+    assert "mirrored none" in text
+    # The record types it did see are named, so the reason is diagnosable from the
+    # log alone without re-reading the file.
+    assert "function_call" in text and "message" in text
+    # Reported once per file, not on every poll pass.
+    assert state.barren_reported
+
+
+# ── Orchestrated codex rollouts (headless `codex exec`) ──────────────────────
+
+
+def _codex_rollout_lines(uid: str, originator: str) -> str:
+    meta = {
+        "type": "session_meta",
+        "timestamp": "2026-07-31T09:00:00Z",
+        "payload": {"id": uid, "session_id": uid, "cwd": "/x", "originator": originator},
+    }
+    user = {
+        "type": "response_item",
+        "timestamp": "2026-07-31T09:00:01Z",
+        "payload": {"type": "message", "role": "user", "id": "m1", "content": [{"text": "q"}]},
+    }
+    asst = {
+        "type": "response_item",
+        "timestamp": "2026-07-31T09:00:02Z",
+        "payload": {"type": "message", "role": "assistant", "id": "m2", "content": [{"text": "a"}]},
+    }
+    return "".join(json.dumps(e) + "\n" for e in (meta, user, asst))
+
+
+async def test_orchestrated_rollout_is_never_mirrored(tmp_path):
+    """A `codex exec` rollout is an orchestrator's run — the run that spawned it
+    already has a session of its own, so mirroring it would show the same work
+    twice (the agent's session plus an extra "codex" one)."""
+    from lionagi.cli.mirror import _FileState, _mirror_one_codex
+    from lionagi.state.codex_mirror import session_db_id as codex_sid
+
+    uid = "0199bbbb-0000-0000-0000-000000000001"
+    path = tmp_path / "rollout-exec.jsonl"
+    path.write_text(_codex_rollout_lines(uid, "codex_exec"))
+    state = _FileState(session_uid="")
+
+    async with StateDB(f"sqlite+aiosqlite:///{tmp_path / 'state.db'}") as db:
+        assert await _mirror_one_codex(db, path, state, {}) == 0
+        assert state.orchestrated
+        assert await db.get_session(codex_sid(uid)) is None
+        # Later passes stay skipped without re-reading the file.
+        assert await _mirror_one_codex(db, path, state, {}) == 0
+
+
+async def test_orchestrated_rollout_absorbs_an_earlier_import(tmp_path):
+    """A row imported before this rule existed is removed the first time the
+    mirror reclassifies its rollout, so old double entries heal on upgrade."""
+    from lionagi.cli.mirror import _FileState, _mirror_one_codex
+    from lionagi.state.codex_mirror import mirror_session as codex_mirror_session
+    from lionagi.state.codex_mirror import session_db_id as codex_sid
+
+    uid = "0199bbbb-0000-0000-0000-000000000002"
+    path = tmp_path / "rollout-exec-old.jsonl"
+    path.write_text(_codex_rollout_lines(uid, "codex_exec"))
+
+    async with StateDB(f"sqlite+aiosqlite:///{tmp_path / 'state.db'}") as db:
+        await codex_mirror_session(
+            db,
+            rollout_uid=uid,
+            records=[json.loads(line) for line in path.read_text().splitlines()],
+            tool_names={},
+            source_path=str(path),
+        )
+        assert await db.get_session(codex_sid(uid)) is not None
+
+        state = _FileState(session_uid="")
+        assert await _mirror_one_codex(db, path, state, {}) == 0
+        assert await db.get_session(codex_sid(uid)) is None
+
+
+async def test_interactive_rollout_still_mirrors(tmp_path):
+    """The skip is scoped to orchestrated originators: desktop/TUI/IDE history —
+    the mirror's actual subject — keeps mirroring exactly as before."""
+    from lionagi.cli.mirror import _FileState, _mirror_one_codex
+    from lionagi.state.codex_mirror import SOURCE_KIND as CODEX_SOURCE_KIND
+    from lionagi.state.codex_mirror import session_db_id as codex_sid
+
+    uid = "0199bbbb-0000-0000-0000-000000000003"
+    path = tmp_path / "rollout-desktop.jsonl"
+    path.write_text(_codex_rollout_lines(uid, "Codex Desktop"))
+    state = _FileState(session_uid="")
+
+    async with StateDB(f"sqlite+aiosqlite:///{tmp_path / 'state.db'}") as db:
+        written = await _mirror_one_codex(db, path, state, {})
+        assert written == 2
+        assert not state.orchestrated
+        row = await db.get_session(codex_sid(uid))
+        assert row is not None
+        assert row["source_kind"] == CODEX_SOURCE_KIND

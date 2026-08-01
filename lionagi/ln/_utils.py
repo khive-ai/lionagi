@@ -4,12 +4,22 @@ import importlib
 import importlib.util
 import types
 import uuid
+import warnings
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path as StdPath
 from types import UnionType
-from typing import Annotated, Any, ParamSpec, TypeVar, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    NamedTuple,
+    ParamSpec,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 from uuid import UUID
 
 from anyio import Path as AsyncPath
@@ -43,6 +53,120 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class _SafePath(NamedTuple):
+    """Caller-facing spelling paired with the validated resolved candidate.
+
+    Filesystem side effects (mkdir, existence checks) must act on
+    ``resolved``, the symlink-safe candidate that was actually validated —
+    never on ``caller_facing``, which can still be redirected by a symlink
+    swapped in after validation but before use.
+    """
+
+    caller_facing: StdPath
+    resolved: StdPath
+
+
+def _build_safe_path(
+    directory: StdPath | str,
+    filename: str,
+    extension: str | None,
+    timestamp: bool,
+    time_prefix: bool,
+    timestamp_format: str | None,
+    random_hash_digits: int,
+) -> _SafePath:
+    """Shared, symlink-safe path construction for create_path/acreate_path.
+
+    Validates the filename and resolves the final target without touching the
+    filesystem. Both the sync and async constructors call this so they share
+    identical traversal/containment semantics (ADR-0050 D5) — fix the check
+    once, here, rather than per-variant.
+
+    Containment is always checked against the resolved (symlink-safe)
+    candidate. The returned pair carries that resolved candidate — the only
+    path callers may use for mkdir/existence side effects — alongside the
+    caller-facing spelling to return to the caller: a relative ``directory``
+    yields a relative caller-facing path, an absolute one yields an absolute
+    caller-facing path.
+
+    Validation happens once, here, at call time — nothing is reserved
+    against later filesystem changes, so a relative ``directory`` is only
+    race-safe against concurrent mutation for as long as the caller resolves
+    it the same way create_path/acreate_path did.
+    """
+    from lionagi.libs.path_safety import contain_and_resolve
+
+    directory = StdPath(directory)
+    is_absolute = directory.is_absolute()
+
+    # Resolve BEFORE filename can redirect directory into a subdirectory;
+    # all containment checks validate against this fixed root.
+    base_root = directory.resolve()
+
+    def _contained(candidate: StdPath) -> StdPath:
+        # contain_and_resolve() is the shared containment predicate (symlink-
+        # safe resolve + relative_to); re-raise with this module's historical
+        # wording so existing callers matching on message text keep working.
+        try:
+            return contain_and_resolve(candidate, base_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Resolved path {candidate.resolve()} escapes base directory "
+                f"{base_root}. Refusing to create path."
+            ) from exc
+
+    if "/" in filename:
+        parts = filename.split("/")
+        # Reject '.' or '..' to prevent directory traversal
+        for component in parts:
+            if component in (".", ".."):
+                raise ValueError(
+                    f"Filename components must not be '.' or '..'; "
+                    f"got component {component!r} in {filename!r}."
+                )
+        sub_dir, filename = (
+            parts[:-1],
+            parts[-1],
+        )
+        directory = directory / "/".join(sub_dir)
+
+    if "\\" in filename:
+        raise ValueError("Filename cannot contain directory separators.")
+
+    if filename in (".", ".."):
+        raise ValueError(f"Filename must not be '.' or '..'; got {filename!r}.")
+
+    # Both dir and candidate must resolve within base_root (symlink-safe) —
+    # the one shared containment predicate, applied twice: once for a
+    # slash-redirected directory, once for the final candidate.
+    dir_resolved = _contained(directory.resolve())
+
+    if "." in filename:
+        name, ext = filename.rsplit(".", 1)
+    else:
+        name = filename
+        ext = extension or ""
+    ext = f".{ext.lstrip('.')}" if ext else ""
+
+    if timestamp:
+        ts_str = datetime.now().strftime(timestamp_format or "%Y%m%d%H%M%S")
+        name = f"{ts_str}_{name}" if time_prefix else f"{name}_{ts_str}"
+
+    if random_hash_digits > 0:
+        random_suffix = uuid.uuid4().hex[:random_hash_digits]
+        name = f"{name}-{random_suffix}"
+
+    full_name = f"{name}{ext}"
+    full_path = dir_resolved / full_name
+    resolved_full_path = _contained(full_path.resolve())
+
+    if is_absolute:
+        return _SafePath(resolved_full_path, resolved_full_path)
+    # directory (possibly extended with a slash-separated filename's subdir
+    # component above) still carries the caller's relative representation.
+    return _SafePath(directory / full_name, resolved_full_path)
+
+
 async def acreate_path(
     directory: StdPath | AsyncPath | str,
     filename: str,
@@ -55,72 +179,42 @@ async def acreate_path(
     random_hash_digits: int = 0,
     timeout: float | None = None,
 ) -> AsyncPath:
+    """Async create_path: same validation, same return contract.
+
+    Returns a path in the caller's own representation: relative in, relative
+    out; absolute in, absolute out. Containment/traversal checks always run
+    against the fully resolved (symlink-safe) candidate regardless.
+
+    The returned path is validated at creation time only — it is not reserved
+    against filesystem changes that happen afterward. Callers that need
+    race-safety against a concurrently mutating relative `directory` should
+    pass an absolute directory instead.
+    """
     from .concurrency import move_on_after
 
     async def _impl() -> AsyncPath:
-        nonlocal directory, filename
+        safe_path = _build_safe_path(
+            StdPath(str(directory)),
+            filename,
+            extension,
+            timestamp,
+            time_prefix,
+            timestamp_format,
+            random_hash_digits,
+        )
+        resolved_path = AsyncPath(safe_path.resolved)
 
-        # Resolve BEFORE filename can redirect directory into a subdirectory;
-        # all containment checks validate against this fixed root.
-        base_root = StdPath(str(directory)).resolve()
+        # mkdir and the existence check act on the validated resolved
+        # candidate, never on the caller-facing (possibly relative,
+        # symlink-redirectable) spelling — see _SafePath.
+        await resolved_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
 
-        if "/" in filename:
-            parts = filename.split("/")
-            # Reject '.' or '..' to prevent directory traversal
-            for component in parts:
-                if component in (".", ".."):
-                    raise ValueError(
-                        f"Filename components must not be '.' or '..'; "
-                        f"got component {component!r} in {filename!r}."
-                    )
-            sub_dir, filename = (
-                parts[:-1],
-                parts[-1],
+        if await resolved_path.exists() and not file_exist_ok:
+            raise FileExistsError(
+                f"File {safe_path.caller_facing} already exists and file_exist_ok is False."
             )
-            directory = AsyncPath(directory) / "/".join(sub_dir)
 
-        if "\\" in filename:
-            raise ValueError("Filename cannot contain directory separators.")
-
-        if filename in (".", ".."):
-            raise ValueError(f"Filename must not be '.' or '..'; got {filename!r}.")
-
-        # Both dir and candidate must resolve within base_root (symlink-safe)
-        dir_resolved = StdPath(str(directory)).resolve()
-        candidate_resolved = (dir_resolved / filename).resolve()
-        for escapee in (dir_resolved, candidate_resolved):
-            try:
-                escapee.relative_to(base_root)
-            except ValueError as exc:
-                raise ValueError(
-                    f"Resolved path {escapee} escapes base directory "
-                    f"{base_root}. Refusing to create path."
-                ) from exc
-
-        directory = AsyncPath(directory)
-        if "." in filename:
-            name, ext = filename.rsplit(".", 1)
-        else:
-            name = filename
-            ext = extension or ""
-        ext = f".{ext.lstrip('.')}" if ext else ""
-
-        if timestamp:
-            ts_str = datetime.now().strftime(timestamp_format or "%Y%m%d%H%M%S")
-            name = f"{ts_str}_{name}" if time_prefix else f"{name}_{ts_str}"
-
-        if random_hash_digits > 0:
-            random_suffix = uuid.uuid4().hex[:random_hash_digits]
-            name = f"{name}-{random_suffix}"
-
-        full_path = directory / f"{name}{ext}"
-
-        await full_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
-
-        if await full_path.exists() and not file_exist_ok:
-            raise FileExistsError(f"File {full_path} already exists and file_exist_ok is False.")
-
-        return full_path
+        return AsyncPath(safe_path.caller_facing)
 
     if timeout is None:
         return await _impl()
@@ -178,9 +272,7 @@ def is_import_installed(package_name: str) -> bool:
     return importlib.util.find_spec(package_name) is not None
 
 
-# ---------------------------------------------------------------------------
-# Dynamic type loading
-# ---------------------------------------------------------------------------
+# --- Dynamic type loading ---
 
 _TYPE_CACHE: dict[str, type] = {}
 
@@ -228,9 +320,7 @@ def load_type_from_string(type_str: str) -> type:
         raise ValueError(f"Failed to load type '{type_str}': {e}") from e
 
 
-# ---------------------------------------------------------------------------
-# Type extraction
-# ---------------------------------------------------------------------------
+# --- Type extraction ---
 
 
 def extract_types(item_type: Any) -> set[type]:
@@ -264,12 +354,19 @@ def extract_types(item_type: Any) -> set[type]:
     return {item_type}
 
 
-# ---------------------------------------------------------------------------
-# UUID / datetime coercion
-# ---------------------------------------------------------------------------
+# --- UUID / datetime coercion ---
 
 
 def to_uuid(value: Any) -> UUID:
+    warnings.warn(
+        "lionagi.ln.to_uuid is deprecated. For raw UUID/string values, use "
+        "lionagi.protocols.ids.to_uuid instead; for generic objects (an "
+        "Observable-like object with an .id attribute), use "
+        "lionagi.protocols.ids.canonical_id instead. The two are not "
+        "equivalent replacements.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if isinstance(value, UUID):
         return value
     if isinstance(value, str):
@@ -301,9 +398,7 @@ def coerce_created_at(v: Any) -> datetime:
     raise ValueError(f"Expected datetime/timestamp/string, got {type(v).__name__}")
 
 
-# ---------------------------------------------------------------------------
-# Synchronization decorators
-# ---------------------------------------------------------------------------
+# --- Synchronization decorators ---
 
 
 def synchronized(func: Callable[P, R]) -> Callable[P, R]:
@@ -321,13 +416,36 @@ def synchronized(func: Callable[P, R]) -> Callable[P, R]:
 def async_synchronized(
     func: Callable[P, Awaitable[R]],
 ) -> Callable[P, Awaitable[R]]:
-    """Async-safe method decorator; requires ``self._async_lock``."""
+    """Async-safe method decorator; requires ``self._async_lock``.
+
+    When the instance also carries a ``self._lock`` (threading lock), the
+    wrapper acquires BOTH — the async lock first, then the threading lock via
+    a non-blocking spin — so async-decorated methods mutually exclude
+    ``@synchronized`` sync callers running in other threads. The async lock
+    serializes async callers, so at most one task ever contends for the
+    threading lock per instance, which keeps RLock thread-ownership semantics
+    intact and lets the decorated body reenter ``@synchronized`` methods.
+    Lock order is strictly async-then-sync; sync holders never await, so the
+    spin is bounded by a sync critical section and never deadlocks.
+    """
 
     @wraps(func)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        from lionagi.ln.concurrency import sleep
+
         self = args[0]
         async with self._async_lock:  # type: ignore[attr-defined]
-            return await func(*args, **kwargs)
+            sync_lock = getattr(self, "_lock", None)
+            if sync_lock is None:
+                return await func(*args, **kwargs)
+            # Spin instead of a blocking acquire so a contended lock held by
+            # another thread never stalls the event loop itself.
+            while not sync_lock.acquire(blocking=False):
+                await sleep(0.0005)
+            try:
+                return await func(*args, **kwargs)
+            finally:
+                sync_lock.release()
 
     return wrapper
 
@@ -407,35 +525,39 @@ def create_path(
     timestamp_format: str | None = None,
     random_hash_digits: int = 0,
 ) -> StdPath:
-    """Generate a file path under directory with optional timestamp and random suffix."""
-    if "/" in filename:
-        sub_dir, filename = filename.split("/")[:-1], filename.split("/")[-1]
-        directory = StdPath(directory) / "/".join(sub_dir)
+    """Generate a file path under directory with optional timestamp and random suffix.
 
-    if "\\" in filename:
-        raise ValueError("Filename cannot contain directory separators.")
+    Shares symlink-safe traversal/containment validation with acreate_path
+    (see _build_safe_path) — a filename with `..`/absolute components, or a
+    directory reached only through a symlink escape, is rejected here just as
+    it is in the async constructor.
 
-    directory = StdPath(directory)
+    Returns a path in the caller's own representation: relative in, relative
+    out; absolute in, absolute out. Containment/traversal checks always run
+    against the fully resolved (symlink-safe) candidate regardless.
 
-    if "." in filename:
-        name, ext = filename.rsplit(".", 1)
-    else:
-        name, ext = filename, extension
+    The returned path is validated at creation time only — it is not reserved
+    against filesystem changes that happen afterward. Callers that need
+    race-safety against a concurrently mutating relative `directory` should
+    pass an absolute directory instead.
+    """
+    safe_path = _build_safe_path(
+        StdPath(directory),
+        filename,
+        extension,
+        timestamp,
+        time_prefix,
+        timestamp_format,
+        random_hash_digits,
+    )
 
-    ext = f".{ext.lstrip('.')}" if ext else ""
+    # mkdir and the existence check act on the validated resolved candidate,
+    # never on the caller-facing (possibly relative, symlink-redirectable)
+    # spelling — see _SafePath.
+    safe_path.resolved.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
+    if safe_path.resolved.exists() and not file_exist_ok:
+        raise FileExistsError(
+            f"File {safe_path.caller_facing} already exists and file_exist_ok is False."
+        )
 
-    if timestamp:
-        ts_str = datetime.now().strftime(timestamp_format or "%Y%m%d%H%M%S")
-        name = f"{ts_str}_{name}" if time_prefix else f"{name}_{ts_str}"
-
-    if random_hash_digits > 0:
-        random_suffix = uuid.uuid4().hex[:random_hash_digits]
-        name = f"{name}-{random_suffix}"
-
-    full_path = directory / f"{name}{ext}"
-
-    full_path.parent.mkdir(parents=True, exist_ok=dir_exist_ok)
-    if full_path.exists() and not file_exist_ok:
-        raise FileExistsError(f"File {full_path} already exists and file_exist_ok is False.")
-
-    return full_path
+    return safe_path.caller_facing

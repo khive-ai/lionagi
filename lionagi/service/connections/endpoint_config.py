@@ -21,6 +21,10 @@ from .header_factory import AUTH_TYPES
 
 logger = logging.getLogger(__name__)
 
+# Keyed on id(cls), not the class object, to bypass metaclass __eq__/__hash__ overrides —
+# see docs/internals/runtime.md.
+_FIELD_KEYS_BY_CLASS: dict[int, tuple[type, frozenset[str]]] = {}
+
 
 B = TypeVar("B", bound=type[BaseModel])
 
@@ -54,7 +58,15 @@ class EndpointConfig(BaseModel):
     @model_validator(mode="before")
     def _validate_kwargs(cls, data: dict):
         kwargs = data.pop("kwargs", {})
-        field_keys = list(cls.model_json_schema().get("properties", {}).keys())
+        # Field keys (aliases included) are cached per class — rebuilding the JSON
+        # schema on every construction costs more than the rest of validation combined.
+        entry = _FIELD_KEYS_BY_CLASS.get(id(cls))
+        if entry is not None and entry[0] is cls:
+            field_keys = entry[1]
+        else:
+            properties = cls.model_json_schema().get("properties", {})
+            field_keys = frozenset(properties)
+            _FIELD_KEYS_BY_CLASS[id(cls)] = (cls, field_keys)
         for k in list(data.keys()):
             if k not in field_keys:
                 kwargs[k] = data.pop(k)
@@ -67,7 +79,6 @@ class EndpointConfig(BaseModel):
             if isinstance(self.api_key, SecretStr):
                 self._api_key = self.api_key.get_secret_value()
             elif isinstance(self.api_key, str):
-                # Skip settings lookup for special cases
                 if self.provider == "ollama" and self.api_key == "ollama_key":
                     self._api_key = "ollama_key"
                 elif self.api_key.startswith("dummy-key"):
@@ -96,7 +107,6 @@ class EndpointConfig(BaseModel):
 
     @field_validator("request_options", mode="before")
     def _validate_request_options(cls, v):
-        # Create a simple empty model if None is provided
         if v is None:
             return None
 
@@ -123,16 +133,13 @@ class EndpointConfig(BaseModel):
 
     def update(self, **kwargs):
         """Update the config with new values."""
-        # Handle the special case of kwargs dict
         if "kwargs" in kwargs:
-            # Merge the kwargs dicts
             self.kwargs.update(kwargs.pop("kwargs"))
 
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
-                # Add to kwargs dict if not a direct attribute
                 self.kwargs[key] = value
 
     def validate_payload(self, data: dict[str, Any]) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""ADR-0023 hook registry + agent-YAML loader; profile overrides replace defaults per point."""
+"""ADR-0047 hook registry + agent-YAML loader; profile overrides replace defaults per point."""
 
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ __all__ = (
     "build_session_bus",
 )
 
-# Default wiring per ADR-0023 §"Default hooks (no configuration needed)".
+# Default wiring per ADR-0047 D3.
 DEFAULT_HOOKS: dict[HookPoint, list[HookHandler]] = {
     HookPoint.SESSION_START: [_builtins.persist_session_start],
     HookPoint.SESSION_END: [_builtins.persist_session_end],
-    HookPoint.MESSAGE_ADD: [_builtins.persist_message],
     HookPoint.BRANCH_CREATE: [_builtins.persist_branch_provenance],
+    HookPoint.BRANCH_END: [_builtins.persist_branch_end],
 }
 
 
@@ -34,6 +34,7 @@ _REGISTRY: dict[str, HookHandler] = {
     "persist_session_start": _builtins.persist_session_start,
     "persist_session_end": _builtins.persist_session_end,
     "persist_branch_provenance": _builtins.persist_branch_provenance,
+    "persist_branch_end": _builtins.persist_branch_end,
     "persist_message": _builtins.persist_message,
     "log_api_metrics": _builtins.log_api_metrics,
     "log_tool_call": _builtins.log_tool_call,
@@ -52,11 +53,6 @@ def resolve_handler(name: str) -> HookHandler:
         return _REGISTRY[name]
     except KeyError as exc:
         raise KeyError(f"Unknown hook handler {name!r}. Registered: {sorted(_REGISTRY)}") from exc
-
-
-def registered_handlers() -> list[str]:
-    """Sorted list of registered handler names (for diagnostics)."""
-    return sorted(_REGISTRY)
 
 
 def load_hooks_for_agent(
@@ -87,7 +83,7 @@ def build_session_bus(
     *,
     observer: Any = None,
 ) -> HookBus:
-    """Construct a per-session HookBus with defaults merged with profile overrides (ADR-0023)."""
+    """Construct a per-session HookBus with defaults merged with agent-hook overrides (ADR-0047 D3)."""
     bus = HookBus(observer=observer)
     overrides = load_hooks_for_agent(agent_hooks)
 

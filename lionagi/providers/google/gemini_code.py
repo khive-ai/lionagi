@@ -1,26 +1,18 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Antigravity CLI (`agy`) backend for the `gemini-code` / `gemini-cli` provider.
-
-Google folded the standalone Gemini Code Assist CLI into the Antigravity suite
-(`agy`), so this provider now drives `agy` in headless print mode with
-``--output-format json``. That mode emits one terminal JSON object
-(``conversation_id``, ``status``, ``response``, ``usage``), which is exactly one
-NDJSON record, so the shared ``ndjson_from_cli`` subprocess plumbing consumes it
-unchanged. ``conversation_id`` is stored as ``session.session_id`` so it rides
-the normal AssistantResponse -> branch -> state.db persistence path and native
-resume works via ``--conversation``. The public names, module path, and
-provider aliases (``gemini-code`` / ``gemini-cli`` / ``gemini_cli``) are kept.
-"""
+"""Antigravity CLI (`agy`) backend for the `gemini-code` / `gemini-cli` provider — see docs/internals/runtime.md."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import logging
+import math
 import os
+import re
 from collections.abc import AsyncIterator, Callable
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Literal
 
@@ -37,6 +29,7 @@ from lionagi.providers._cli_subprocess import (
     resolve_cli_workspace,
     validate_message_prompt,
 )
+from lionagi.providers._provider_errors import ProviderTeardownError
 from lionagi.service.connections.agentic_endpoint import AgenticEndpoint
 from lionagi.service.connections.endpoint_config import EndpointConfig
 from lionagi.service.providers import _clamp_gemini_effort
@@ -68,6 +61,7 @@ __all__ = (
     "GeminiChunk",
     "GeminiCodeRequest",
     "GeminiSession",
+    "derive_print_timeout",
     "stream_gemini_cli",
     "stream_gemini_cli_events",
     "GeminiCLIEndpoint",
@@ -76,6 +70,7 @@ __all__ = (
 
 # agy models expose ~1M-token context (verified against `agy models`).
 CONTEXT_WINDOWS: dict[str, int] = {
+    "gemini-3.6-flash": 1_048_576,
     "gemini-3.5-flash": 1_048_576,
     "gemini-3.1-pro": 1_048_576,
     "gemini-3-flash-preview": 1_048_576,
@@ -87,13 +82,13 @@ CONTEXT_WINDOWS: dict[str, int] = {
 
 # --------------------------------------------------------------------------- model mapping
 
-# `agy --model` takes a human-readable name plus an effort qualifier (verified
-# against `agy models`). lionagi callers pass legacy Gemini CLI model strings
-# (`gemini-3-flash-preview`, `gemini-3-pro-preview`) or bare family names; map
-# those onto the exact strings agy understands. Unknown values pass through so
-# agy surfaces a clear error rather than us silently forcing a default.
+# `agy --model` wants an exact display name + effort suffix; unknown values pass
+# through so agy surfaces a clear error rather than us silently forcing a default.
 _AGY_MODELS: frozenset[str] = frozenset(
     {
+        "Gemini 3.6 Flash (Medium)",
+        "Gemini 3.6 Flash (High)",
+        "Gemini 3.6 Flash (Low)",
         "Gemini 3.5 Flash (Medium)",
         "Gemini 3.5 Flash (High)",
         "Gemini 3.5 Flash (Low)",
@@ -106,6 +101,14 @@ _AGY_MODELS: frozenset[str] = frozenset(
 )
 
 _MODEL_ALIASES: dict[str, str] = {
+    # 3.6 flash: newest flagship. Gemini carries effort as the model-id suffix
+    # (no separate --effort), so a bare id resolves to the strong tier by default
+    # (`gemini-3.6-flash` -> High). Suffixed forms map to their exact tier.
+    "gemini-3.6-flash": "Gemini 3.6 Flash (High)",
+    "gemini-3.6-flash-high": "Gemini 3.6 Flash (High)",
+    "gemini-3.6-flash-medium": "Gemini 3.6 Flash (Medium)",
+    "gemini-3.6-flash-low": "Gemini 3.6 Flash (Low)",
+    "gemini-3.6": "Gemini 3.6 Flash (High)",
     # flash family -> default medium effort
     "gemini-3-flash-preview": "Gemini 3.5 Flash (Medium)",
     "gemini-3-flash": "Gemini 3.5 Flash (Medium)",
@@ -132,34 +135,33 @@ _MODEL_ALIASES: dict[str, str] = {
 }
 
 
+# A delimited 3.6 version token, not a bare substring: matches the "3.6" in
+# "gemini-3.6-flash" but not the "3.6" inside "gemini-13.6-flash" or
+# "gemini-3.60-flash", where a neighbouring digit means it is a different number.
+_GEMINI_36_TOKEN = re.compile(r"(?<!\d)3\.6(?!\d)")
+
+
+def _gemini_flash_family(key: str) -> str:
+    """The flash-family display prefix for a free-form model key. Version-aware:
+    an explicit 3.6 id never silently downgrades to 3.5, and an unrelated number
+    that merely contains "3.6" (13.6, 3.60) never falsely upgrades to 3.6."""
+    return "Gemini 3.6 Flash" if _GEMINI_36_TOKEN.search(key) else "Gemini 3.5 Flash"
+
+
 def resolve_agy_model(
     model: str | None,
     effort: str | None = None,
     *,
     reapply_effort: bool = False,
 ) -> str:
-    """Map a lionagi model spec onto an exact `agy --model` name.
-
-    agy has no effort flag/kwarg — effort is expressed only as the
-    Low/Medium/High suffix on the model name. `effort` is lionagi's 5-level
-    scale (none|minimal|low|medium|high|xhigh|max); when given, it selects
-    that suffix for the Gemini flash/pro families instead of the family
-    default below (`_clamp_gemini_effort` collapses onto Gemini 3.1 Pro's
-    Low/High-only range). An exact `(...)`-qualified `model` — already a
-    concrete agy display name — always wins over `effort` by default.
-
-    `reapply_effort=True` bypasses that short-circuit for the Gemini
-    flash/pro families so a new `effort` can replace the suffix already
-    baked into `model`. Callers set this only when `model` is a *persisted*
-    prior resolution rather than something the caller typed on this
-    invocation (e.g. `li agent -r ... --effort ...` re-applying effort to
-    a resumed branch's already-resolved model, with no new `--model` given)
-    — a model the caller explicitly pinned this turn must still win.
-    """
+    """Map a lionagi model spec + effort onto an exact `agy --model` display name (effort folds into
+    the Low/Medium/High suffix; see docs/internals/runtime.md for the precedence rules)."""
     if not model:
         model = "gemini-3.5-flash"
     if model in _AGY_MODELS:
         if reapply_effort and effort is not None:
+            if model.startswith("Gemini 3.6 Flash"):
+                return f"Gemini 3.6 Flash ({_clamp_gemini_effort(effort, False)})"
             if model.startswith("Gemini 3.5 Flash"):
                 return f"Gemini 3.5 Flash ({_clamp_gemini_effort(effort, False)})"
             if model.startswith("Gemini 3.1 Pro"):
@@ -170,18 +172,19 @@ def resolve_agy_model(
         target = _MODEL_ALIASES[key]
         if effort is None:
             return target
+        if target.startswith("Gemini 3.6 Flash"):
+            return f"Gemini 3.6 Flash ({_clamp_gemini_effort(effort, False)})"
         if target.startswith("Gemini 3.5 Flash"):
             return f"Gemini 3.5 Flash ({_clamp_gemini_effort(effort, False)})"
         if target.startswith("Gemini 3.1 Pro"):
             return f"Gemini 3.1 Pro ({_clamp_gemini_effort(effort, True)})"
         return target  # cross-family alias (Claude/GPT-OSS via agy) — no effort tiers
 
-    # effort given but the string isn't a known alias: still resolve a
-    # gemini family from it (e.g. "gemini-3-pro-experimental") so --effort
-    # keeps working on forward-compatible model names.
+    # Effort given but string isn't a known alias: still resolve a gemini family
+    # from it so --effort works on forward-compatible model names.
     is_pro = "pro" in key
     if effort is not None and (is_pro or "flash" in key or "gemini" in key):
-        family = "Gemini 3.1 Pro" if is_pro else "Gemini 3.5 Flash"
+        family = "Gemini 3.1 Pro" if is_pro else _gemini_flash_family(key)
         return f"{family} ({_clamp_gemini_effort(effort, is_pro)})"
 
     # Heuristic fallback: derive (family, effort) from a free-form string so
@@ -195,13 +198,102 @@ def resolve_agy_model(
     if is_pro:
         return f"Gemini 3.1 Pro ({'High' if heuristic == 'Medium' else heuristic})"
     if "flash" in key or "gemini" in key:
-        return f"Gemini 3.5 Flash ({heuristic})"
+        return f"{_gemini_flash_family(key)} ({heuristic})"
 
     # Not recognizable — pass through; agy rejects an invalid name clearly.
     return model
 
 
 # --------------------------------------------------------------------------- request model
+
+
+# A Go duration is an int64 count of nanoseconds, so nothing longer than this
+# parses. It is about 292 years, which is the longest "effectively no cap" that
+# can still be expressed.
+_MAX_GO_DURATION_SECONDS = (2**63 - 1) // 10**9
+_MAX_GO_DURATION_NANOSECONDS = 2**63 - 1
+_MIN_USEFUL_PRINT_TIMEOUT_NANOSECONDS = 10**9
+# The digit classes are spelled `[0-9]` rather than `\d` on purpose. Go's
+# duration grammar is ASCII decimal digits only, while Python's `\d` matches
+# every Unicode decimal digit, so `\d` would accept an Arabic-Indic or
+# fullwidth spelling here and hand it to a parser that rejects it.
+_GO_DURATION_PART = re.compile(
+    r"(?P<number>(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))"
+    r"(?P<unit>ns|us|µs|μs|ms|s|m|h)"
+)
+_GO_DURATION_UNIT_NANOSECONDS = {
+    "ns": 1,
+    "us": 1_000,
+    "µs": 1_000,
+    "μs": 1_000,
+    "ms": 1_000_000,
+    "s": 1_000_000_000,
+    "m": 60_000_000_000,
+    "h": 3_600_000_000_000,
+}
+
+
+def _validate_print_timeout(value: str) -> str:
+    """Reject a print cap that Go cannot parse or that expires too quickly."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("print_timeout must be a Go duration of at least 1s")
+
+    unsigned = value
+    sign = 1
+    if unsigned[0] in "+-":
+        sign = -1 if unsigned[0] == "-" else 1
+        unsigned = unsigned[1:]
+
+    position = 0
+    nanoseconds = Decimal(0)
+    try:
+        while position < len(unsigned):
+            part = _GO_DURATION_PART.match(unsigned, position)
+            if part is None:
+                raise ValueError
+            nanoseconds += Decimal(part["number"]) * _GO_DURATION_UNIT_NANOSECONDS[part["unit"]]
+            position = part.end()
+    except (InvalidOperation, ValueError):
+        raise ValueError("print_timeout must be a parseable Go duration of at least 1s") from None
+
+    nanoseconds *= sign
+    if (
+        position == 0
+        or nanoseconds < _MIN_USEFUL_PRINT_TIMEOUT_NANOSECONDS
+        or nanoseconds > _MAX_GO_DURATION_NANOSECONDS
+    ):
+        raise ValueError(
+            "print_timeout must be a parseable Go duration between 1s and 9223372036854775807ns"
+        )
+    return value
+
+
+def format_print_timeout(seconds: int | float) -> str:
+    """Format a seconds value as a Go duration `agy` will parse."""
+    # Whole seconds only, and bounded at both ends of what Go can represent.
+    # General float formatting reaches scientific notation for large values
+    # ("1e+06"), an unbounded value overflows Go's int64 nanoseconds, and a
+    # non-finite one cannot be converted to an integer at all. Every one of
+    # those ends the same way: a cap agy cannot parse, so the run fails with
+    # agy's own uninformative timeout error, which is the failure this whole
+    # path exists to stop producing. Asking for longer than Go can express is
+    # asking for as long as possible, so it clamps rather than raising.
+    if math.isnan(seconds) or seconds == math.inf or seconds >= _MAX_GO_DURATION_SECONDS:
+        return f"{_MAX_GO_DURATION_SECONDS}s"
+    if seconds == -math.inf:
+        return "1s"
+    return f"{max(1, math.ceil(seconds))}s"
+
+
+def derive_print_timeout(timeout: int | float) -> str:
+    """Return an agy Go-duration cap that stays behind lionagi's deadline."""
+    if timeout >= _MAX_GO_DURATION_SECONDS or not math.isfinite(timeout):
+        raise ValueError(
+            f"timeout must be less than {_MAX_GO_DURATION_SECONDS}s so agy's "
+            "print timeout can remain after the caller deadline"
+        )
+    # One minute lets lionagi's deadline cancel and preserve its clearer error first.
+    return format_print_timeout(timeout + 60)
 
 
 class GeminiCodeRequest(BaseModel):
@@ -224,9 +316,10 @@ class GeminiCodeRequest(BaseModel):
         default="gemini-3.5-flash",
         description=(
             "Model spec; mapped onto an `agy --model` name by resolve_agy_model. "
-            "Accepts gemini-3.5-flash, gemini-3.1-pro, legacy Gemini CLI names "
-            "(gemini-3-flash-preview, gemini-3-pro-preview), bare family names "
-            "(flash/pro), or an exact agy display name."
+            "Accepts gemini-3.6-flash (defaults to the High tier), gemini-3.5-flash, "
+            "gemini-3.1-pro, legacy Gemini CLI names (gemini-3-flash-preview, "
+            "gemini-3-pro-preview), bare family names (flash/pro), or an exact agy "
+            "display name."
         ),
     )
     yolo: bool = Field(
@@ -311,7 +404,7 @@ class GeminiCodeRequest(BaseModel):
         elif self.continue_recent:
             args.append("--continue")
         if self.print_timeout:
-            args += ["--print-timeout", self.print_timeout]
+            args += ["--print-timeout", _validate_print_timeout(self.print_timeout)]
         return args
 
 
@@ -330,9 +423,8 @@ async def _ndjson_from_cli(request: GeminiCodeRequest):
             "(it installs to ~/.local/bin/agy); run `agy` once to authenticate."
         )
     cmd = [AGY_CLI, *request.as_cmd_args()]
-    # agy resolves relative --add-dir entries against the process cwd and has no
-    # '-C'-style flag, so pass the resolved workspace as cwd. Default stdin is
-    # DEVNULL — print mode reads nothing from stdin.
+    # agy resolves relative --add-dir entries against process cwd (no '-C' flag).
+    # Default stdin DEVNULL — print mode reads nothing from stdin.
     async with contextlib.aclosing(ndjson_from_cli(cmd, cwd=request.cwd())) as stream:
         async for obj in stream:
             yield obj
@@ -379,84 +471,122 @@ async def stream_gemini_cli(
     on_tool_result: Callable[[dict[str, Any]], None] | None = None,
     on_final: Callable[[CLISession], None] | None = None,
 ) -> AsyncIterator[StreamChunk | CLISession]:
-    """Run agy in json print mode and project its result object into StreamChunks.
-
-    agy's json format surfaces no per-tool events on stdout (they live only in
-    the per-session transcript), so ``on_tool_use`` / ``on_tool_result`` are
-    accepted for interface parity but do not fire in this transport.
-    """
+    """Run agy in json print mode and project its result into StreamChunks; on_tool_use/on_tool_result
+    are accepted for interface parity but never fire (agy's json format has no per-tool stdout events)."""
     if session is None:
         session = CLISession()
     theme = request.cli_display_theme or "light"
     _start = asyncio.get_running_loop().time()
 
     saw_object = False
+    teardown_error_emitted = False
     async with contextlib.aclosing(stream_gemini_cli_events(request)) as stream:
-        async for obj in stream:
-            if not isinstance(obj, dict):
-                continue
-            saw_object = True
-            status = str(obj.get("status", "")).upper()
-            response = (obj.get("response") or "").strip()
-
-            session.session_id = obj.get("conversation_id") or session.session_id
-            session.model = resolve_agy_model(request.model)
-            session.result = response
-            session.usage = obj.get("usage", {}) or {}
-            session.num_turns = obj.get("num_turns")
-            duration = obj.get("duration_seconds")
-            if duration is not None:
-                session.duration_ms = int(float(duration) * 1000)
-            session.is_error = status not in ("SUCCESS", "")
-
-            # Session id must be captured before the error branch — a failed
-            # turn can still report a live conversation id to resume into.
-            if session.session_id:
-                sys_sc = StreamChunk(
-                    type="system",
-                    metadata={"session_id": session.session_id, "model": session.model},
-                )
-                session.chunks.append(sys_sc)
-                yield sys_sc
-
-            if session.is_error:
-                # The error chunk must never impersonate the response: a
-                # degraded termination (e.g. timeout after a complete final
-                # message) would otherwise surface the delivered content AS
-                # the error. Lead with the status; keep a bounded detail so
-                # quota/auth patterns still classify.
-                detail = f": {response[:500]}" if response else ""
-                msg = f"agy returned status={status or 'UNKNOWN'}{detail}"
-                sc = StreamChunk(type="error", content=msg, is_error=True, metadata=obj)
-                session.chunks.append(sc)
-                yield sc
+        while True:
+            try:
+                obj = await anext(stream)
+            except StopAsyncIteration:
+                break
+            except RuntimeError as exc:
+                if isinstance(exc, ProviderTeardownError) or (
+                    "event loop is closed" in str(exc).casefold()
+                ):
+                    session.is_error = True
+                    error = ProviderTeardownError("agy teardown failed: Event loop is closed")
+                    sc = StreamChunk(type="error", content=str(error), is_error=True)
+                    session.chunks.append(sc)
+                    teardown_error_emitted = True
+                    yield sc
+                    break
+                raise
             else:
-                if on_text and response:
-                    await maybe_await(on_text(response))
-                if request.verbose_output and response:
-                    _pp_text(response, theme)
-                sc = StreamChunk(type="text", content=response, metadata=obj)
-                session.chunks.append(sc)
-                yield sc
+                if not isinstance(obj, dict):
+                    continue
+                saw_object = True
+                status = str(obj.get("status", "")).upper()
+                response = (obj.get("response") or "").strip()
+                cli_error = str(obj.get("error") or "").strip()
 
-                # Terminal usage/turns/duration — the only channel run.py reads
-                # provider-reported usage from (persisted onto model_response).
-                result_meta: dict[str, Any] = {
-                    "model": session.model,
-                    "conversation_id": session.session_id,
-                    "status": status or "SUCCESS",
-                }
-                if session.usage:
-                    result_meta["usage"] = session.usage
-                if session.num_turns is not None:
-                    result_meta["num_turns"] = session.num_turns
-                if session.duration_ms is not None:
-                    result_meta["duration_ms"] = session.duration_ms
-                result_sc = StreamChunk(type="result", metadata=result_meta)
-                session.chunks.append(result_sc)
-                yield result_sc
+                session.session_id = obj.get("conversation_id") or session.session_id
+                session.model = resolve_agy_model(request.model)
+                session.result = response
+                session.usage = obj.get("usage", {}) or {}
+                session.num_turns = obj.get("num_turns")
+                duration = obj.get("duration_seconds")
+                if duration is not None:
+                    session.duration_ms = int(float(duration) * 1000)
+                session.is_error = status not in ("SUCCESS", "")
 
-    if not saw_object and not session.result:
+                # A success carrying no content cannot be distinguished from a
+                # turn whose tool calls were all denied: headless print mode has
+                # no way to prompt for a tool permission, so it auto-denies and
+                # still reports SUCCESS. Passing that through as an empty answer
+                # fails open, which is the worst direction here — a caller using
+                # this engine for verification reads silence as assent.
+                empty_success = not session.is_error and not response
+                if empty_success:
+                    session.is_error = True
+
+                # Session id must be captured before the error branch — a failed
+                # turn can still report a live conversation id to resume into.
+                if session.session_id:
+                    sys_sc = StreamChunk(
+                        type="system",
+                        metadata={"session_id": session.session_id, "model": session.model},
+                    )
+                    session.chunks.append(sys_sc)
+                    yield sys_sc
+
+                if session.is_error:
+                    if empty_success:
+                        msg = (
+                            "agy reported status=SUCCESS with no response content. "
+                            "A tool call was most likely auto-denied, because headless "
+                            "print mode cannot prompt for a tool permission. Re-run with "
+                            "yolo to auto-approve tools, or add an allow-rule under "
+                            "permissions.allow in the agy settings."
+                        )
+                        if cli_error:
+                            msg = f"{msg} CLI error: {cli_error}"
+                        session.result = msg
+                    else:
+                        # Error chunk leads with status, not delivered content — a degraded
+                        # termination after a complete response would otherwise impersonate it.
+                        # `error` is preferred over `response`: agy reports the cause there
+                        # and commonly leaves `response` empty on a failed turn.
+                        detail = cli_error or response[:500]
+                        msg = f"agy returned status={status or 'UNKNOWN'}"
+                        if detail:
+                            msg = f"{msg}: {detail}"
+                    sc = StreamChunk(type="error", content=msg, is_error=True, metadata=obj)
+                    session.chunks.append(sc)
+                    yield sc
+                else:
+                    if on_text and response:
+                        await maybe_await(on_text(response))
+                    if request.verbose_output and response:
+                        _pp_text(response, theme)
+                    sc = StreamChunk(type="text", content=response, metadata=obj)
+                    session.chunks.append(sc)
+                    yield sc
+
+                    # Terminal usage/turns/duration — the only channel run.py reads
+                    # provider-reported usage from (persisted onto model_response).
+                    result_meta: dict[str, Any] = {
+                        "model": session.model,
+                        "conversation_id": session.session_id,
+                        "status": status or "SUCCESS",
+                    }
+                    if session.usage:
+                        result_meta["usage"] = session.usage
+                    if session.num_turns is not None:
+                        result_meta["num_turns"] = session.num_turns
+                    if session.duration_ms is not None:
+                        result_meta["duration_ms"] = session.duration_ms
+                    result_sc = StreamChunk(type="result", metadata=result_meta)
+                    session.chunks.append(result_sc)
+                    yield result_sc
+
+    if not teardown_error_emitted and not saw_object and not session.result:
         # rc==0 but nothing parseable (e.g. agy printed a plain-text error line).
         session.is_error = True
         session.result = "agy produced no parseable json response"
@@ -494,6 +624,8 @@ class GeminiCLIEndpoint(AgenticHandlersMixin, AgenticEndpoint):
     _handler_kwarg = "gemini_handlers"
     _request_model = GeminiCodeRequest
     _filter_model_fields = False
+    # streams_first_output_early stays False: agy's json mode yields only after
+    # the whole result arrives, so a first-chunk watchdog can't tell it from a hang.
 
     def __init__(self, config: EndpointConfig = None, **kwargs):
         handlers = kwargs.pop("gemini_handlers", None)

@@ -25,8 +25,13 @@ __all__ = (
 )
 
 
-class Element(BaseModel, Observable):
-    """Pydantic base with UUID id, creation timestamp, and metadata dict."""
+class Element(BaseModel):
+    """Pydantic base with UUID id, creation timestamp, and metadata dict.
+
+    Structurally satisfies the ``Observable`` protocol through its ``id`` field;
+    it does not inherit ``Observable`` (a runtime-checkable Protocol cannot be a
+    pydantic base), and does not need to -- Pile admission is by capability.
+    """
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -76,20 +81,17 @@ class Element(BaseModel, Observable):
         if isinstance(val, dt.datetime):
             return val.timestamp()
         if isinstance(val, str):
-            # Parse datetime string from database
             try:
-                # Handle datetime strings like "2025-08-30 10:54:59.310329"
-                # Convert space to T for ISO format, but handle timezone properly
+                # e.g. "2025-08-30 10:54:59.310329" -> ISO by swapping space for T
                 iso_string = val.replace(" ", "T")
                 parsed_dt = dt.datetime.fromisoformat(iso_string)
 
-                # If parsed as naive datetime (no timezone), treat as UTC to avoid local timezone issues
+                # Naive datetime (no timezone) is treated as UTC.
                 if parsed_dt.tzinfo is None:
                     parsed_dt = parsed_dt.replace(tzinfo=dt.timezone.utc)
 
                 return parsed_dt.timestamp()
             except ValueError:
-                # Try parsing as float string as fallback
                 try:
                     return float(val)
                 except ValueError:
@@ -163,11 +165,9 @@ class Element(BaseModel, Observable):
     @classmethod
     def from_dict(cls, data: dict) -> Element:
         """Deserialize dict into Element or the subclass named by lion_class in metadata."""
-        # Shallow copy to avoid mutating the caller's dict. The nested metadata
-        # dict is also copied because we pop from it (lion_class extraction).
+        # Shallow copy so we don't mutate the caller's dict; metadata is popped from below.
         data = dict(data)
 
-        # Preprocess database format if needed
         metadata = {}
 
         if "node_metadata" in data:
@@ -178,18 +178,11 @@ class Element(BaseModel, Observable):
             subcls: str = metadata.pop("lion_class")
             if subcls != Element.class_name(full=True):
                 try:
-                    # Try full qualified name first (LION_CLASS_REGISTRY is
-                    # populated with full-qualified names at import time).
-                    # Fall back to short name for classes registered before the
-                    # full-name convention was adopted.
-                    try:
-                        subcls_type: type[Element] = get_class(subcls)
-                    except (KeyError, ValueError):
-                        subcls_type = get_class(subcls.split(".")[-1])
-                    # Delegate when there is a custom from_dict OR when the
-                    # concrete type differs from cls (so model_validate uses the
-                    # right schema). Restore metadata before the recursive call
-                    # so the delegate sees a self-consistent dict.
+                    # get_class resolves both fully-qualified names and legacy
+                    # short names (data persisted before full-name adoption).
+                    subcls_type: type[Element] = get_class(subcls)
+                    # Delegate to a custom from_dict, or when the concrete
+                    # type differs so model_validate uses the right schema.
                     if hasattr(subcls_type, "from_dict") and (
                         subcls_type.from_dict.__func__ != cls.from_dict.__func__
                         or subcls_type is not cls
@@ -207,10 +200,20 @@ class Element(BaseModel, Observable):
         return cls.model_validate(data)
 
     def to_json(self, decode: bool = True, **kw) -> str:
-        """Serialize to JSON string."""
+        """Serialize to JSON string.
+
+        Raises ValueError if the element holds inf, -inf or nan: JSON cannot
+        represent them and they would be written as `null`, which no reader can
+        tell apart from a genuine null once the element has been stored.
+        """
         kw.pop("mode", None)
         dict_ = self._to_dict(**kw)
-        return json_dumps(dict_, default=DEFAULT_ELEMENT_SERIALIZER, decode=decode)
+        return json_dumps(
+            dict_,
+            default=DEFAULT_ELEMENT_SERIALIZER,
+            decode=decode,
+            check_non_finite=True,
+        )
 
     @classmethod
     def from_json(cls, json_str: str) -> Element:
@@ -227,10 +230,21 @@ DEFAULT_ELEMENT_SERIALIZER = get_orjson_default(
 )
 
 
+def _observable_uuid(obj: Observable) -> UUID:
+    """Extract an Observable's ``id`` as a UUID (coercing a string id).
+
+    Shared by ``validate_order`` and ``ID.get_id`` so every id-resolution path
+    accepts the same structural contract Pile admits by -- any object exposing an
+    ``id``, not only nominal Element subclasses.
+    """
+    oid = obj.id
+    return oid if isinstance(oid, UUID) else UUID(str(oid))
+
+
 def validate_order(order: Any) -> list[UUID]:
-    """Flatten an ordering (Element, UUID, str, nested list, or dict) into a list of UUIDs."""
-    if isinstance(order, Element):
-        return [order.id]
+    """Flatten an ordering (Observable, UUID, str, nested list, or dict) into a list of UUIDs."""
+    if isinstance(order, Observable):
+        return [_observable_uuid(order)]
     if isinstance(order, Mapping):
         order = list(order.keys())
 
@@ -240,8 +254,8 @@ def validate_order(order: Any) -> list[UUID]:
         cur = stack.pop()
         if cur is None:
             continue
-        if isinstance(cur, Element):
-            out.append(cur.id)
+        if isinstance(cur, Observable):
+            out.append(_observable_uuid(cur))
         elif isinstance(cur, UUID):
             out.append(cur)
         elif isinstance(cur, str):
@@ -269,11 +283,17 @@ class ID(Generic[E]):
 
     @staticmethod
     def get_id(item: E) -> UUID:
-        """Return UUID from an Element, UUID, or str; raises ValueError otherwise."""
+        """Return UUID from an Observable, UUID, or str; raises ValueError otherwise.
+
+        Resolution is structural, matching Pile's admission contract: any object
+        exposing an ``id`` (an Element or a duck-typed item) resolves, not just
+        nominal Element subclasses -- otherwise an object Pile admits could not
+        be looked up or removed by identity.
+        """
         if isinstance(item, UUID):
             return item
-        if isinstance(item, Element):
-            return item.id
+        if isinstance(item, Observable):
+            return _observable_uuid(item)
         if isinstance(item, str):
             return UUID(item)
         raise ValueError("Cannot get ID from item.")
@@ -286,6 +306,3 @@ class ID(Generic[E]):
             return True
         except ValueError:
             return False
-
-
-# File: lionagi/protocols/generic/element.py

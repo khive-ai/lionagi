@@ -120,12 +120,48 @@ def add_engine_subparser(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
 
+    # ── Hypothesis-specific flags ──────────────────────────────────────
+    run_parser.add_argument(
+        "--dedup-repo",
+        default=None,
+        metavar="OWNER/REPO",
+        help=(
+            "GitHub repo to check findings against before extraction "
+            "('hypothesis' kind only). Findings whose mechanism an existing "
+            "open or closed issue already covers are recorded and not expanded; "
+            "certified-new findings land in the export's filing queue. "
+            "The engine never files issues itself."
+        ),
+    )
+    run_parser.add_argument(
+        "--dedup-cwd",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Checkout of the dedup repo so the novelty check can source-confirm "
+            "a finding's cite ('hypothesis' kind only; optional)."
+        ),
+    )
+
     # ── Engine constructor overrides ───────────────────────────────────
     run_parser.add_argument(
         "--model",
         default=None,
         metavar="MODEL",
-        help="Model to use (provider/name, e.g. claude/sonnet). Uses default if omitted.",
+        help=(
+            "Model to use (provider/name, e.g. claude/sonnet; an effort suffix "
+            "like codex/gpt-5.6-luna-high is honored). Overrides per-stage "
+            "defaults. Uses engine defaults if omitted."
+        ),
+    )
+    run_parser.add_argument(
+        "--effort",
+        default=None,
+        metavar="LEVEL",
+        help=(
+            "Reasoning effort for all stages (e.g. low, medium, high, xhigh). "
+            "Overrides per-stage defaults; a per-stage default applies otherwise."
+        ),
     )
     run_parser.add_argument(
         "--max-depth",
@@ -187,10 +223,19 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
     engine_kwargs: dict[str, Any] = {}
     if args.model:
         engine_kwargs["model"] = args.model
+    if getattr(args, "effort", None):
+        engine_kwargs["effort"] = args.effort
     if args.max_depth is not None:
         engine_kwargs["max_depth"] = args.max_depth
     if args.max_agents is not None:
         engine_kwargs["max_agents"] = args.max_agents
+    if kind == "hypothesis":
+        if getattr(args, "dedup_repo", None):
+            engine_kwargs["dedup_repo"] = args.dedup_repo
+        if getattr(args, "dedup_cwd", None):
+            engine_kwargs["dedup_cwd"] = args.dedup_cwd
+    elif getattr(args, "dedup_repo", None) or getattr(args, "dedup_cwd", None):
+        warn("--dedup-repo/--dedup-cwd only apply to the 'hypothesis' kind; ignored")
 
     run_kwargs: dict[str, Any] = {}
     if kind == "coding":
@@ -208,10 +253,8 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
     started_at = time.time()
 
     db = None
-    # session_id for signal persistence: the engine run creates its own
-    # sessions row (run_id) so Studio can stream signals live.  The
-    # engine_runs.session_id column still carries the user-supplied
-    # --session-id for cross-linking to an existing session.
+    # engine_runs.session_id carries the user's --session-id; signal_session_id
+    # is a separate sessions row (run_id) the engine creates for Studio streaming.
     signal_session_id: str | None = None
     if not args.no_persist:
         try:
@@ -230,15 +273,10 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
             warn(f"could not open StateDB for persistence: {exc}")
             db = None
     if db is not None:
-        # Create a sessions row so session_signals FK is satisfied.  Guarded
-        # separately: a failure here only disables live signal streaming,
-        # never the engine_runs record itself.
+        # Guarded separately: failure here only disables live signal streaming.
         try:
-            # create_session is INSERT OR IGNORE: a pre-existing row with this
-            # id would be silently reused, appending our signals to an
-            # unrelated session and mirroring terminal status onto it.  run_id
-            # is a fresh uuid4 so this should never happen — but never bind to
-            # a row this run did not create.
+            # create_session is INSERT OR IGNORE — never bind to a pre-existing
+            # row. See docs/internals/cli.md for the silent-reuse risk.
             if await db.get_session(run_id) is not None:
                 warn(f"sessions row {run_id} already exists; skipping signal binding")
             else:
@@ -303,9 +341,8 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
     ended_at: float | None = None
     try:
         engine = engine_class(**engine_kwargs)
-        # CodingEngine has its own .run() signature (positional spec + keyword
-        # test_cmd/workspace/export_dir); other engines use Engine.run() which
-        # dispatches to _run(run, <main_arg>, **run_kwargs).
+        # CodingEngine's .run() signature diverges from the other engines'.
+        # See docs/internals/cli.md.
         result = await engine.run(spec, on_event=on_event, session=_session, **run_kwargs)
     except Exception as exc:
         log_error(f"engine[{kind}] failed: {exc}")
@@ -322,12 +359,8 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
             await db.close()
         return 1
     except BaseException as exc:
-        # asyncio.CancelledError and KeyboardInterrupt are BaseException paths that
-        # bypass the `except Exception` handler above.  Mark the row cancelled before
-        # re-raising so Studio doesn't show it as permanently 'running'.
-        # run_async() in lionagi/ln/concurrency/utils.py:86 cancels the task on
-        # SIGINT and then raises KeyboardInterrupt at :108; we re-raise here to
-        # preserve that exit-code behaviour (interpreter default for SIGINT).
+        # CancelledError/KeyboardInterrupt bypass `except Exception` above; mark
+        # cancelled before re-raising. See docs/internals/cli.md.
         ended_at = time.time()
         await _maybe_update_db(
             db,
@@ -351,12 +384,16 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
     if _emission_failures:
         emission_error = "emission_missing: " + "; ".join(_emission_failures)
 
-    # Serialise result to stdout as JSON.
-    # export_dir: the CLI knows what directory it passed; neither CodeResultRecorded
-    # (lionagi/engines/coding.py:153 — fields: passed, measurements, caveats,
-    # experiment_ref, verdict_ref) nor the hypothesis string echo it back.  Source
-    # export_dir from args directly for kinds that accept the flag, falling back to
-    # result_data for any future engine model that does include it.
+    # Every agent terminally erroring must not report "completed" as green.
+    _total_agent_failure: bool = getattr(engine, "_total_agent_failure", False)
+    if _total_agent_failure:
+        _agent_errors: list[str] = getattr(engine, "_agent_errors", [])
+        agent_error_text = "all sub-agents failed: " + "; ".join(_agent_errors)
+        emission_error = (
+            f"{emission_error}; {agent_error_text}" if emission_error else agent_error_text
+        )
+
+    # Serialise result to stdout as JSON. export_dir sourcing: see docs/internals/cli.md.
     export_dir_from_args: str | None = args.export_dir if kind in ("coding", "hypothesis") else None
     export_dir_for_db: str | None = export_dir_from_args
     try:
@@ -377,7 +414,7 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
     await _maybe_update_db(
         db,
         run_id,
-        "completed",
+        "failed" if _total_agent_failure else "completed",
         ended_at=ended_at,
         export_dir=export_dir_for_db,
         error=emission_error,
@@ -385,7 +422,9 @@ async def _do_engine_run(args: argparse.Namespace) -> int:
     )
     if db is not None:
         await db.close()
-    return 0
+    # A run where every agent terminally errored is a failure: exit non-zero so
+    # shell/CI callers see it, matching the persisted "failed" status above.
+    return 1 if _total_agent_failure else 0
 
 
 async def _maybe_update_db(

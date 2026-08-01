@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from lionagi._errors import TimeoutError as LionTimeoutError
+from lionagi._spec_limits import MAX_SPEC_PROMPT_CHARS
 from lionagi.libs.path_safety import validate_path_component as validate_path_component
 from lionagi.ln.concurrency import is_cancelled, run_async
 
@@ -15,7 +17,7 @@ from .._logging import hint, log_error
 from .._providers import add_common_cli_args
 from .._util import EXIT_CODE_BY_STATUS
 from ._checkpoint import FlowResumeError
-from .fanout import _run_fanout
+from .fanout import FanoutPlanError, _run_fanout
 from .flow import FlowPlanError, _resume_flow, _run_flow
 
 # ── flow-spec helpers ────────────────────────────────────────────────────────
@@ -86,7 +88,11 @@ def inject_playbook_schema_into_parser(
             )
             continue
         type_str = field.get("type", "str")
-        help_text = field.get("help", "")
+        # A playbook that declares no help for its own argument still gets a line worth
+        # reading, rather than a blank column in `--help`.
+        help_text = field.get("help") or (
+            f"Playbook argument {arg_name!r} ({type_str}), declared by this playbook's args: block."
+        )
         if type_str == "bool":
             flow_parser.add_argument(
                 cli_flag,
@@ -108,46 +114,182 @@ def inject_playbook_schema_into_parser(
     return resolved_schema
 
 
-def _resolve_playbook_path(name: str) -> tuple[object, str | None]:
-    """Resolve a playbook NAME to (Path, None) or (None, error_message)."""
-    from pathlib import Path
+def _plugin_playbook_files() -> dict[str, tuple[str, Path]]:
+    """``<plugin>/<name>`` -> (plugin name, playbook path) for every ACTIVE
+    plugin (trusted+enabled+compatible).
 
+    A plugin's playbooks only ever join the search *after* project and
+    global playbooks: local files always win, and an untrusted or disabled
+    plugin contributes nothing here at all.
+    """
+    from lionagi.plugins import PluginRegistry
+
+    return PluginRegistry.active_playbook_files()
+
+
+def _resolve_plugin_playbook_path(name: str) -> Path | None:
+    """Resolve *name* against active plugins: an explicit ``<plugin>/<playbook>``
+
+    token always resolves via direct lookup; a bare name resolves only when
+    exactly one active plugin declares it (ambiguous bare names are left
+    unresolved — namespacing exists precisely so a caller can disambiguate).
+    """
+    plugin_playbooks = _plugin_playbook_files()
+    if "/" in name:
+        entry = plugin_playbooks.get(name)
+        return entry[1] if entry is not None else None
+
+    matches = [
+        path for token, (_plugin, path) in plugin_playbooks.items() if token.endswith(f"/{name}")
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _warn_if_shadowing_plugin_playbook(name: str) -> None:
+    """Log a shadow warning when a local playbook hides a same-named plugin playbook.
+
+    The user's own explicit local file always wins on a bare-name collision;
+    this only makes the shadowing visible instead of silent.
+    """
+    plugin_playbooks = _plugin_playbook_files()
+    owners = sorted(
+        {token.split("/", 1)[0] for token in plugin_playbooks if token.endswith(f"/{name}")}
+    )
+    if not owners:
+        return
+    from .._logging import warn
+
+    warn(
+        f"playbook {name!r} is also declared by plugin(s) {', '.join(owners)}; "
+        f"using the local file (load the plugin's version with '<plugin>/{name}')."
+    )
+
+
+def _warn_if_shadowing_global_playbook(name: str, matched_dir: Path) -> None:
+    """Log a shadow warning when a project-local playbook hides the same-named global one.
+
+    The nearer (project-local) file always wins on a bare-name collision;
+    this only makes the shadowing visible instead of silent — an untrusted
+    checkout could otherwise supply model instructions the user did not
+    intend to run whenever they invoke a familiar (globally-defined) name.
+    """
+    global_dir = Path.home() / ".lionagi"
+    if matched_dir == global_dir:
+        return
+    global_candidate = global_dir / "playbooks" / f"{name}.playbook.yaml"
+    if not global_candidate.is_file():
+        return
+
+    from .._logging import warn
+
+    local_candidate = matched_dir / "playbooks" / f"{name}.playbook.yaml"
+    warn(
+        f"playbook {name!r} at {local_candidate} shadows the global playbook "
+        f"at {global_candidate}; using the project-local file."
+    )
+
+
+def list_playbooks() -> list[str]:
+    """List available playbook names, merged across ``.lionagi/`` dirs and active plugins.
+
+    Plugin-declared playbooks are namespaced as ``<plugin>/<name>``.
+    """
+    from lionagi._paths import find_lionagi_dirs
+
+    seen: set[str] = set()
+    for d in find_lionagi_dirs():
+        playbooks_dir = d / "playbooks"
+        if not playbooks_dir.is_dir():
+            continue
+        for p in sorted(playbooks_dir.glob("*.playbook.yaml")):
+            if p.is_file():
+                seen.add(p.name.removesuffix(".playbook.yaml"))
+    seen.update(_plugin_playbook_files().keys())
+    return sorted(seen)
+
+
+def _resolve_playbook_path(name: str) -> tuple[object, str | None]:
+    """Resolve a playbook NAME to (Path, None) or (None, error_message).
+
+    Searches project-local then global ``.lionagi/playbooks/`` (via
+    ``find_lionagi_dirs()``), then active plugin bundles: a plugin's
+    playbooks join the search only after a project/global miss (bare name),
+    or via an explicit ``<plugin>/<name>`` token, and only for a plugin that
+    is trusted + enabled + version-compatible (see ``lionagi.plugins``).
+    """
+    from lionagi._paths import find_lionagi_dirs
     from lionagi.libs.path_safety import validate_path_component
 
     if not name or not isinstance(name, str):
         return None, "playbook name must be a non-empty string"
-    try:
-        validate_path_component(name, label="playbook NAME")
-    except ValueError:
+
+    plugin_token = "/" in name
+    if plugin_token:
+        # A `<plugin>/<name>` token is opaque to the single-component
+        # validator (which forbids '/'); validate each half separately
+        # instead of rejecting the whole string outright — this is exactly
+        # the shape ADR-0088 D6 specifies for a plugin-namespaced playbook.
+        plugin_part, _, playbook_part = name.partition("/")
+        try:
+            validate_path_component(plugin_part, label="plugin NAME")
+            validate_path_component(playbook_part, label="playbook NAME")
+        except ValueError:
+            return (
+                None,
+                "playbook NAME must be a bare identifier or <plugin>/<name> "
+                f"token, got {name!r}. Use -f /abs/path.yaml for ad-hoc specs.",
+            )
+    else:
+        try:
+            validate_path_component(name, label="playbook NAME")
+        except ValueError:
+            return (
+                None,
+                f"playbook NAME must be a bare identifier, got {name!r}. "
+                "Use -f /abs/path.yaml for ad-hoc specs.",
+            )
+        plugin_part = playbook_part = None
+
+    dirs = find_lionagi_dirs()
+
+    if not plugin_token:
+        for d in dirs:
+            playbooks_dir = d / "playbooks"
+            candidate = playbooks_dir / f"{name}.playbook.yaml"
+            if not candidate.is_file():
+                continue
+            try:
+                resolved_root = playbooks_dir.resolve(strict=True)
+                resolved_candidate = candidate.resolve(strict=True)
+                resolved_candidate.relative_to(resolved_root)
+            except (OSError, ValueError):
+                return (
+                    None,
+                    f"playbook {name!r} resolves outside playbooks root (symlink escape blocked)",
+                )
+            _warn_if_shadowing_plugin_playbook(name)
+            _warn_if_shadowing_global_playbook(name, d)
+            return candidate, None
+
+    plugin_path = _resolve_plugin_playbook_path(name)
+    if plugin_path is not None:
+        return plugin_path, None
+
+    if plugin_token:
         return (
             None,
-            f"playbook NAME must be a bare identifier, got {name!r}. "
-            "Use -f /abs/path.yaml for ad-hoc specs.",
+            f"playbook not found: plugin {plugin_part!r} is not active (no "
+            "such plugin, or untrusted/disabled/incompatible), or does not "
+            f"declare a playbook named {playbook_part!r}",
         )
-    root = Path("~/.lionagi/playbooks").expanduser()
-    candidate = root / f"{name}.playbook.yaml"
-    if not candidate.is_file():
-        # Look for near-matches to suggest.
-        suggestions = []
-        if root.is_dir():
-            for p in sorted(root.glob("*.playbook.yaml")):
-                suggestions.append(p.stem.removesuffix(".playbook"))
-        hint_text = (
-            f" Available: {', '.join(suggestions[:10])}"
-            if suggestions
-            else " No playbooks found in ~/.lionagi/playbooks/"
-        )
-        return None, f"playbook not found: {candidate}.{hint_text}"
-    try:
-        resolved_root = root.resolve(strict=True)
-        resolved_candidate = candidate.resolve(strict=True)
-        resolved_candidate.relative_to(resolved_root)
-    except (OSError, ValueError):
-        return (
-            None,
-            f"playbook {name!r} resolves outside playbooks root (symlink escape blocked)",
-        )
-    return candidate, None
+
+    suggestions = list_playbooks()
+    hint_text = (
+        f" Available: {', '.join(suggestions[:10])}" if suggestions else " No playbooks found."
+    )
+    return None, f"playbook not found: {name!r}.{hint_text}"
 
 
 def _parse_argument_hint(hint: str) -> dict:
@@ -290,8 +432,10 @@ def _validate_spec_fields(spec: dict) -> str | None:
         prompt = spec["prompt"]
         if not isinstance(prompt, str):
             return f"spec field 'prompt' must be a string, got {type(prompt).__name__}"
-        if len(prompt) > 8192:
-            return "spec field 'prompt' exceeds maximum length of 8192 characters"
+        if len(prompt) > MAX_SPEC_PROMPT_CHARS:
+            return (
+                f"spec field 'prompt' exceeds maximum length of {MAX_SPEC_PROMPT_CHARS} characters"
+            )
 
     if "save" in spec:
         save = spec["save"]
@@ -353,6 +497,61 @@ def _interpolate_prompt(template: str, positional: str | None, playbook_args: di
     return re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", _sub, template)
 
 
+def _check_assembled_prompt(prompt: str) -> str | None:
+    """Measure the prompt that will run, not the one it was written from.
+
+    A spec's prompt field is checked when the file is read, but that is a
+    template: the caller's positional and the playbook's arguments are
+    substituted into it afterwards, and either can make the result far longer
+    than the text that passed. A caller that names no spec at all skips the
+    file check outright. Both forms arrive here holding the finished text,
+    which is the only version that reaches a run.
+
+    Same bound as the spec field, deliberately: the number exists to refuse a
+    file that is not a prompt, and it sits far enough out that template plus
+    arguments together stay well under it. A second, larger bound here would
+    mean the assembled prompt could pass while the template it came from could
+    not, which is the asymmetry this check is closing.
+    """
+    if len(prompt) > MAX_SPEC_PROMPT_CHARS:
+        return (
+            f"assembled prompt exceeds maximum length of {MAX_SPEC_PROMPT_CHARS} "
+            f"characters (got {len(prompt)})"
+        )
+    return None
+
+
+def _add_mcp_config_args(parser: argparse.ArgumentParser) -> None:
+    """Where this run's workers get their MCP servers from.
+
+    An orchestration builds every worker from the one set its own process
+    resolved, so the answer is given once here rather than left to each
+    provider CLI to find for itself from a directory the caller never chose.
+    """
+    parser.add_argument(
+        "--mcp-config",
+        dest="mcp_config",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Read this MCP config and hand its servers to every worker this run "
+            "builds. By default the nearest .mcp.json at or above the directory "
+            "this command was run in is used, so the workers' tools come from "
+            "the submission rather than from --cwd. The file is read once, at "
+            "startup."
+        ),
+    )
+    parser.add_argument(
+        "--no-mcp-config",
+        dest="no_mcp_config",
+        action="store_true",
+        help=(
+            "Hand the workers no MCP servers, and say so deliberately instead "
+            "of arriving there by an empty search."
+        ),
+    )
+
+
 def add_orchestrate_subparser(
     subparsers: argparse._SubParsersAction,
 ) -> dict[str, argparse.ArgumentParser]:
@@ -370,20 +569,21 @@ def add_orchestrate_subparser(
         description=(
             "Orchestrator decomposes task into N agent requests, "
             "fans out to workers, optionally synthesizes. "
-            "Effort can be embedded in model spec: claude/opus-4-7-high."
+            "Effort can be embedded in model spec: claude/opus-4-7-high. "
+            "Flags may appear anywhere relative to the positionals."
         ),
     )
     fo.add_argument(
-        "model",
-        nargs="?",
-        default=None,
+        "query",
+        nargs="*",
+        metavar="[MODEL] PROMPT",
         help=(
-            "Orchestrator model spec (provider/model-effort). "
-            "Also used as default worker model unless --workers specified. "
-            "Optional when -a/--agent provides a model."
+            "Orchestrator model spec (provider/model-effort) followed by the "
+            "task prompt. Model is also used as the default worker model "
+            "unless --workers is set; omit it when -a/--agent provides one. "
+            "A single positional is treated as the prompt."
         ),
     )
-    fo.add_argument("prompt", help="Task prompt for the orchestrator to decompose.")
     fo.add_argument(
         "-a",
         "--agent",
@@ -402,13 +602,19 @@ def add_orchestrate_subparser(
         "--num-workers",
         type=int,
         default=3,
-        help="Number of workers (default: 3). Ignored if --workers set.",
+        help=(
+            "Maximum assignments the orchestrator generates (default 3). It may generate fewer "
+            "if the task does not divide that far, and --workers specs beyond this cap go unused."
+        ),
     )
     fo.add_argument(
         "--workers",
         metavar="M1,M2,...",
         default=None,
-        help="Comma-separated worker model specs (each can include effort).",
+        help=(
+            "Comma-separated worker model specs, assigned round-robin (each may carry an effort "
+            "suffix). This is how one fanout mixes cheap and expensive models across workers."
+        ),
     )
     fo.add_argument(
         "--pack",
@@ -423,7 +629,10 @@ def add_orchestrate_subparser(
         "--max-concurrent",
         type=int,
         default=0,
-        help="Max concurrent workers (default: all).",
+        help=(
+            "Cap on workers running at the same time. 0, the default, runs them all at once — "
+            "lower it to stay under a provider's rate limit."
+        ),
     )
     fo.add_argument(
         "--with-synthesis",
@@ -431,24 +640,33 @@ def add_orchestrate_subparser(
         const=True,
         default=False,
         metavar="MODEL",
-        help="Enable synthesis. Bare flag uses orchestrator model; with arg uses that model.",
+        help=(
+            "Run a final pass merging the workers' results into one answer. Bare flag uses the "
+            "orchestrator model; with an argument, that model instead."
+        ),
     )
     fo.add_argument(
         "--synthesis-prompt",
         default=None,
-        help="Custom synthesis instruction.",
+        help=(
+            "What the merged answer should be — a ranked list, a decision, a single patch. "
+            "Implies synthesis."
+        ),
     )
     fo.add_argument(
         "--output",
         choices=("text", "json"),
         default="text",
-        help="Output format (default: text).",
+        help="Result format: 'text' (default) for reading, 'json' for a machine-readable run.",
     )
     fo.add_argument(
         "--save",
         metavar="DIR",
         default=None,
-        help="Save outputs to directory.",
+        help=(
+            "Directory to write each worker's output and the run's artifacts into. Without it "
+            "they land in the run's own artifacts directory."
+        ),
     )
 
     fo.add_argument(
@@ -464,6 +682,7 @@ def add_orchestrate_subparser(
         ),
     )
 
+    _add_mcp_config_args(fo)
     add_common_cli_args(fo)
 
     fl = orch_sub.add_parser(
@@ -472,20 +691,20 @@ def add_orchestrate_subparser(
         description=(
             "Orchestrator analyzes the task, composes a DAG of agents "
             "with dependency edges, and executes with automatic "
-            "parallelism where dependencies allow."
+            "parallelism where dependencies allow. Flags may appear "
+            "anywhere relative to the positionals."
         ),
     )
     fl.add_argument(
-        "model",
-        nargs="?",
-        default=None,
-        help="Orchestrator model spec. Optional when -a/--agent provides one.",
-    )
-    fl.add_argument(
-        "prompt",
-        nargs="?",
-        default=None,
-        help="Task for the orchestrator to plan and execute.",
+        "query",
+        nargs="*",
+        metavar="[MODEL] PROMPT",
+        help=(
+            "Orchestrator model spec followed by the task prompt. Model is "
+            "optional when -a/--agent provides one; a single positional is "
+            "treated as the prompt. The prompt itself may instead come from "
+            "-f/--file or -p/--playbook."
+        ),
     )
     fl.add_argument(
         "-f",
@@ -525,25 +744,34 @@ def add_orchestrate_subparser(
         const=True,
         default=False,
         metavar="MODEL",
-        help="Enable final synthesis. Bare flag uses orchestrator model.",
+        help=(
+            "Run a final pass merging the DAG's results into one answer. Bare flag uses the "
+            "orchestrator model; with an argument, that model instead."
+        ),
     )
     fl.add_argument(
         "--max-concurrent",
         type=int,
         default=0,
-        help="Max concurrent agents within a phase (default: all).",
+        help=(
+            "Cap on agents running at the same time within one phase. 0, the default, runs the "
+            "whole phase at once — lower it to stay under a provider's rate limit."
+        ),
     )
     fl.add_argument(
         "--output",
         choices=("text", "json"),
         default="text",
-        help="Output format (default: text).",
+        help="Result format: 'text' (default) for reading, 'json' for a machine-readable run.",
     )
     fl.add_argument(
         "--save",
         metavar="DIR",
         default=None,
-        help="Save outputs to directory.",
+        help=(
+            "Directory to write each agent's output and the run's artifacts into. Required by "
+            "--background, which has nowhere else to report."
+        ),
     )
     fl.add_argument(
         "--team-mode",
@@ -564,6 +792,18 @@ def add_orchestrate_subparser(
             "Attach to a team by NAME — upsert semantics: load existing team "
             "if found (preserving message history), else create fresh. "
             "Mutually exclusive with --team-mode."
+        ),
+    )
+    fl.add_argument(
+        "--team-max-rounds",
+        type=int,
+        default=2,
+        metavar="N",
+        help=(
+            "In team mode (reactive), how many extra wakeup rounds the "
+            "coordinator may run after all currently-running workers signal "
+            "done, to deliver unread teammate messages before the run "
+            "wraps up (default: 2)."
         ),
     )
     fl.add_argument(
@@ -655,14 +895,11 @@ def add_orchestrate_subparser(
             "restore. Without this flag such ops refuse loudly, naming them."
         ),
     )
+    _add_mcp_config_args(fl)
     add_common_cli_args(fl)
 
-    # `li o ctl status <id>` — generic alias into the same status renderer as
-    # `li agent status` / `li play status` (ADR-0085 section 6). `pause` /
-    # `resume` / `msg` queue session_controls rows consumed by the control
-    # poller running alongside a live flow's heartbeat loop (ADR-0085 part 1).
-    # `stop` is out of scope for this slice — it depends on the checkpoint
-    # writer, which lands separately.
+    # `li o ctl status <id>` aliases the same status renderer as `li agent
+    # status`; pause/resume/msg queue session_controls rows for the poller.
     ctl = orch_sub.add_parser(
         "ctl",
         help="Control-plane surfaces for a run (status, pause, resume, msg).",
@@ -678,9 +915,18 @@ def add_orchestrate_subparser(
             "/ `li play status` when the kind is known."
         ),
     )
-    ctl_status.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
     ctl_status.add_argument(
-        "--json", action="store_true", dest="as_json", help="Emit a stable JSON object."
+        "id",
+        help=(
+            "Session, invocation or play id to report on — full, or an unambiguous prefix. "
+            "Required here: this command has no 'latest run' default."
+        ),
+    )
+    ctl_status.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Print one JSON object with stable keys instead of the human table, for scripting.",
     )
 
     ctl_pause = ctl_sub.add_parser(
@@ -691,14 +937,26 @@ def add_orchestrate_subparser(
             "it at the next op boundary (idempotent — safe to queue more than once)."
         ),
     )
-    ctl_pause.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
+    ctl_pause.add_argument(
+        "id",
+        help=(
+            "Running flow to pause, by session, invocation or play id (full, or an unambiguous "
+            "prefix). The pause lands at the next op boundary, not mid-op."
+        ),
+    )
 
     ctl_resume = ctl_sub.add_parser(
         "resume",
         help="Queue a resume for a paused flow.",
         description="Queues a resume control row, releasing a pending pause gate.",
     )
-    ctl_resume.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
+    ctl_resume.add_argument(
+        "id",
+        help=(
+            "Paused flow to release, by session, invocation or play id (full, or an unambiguous "
+            "prefix)."
+        ),
+    )
 
     ctl_msg = ctl_sub.add_parser(
         "msg",
@@ -709,17 +967,47 @@ def add_orchestrate_subparser(
             "Op-mode injection (--as-op) is not supported by this command yet."
         ),
     )
-    ctl_msg.add_argument("id", help="Session, invocation, or play ID (or short prefix).")
-    ctl_msg.add_argument("text", help="Message text to inject into the flow context.")
+    ctl_msg.add_argument(
+        "id",
+        help=(
+            "Running flow to message, by session, invocation or play id (full, or an unambiguous "
+            "prefix)."
+        ),
+    )
+    ctl_msg.add_argument(
+        "text",
+        help=(
+            "Message merged into the flow's workspace context. Ops already started will not see "
+            "it; every op that has not started yet will."
+        ),
+    )
 
     return {"fanout": fo, "flow": fl, "ctl": ctl}
+
+
+def _resolve_model_and_prompt(query: list[str]) -> tuple[str | None, str | None] | None:
+    """Assign a 0-2 token positional bucket to (model, prompt), mirroring the
+    `li agent` [MODEL] PROMPT convention: one token is the prompt, two are
+    (model, prompt). Returns None (after logging) for >2 positionals.
+    """
+    if len(query) > 2:
+        log_error(
+            "too many positional arguments — expected [MODEL] PROMPT. "
+            "Did you forget to quote the prompt?"
+        )
+        return None
+    if len(query) == 2:
+        return query[0], query[1]
+    if len(query) == 1:
+        return None, query[0]
+    return None, None
 
 
 def _run_orch_command(coro, *, verbose: bool, extra_handlers: tuple = ()) -> tuple[object, int]:
     """Run an orchestration coroutine, map shared exceptions to exit codes.
 
-    Returns (result, exit_code).  extra_handlers is a tuple of (ExcType, exit_code)
-    pairs checked before the shared map, allowing callers to handle pattern-specific
+    Returns (result, exit_code). extra_handlers is a tuple of (ExcType,
+    exit_code) pairs checked before the shared map, for pattern-specific
     exceptions without repeating the common mapping.
     """
     try:
@@ -742,9 +1030,22 @@ def _run_orch_command(coro, *, verbose: bool, extra_handlers: tuple = ()) -> tup
 
 def run_orchestrate(args: argparse.Namespace) -> int:
     if args.orch_command == "fanout":
-        has_model = args.model is not None or args.agent is not None
-        if not has_model:
-            log_error("model or --agent is required")
+        resolved = _resolve_model_and_prompt(getattr(args, "query", None) or [])
+        if resolved is None:
+            return 1
+        args.model, args.prompt = resolved
+
+        # Naming neither a model nor an agent is not an incomplete command here:
+        # setup_orchestration reads it as a request to orchestrate and resolves
+        # the default orchestrator profile. A prompt is still required, because
+        # nothing downstream can supply one.
+        if not args.prompt:
+            log_error("prompt is required")
+            return 1
+
+        prompt_err = _check_assembled_prompt(args.prompt)
+        if prompt_err is not None:
+            log_error(prompt_err)
             return 1
 
         synth = args.with_synthesis
@@ -777,14 +1078,20 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 invocation_id=getattr(args, "invocation", None),
                 project=getattr(args, "project", None),
                 pack=getattr(args, "pack", None),
+                notify=getattr(args, "notify", None),
+                mcp_config=getattr(args, "mcp_config", None),
+                no_mcp_config=getattr(args, "no_mcp_config", False),
             ),
             verbose=args.verbose,
+            # planning produced no usable assignments — fail loud with actionable message
+            extra_handlers=((FanoutPlanError, EXIT_CODE_BY_STATUS["failed"]),),
         )
         if rc != 0:
             return rc
+        fanout_result, fanout_terminal_status = output
         if not args.verbose:
-            print(output)
-        return 0
+            print(fanout_result)
+        return EXIT_CODE_BY_STATUS.get(fanout_terminal_status, 0)
 
     if args.orch_command == "flow":
         resume_target = getattr(args, "resume", None)
@@ -795,6 +1102,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                     allow_degraded_context=getattr(args, "allow_degraded_context", False),
                     dry_run=args.dry_run,
                     show_graph=getattr(args, "show_graph", False),
+                    notify=getattr(args, "notify", None),
                 ),
                 verbose=args.verbose,
                 extra_handlers=((FlowResumeError, EXIT_CODE_BY_STATUS["failed"]),),
@@ -805,6 +1113,11 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             if not args.verbose:
                 print(output)
             return EXIT_CODE_BY_STATUS.get(terminal_status, 0)
+
+        resolved = _resolve_model_and_prompt(getattr(args, "query", None) or [])
+        if resolved is None:
+            return 1
+        args.model, args.prompt = resolved
 
         playbook_name = getattr(args, "playbook", None)
         playbook_artifacts: dict | None = None
@@ -894,13 +1207,17 @@ def run_orchestrate(args: argparse.Namespace) -> int:
             args.prompt = args.model
             args.model = None
 
-        has_model = args.model is not None or args.agent is not None
-        if not has_model:
-            log_error("model or --agent is required")
-            return 1
-
+        # Naming neither a model nor an agent is not an incomplete command here:
+        # setup_orchestration reads it as a request to orchestrate and resolves
+        # the default orchestrator profile. A prompt is still required, because
+        # nothing downstream can supply one.
         if not args.prompt:
             log_error("prompt is required (positional or via -f spec file)")
+            return 1
+
+        prompt_err = _check_assembled_prompt(args.prompt)
+        if prompt_err is not None:
+            log_error(prompt_err)
             return 1
 
         if args.team_mode is not None and getattr(args, "team_attach", None) is not None:
@@ -976,6 +1293,7 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 save_dir=args.save,
                 team_name=args.team_mode,
                 team_attach=getattr(args, "team_attach", None),
+                team_max_rounds=getattr(args, "team_max_rounds", 2),
                 cwd=args.cwd,
                 timeout=args.timeout,
                 agent_name=args.agent,
@@ -991,6 +1309,9 @@ def run_orchestrate(args: argparse.Namespace) -> int:
                 invocation_id=getattr(args, "invocation", None),
                 project=getattr(args, "project", None),
                 pack=getattr(args, "pack", None),
+                notify=getattr(args, "notify", None),
+                mcp_config=getattr(args, "mcp_config", None),
+                no_mcp_config=getattr(args, "no_mcp_config", False),
             ),
             verbose=args.verbose,
             # planning produced no usable DAG — fail loud with actionable message

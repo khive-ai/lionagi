@@ -52,16 +52,13 @@ _TYPE_MARKER_LIST = 1
 _TYPE_MARKER_TUPLE = 2
 _TYPE_MARKER_SET = 3
 _TYPE_MARKER_FROZENSET = 4
-_TYPE_MARKER_PYDANTIC = 5  # Distinguishes dumped Pydantic models
-_TYPE_MARKER_MSGSPEC = 6  # Distinguishes msgspec Structs
+_TYPE_MARKER_PYDANTIC = 5
+_TYPE_MARKER_MSGSPEC = 6
 
 
 def _generate_hashable_representation(item: Any) -> Any:
-    """Convert object to stable, order-independent hashable representation.
-
-    Recursively transforms dicts/sets into sorted tuples with type markers
-    to ensure consistent hashing regardless of insertion order.
-    """
+    """Convert object to a stable, order-independent hashable representation
+    (dicts/sets become sorted tuples tagged with a type marker)."""
     if isinstance(item, _PRIMITIVE_TYPES):
         return item
 
@@ -120,7 +117,6 @@ def _generate_hashable_representation(item: Any) -> Any:
             tuple(_generate_hashable_representation(elem) for elem in sorted_elements),
         )
 
-    # Fallback for other types
     with contextlib.suppress(Exception):
         return str(item)
     with contextlib.suppress(Exception):

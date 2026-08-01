@@ -51,9 +51,15 @@ guidelines and instructions for contributing to this project.
 
 2. **Running Tests Locally**: Run `uv run pytest` (parallel, `-n auto`) before
    submitting. Use `uv run pytest tests/<file>.py -v` for a focused run and
-   `uv run pytest -n0 -s ...` to debug. Performance-sensitive changes should be
-   checked against the benchmarks in `benchmarks/` (`ci_compare.py` gates
-   regressions).
+   `uv run pytest -n0 -s ...` to debug. Performance-sensitive changes are
+   gated in CI by a same-machine A/B comparison, not a frozen baseline file.
+   See `benchmarks/README.md`'s "CI gating (same-machine A/B)" section for
+   how the baseline/current result JSONs are produced
+   (`benchmarks/run_paired_ab.py`) before `benchmarks/ci_compare.py` diffs
+   them. Running `ci_compare.py --baseline ... --current ...` directly
+   requires both result files to already exist; it exits 1, not a graceful
+   skip, if either is missing, since a missing baseline in CI means the A/B
+   setup itself failed rather than "nothing to gate on".
 
 ## Coding Standards
 
@@ -63,7 +69,8 @@ guidelines and instructions for contributing to this project.
    ruff, pyupgrade, markdownlint, and frontend/marketplace hooks when relevant).
    `[tool.ruff]` in `pyproject.toml` is the source of truth — line length
    **100**, target `py310`. CI tests Python 3.10 and 3.14 on PRs, and 3.10-3.14
-   on `main`/`develop` pushes.
+   on `main`/`develop` pushes. Merging into `main` requires the `ci-gate`
+   status check, which aggregates every PR-facing CI job.
 
 2. **PEP 8 / PEP 257**: follow standard style and docstring conventions; ruff's
    `E F W B I UP N S A` rule set enforces most of this (incl. import sorting,

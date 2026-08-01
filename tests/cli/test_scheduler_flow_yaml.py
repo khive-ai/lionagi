@@ -9,6 +9,10 @@ import os
 import textwrap
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+import lionagi.state.db as state_db_mod
+
 # ---------------------------------------------------------------------------
 # subprocess.build_argv tests
 # ---------------------------------------------------------------------------
@@ -88,8 +92,14 @@ def test_build_argv_flow_yaml_cleanup_on_spawn():
         with patch(
             "lionagi.studio.scheduler.subprocess.asyncio.create_subprocess_exec"
         ) as mock_exec:
+            # spawn_and_wait drains both pipes to EOF instead of calling
+            # communicate(), so the double presents readable pipes.
             mock_proc = MagicMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            for _pipe in ("stdout", "stderr"):
+                _stream = MagicMock()
+                _stream.read = AsyncMock(return_value=b"")
+                setattr(mock_proc, _pipe, _stream)
+            mock_proc.wait = AsyncMock(return_value=0)
             mock_proc.returncode = 0
             mock_exec.return_value = mock_proc
             return await spawn_and_wait(
@@ -149,6 +159,33 @@ def test_validate_flow_yaml_spec_rejects_invalid_field():
     assert "workers" in result
 
 
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        'bare: "true"\n',
+        "prompt: 42\n",
+        "save: 7\n",
+        "model: 42\n",
+        "artifacts: null\n",
+    ],
+)
+def test_validate_flow_yaml_spec_rejects_fields_execution_rejects(yaml_text):
+    """Fields the CLI execution validator rejects must also fail Studio validation."""
+    from lionagi.studio.services.schedules import _validate_flow_yaml_spec
+
+    result = _validate_flow_yaml_spec(yaml_text)
+    assert result is not None, f"{yaml_text!r} should be rejected"
+
+
+def test_validate_flow_yaml_spec_rejects_non_string_key():
+    """A YAML mapping with a non-string key must return an error, not raise TypeError."""
+    from lionagi.studio.services.schedules import _validate_flow_yaml_spec
+
+    result = _validate_flow_yaml_spec("1: value\n")
+    assert result is not None
+    assert "string" in result
+
+
 def test_create_schedule_rejects_empty_flow_yaml():
     """create_schedule raises ValueError when action_flow_yaml is missing."""
     import asyncio
@@ -195,6 +232,60 @@ def test_create_schedule_rejects_malformed_flow_yaml():
         raise AssertionError("Should have raised ValueError")
     except ValueError as exc:
         assert "flow_yaml" in str(exc).lower() or "YAML" in str(exc)
+
+
+def _minimal_command_schedule(name: str) -> dict:
+    return {
+        "name": name,
+        "trigger_type": "cron",
+        "cron_expr": "0 * * * *",
+        "action_kind": "agent",
+        "action_prompt": "say hi",
+    }
+
+
+def test_create_schedule_route_duplicate_name_returns_409(tmp_path, monkeypatch):
+    """Creating a schedule with a name that already exists must return 409,
+    not a generic server error."""
+    import lionagi.studio.services.schedules as schedules_mod
+
+    fake_db = tmp_path / "state.db"
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", fake_db)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", fake_db)
+    from fastapi.testclient import TestClient
+
+    from lionagi.studio.app import app
+
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+    body = _minimal_command_schedule("dup-schedule")
+    r1 = client.post("/api/schedules/", json=body)
+    assert r1.status_code == 201, r1.text
+    r2 = client.post("/api/schedules/", json=body)
+    assert r2.status_code == 409
+
+
+def test_create_schedule_route_storage_failure_is_not_409(tmp_path, monkeypatch):
+    """A non-conflict exception from the storage layer (e.g. RuntimeError)
+    must not be reported to the client as a 409 name conflict."""
+    import lionagi.studio.services.schedules as schedules_mod
+
+    fake_db = tmp_path / "state.db"
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", fake_db)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", fake_db)
+
+    async def _boom(self, schedule):
+        raise RuntimeError("storage offline")
+
+    monkeypatch.setattr(state_db_mod.StateDB, "create_schedule", _boom)
+
+    from fastapi.testclient import TestClient
+
+    from lionagi.studio.app import app
+
+    client = TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
+    r = client.post("/api/schedules/", json=_minimal_command_schedule("will-fail-schedule"))
+    assert r.status_code != 409
+    assert r.status_code == 500
 
 
 # ---------------------------------------------------------------------------
@@ -333,9 +424,13 @@ def test_spawn_and_wait_cancellation_cleans_tmp_file():
         with patch(
             "lionagi.studio.scheduler.subprocess.asyncio.create_subprocess_exec"
         ) as mock_exec:
+            # The cancel arrives while draining the pipes, which is where
+            # spawn_and_wait waits (simulates scheduler shutdown).
             mock_proc = MagicMock()
-            # communicate() raises CancelledError (simulates scheduler shutdown)
-            mock_proc.communicate = AsyncMock(side_effect=asyncio.CancelledError())
+            for _pipe in ("stdout", "stderr"):
+                _stream = MagicMock()
+                _stream.read = AsyncMock(side_effect=asyncio.CancelledError())
+                setattr(mock_proc, _pipe, _stream)
             mock_proc.pid = 9999999  # very large — os.getpgid won't find it
             mock_proc.terminate = MagicMock()
             mock_proc.kill = MagicMock()
@@ -452,6 +547,82 @@ def test_legacy_schedules_table_upgraded_and_flow_yaml_insert_succeeds():
     asyncio.run(_run())
 
 
+def test_legacy_rebuild_yields_full_canonical_columns():
+    """Legacy-table rebuild must reproduce the FULL schema_meta column set.
+
+    Guards the drift risk the old hand-written ``schedules_new`` literal carried:
+    the rebuild DDL is now derived from ``schema_meta.schedules``, so a legacy
+    table (missing later-added columns) must come out of ``StateDB`` open with
+    every canonical column — including the self-health poller columns — and a
+    ``github_poll`` schedule carrying those columns must roundtrip.
+    """
+    import asyncio
+    import os
+    import tempfile
+    import uuid
+
+    import aiosqlite
+
+    from lionagi.state.db import StateDB
+    from lionagi.state.schema_meta import schedules as schedules_table
+
+    async def _run():
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            # Pre-PR minimal schedules table: old CHECK, none of the columns
+            # added after the original schema (no self-health columns).
+            async with aiosqlite.connect(db_path) as raw:
+                await raw.execute("""
+                    CREATE TABLE schedules (
+                        id           TEXT PRIMARY KEY,
+                        name         TEXT NOT NULL UNIQUE,
+                        trigger_type TEXT NOT NULL,
+                        action_kind  TEXT NOT NULL
+                            CHECK(action_kind IN ('agent', 'flow', 'fanout', 'play')),
+                        github_repo  TEXT,
+                        created_at   REAL NOT NULL,
+                        updated_at   REAL NOT NULL
+                    )
+                """)
+                await raw.commit()
+
+            async with StateDB(db_path) as db:
+                async with db._engine.connect() as conn:
+                    from sqlalchemy import text as _text
+
+                    rows = (
+                        (await conn.execute(_text("PRAGMA table_info(schedules)"))).mappings().all()
+                    )
+                got = {r["name"] for r in rows}
+                expected = {c.name for c in schedules_table.columns}
+                assert got == expected, (
+                    f"rebuilt table drifted from schema_meta; "
+                    f"missing={expected - got} extra={got - expected}"
+                )
+
+                # A github_poll schedule using the self-health columns roundtrips.
+                sid = uuid.uuid4().hex[:12]
+                await db.create_schedule(
+                    {
+                        "id": sid,
+                        "name": "poller-health-roundtrip",
+                        "trigger_type": "github_poll",
+                        "action_kind": "agent",
+                        "github_repo": "owner/repo",
+                    }
+                )
+                await db.update_schedule(sid, last_healthy_poll_at=123.0, poller_consecutive_401=2)
+                row = await db.get_schedule(sid)
+            assert row is not None
+            assert row["last_healthy_poll_at"] == 123.0
+            assert row["poller_consecutive_401"] == 2
+        finally:
+            os.unlink(db_path)
+
+    asyncio.run(_run())
+
+
 # ---------------------------------------------------------------------------
 # Regression tests: PATCH validation
 # ---------------------------------------------------------------------------
@@ -527,3 +698,55 @@ def test_update_schedule_rejects_patch_with_malformed_yaml():
             mock_db.update_schedule.assert_not_called()
 
     asyncio.run(_run())
+
+
+def test_create_schedule_github_poll_requires_repo():
+    """create_schedule raises ValueError when a github_poll trigger has no github_repo.
+
+    Mirrors the cron/interval required-field guards — the check fires before any
+    DB write, so no state fixture is needed."""
+    import asyncio
+
+    from lionagi.studio.services.schedules import create_schedule
+
+    data = {
+        "name": "gh-no-repo",
+        "trigger_type": "github_poll",
+        "action_kind": "agent",
+        "action_prompt": "review",
+        # github_repo intentionally absent
+    }
+
+    async def _run():
+        await create_schedule(data)
+
+    try:
+        asyncio.run(_run())
+        raise AssertionError("Should have raised ValueError")
+    except ValueError as exc:
+        assert "github_repo" in str(exc)
+
+
+def test_create_schedule_rejects_non_positive_poll_interval():
+    """create_schedule raises ValueError when poll_interval_sec < 1 (fires pre-DB-write)."""
+    import asyncio
+
+    from lionagi.studio.services.schedules import create_schedule
+
+    data = {
+        "name": "gh-bad-poll",
+        "trigger_type": "github_poll",
+        "github_repo": "owner/name",
+        "poll_interval_sec": -1,
+        "action_kind": "agent",
+        "action_prompt": "review",
+    }
+
+    async def _run():
+        await create_schedule(data)
+
+    try:
+        asyncio.run(_run())
+        raise AssertionError("Should have raised ValueError")
+    except ValueError as exc:
+        assert "poll_interval_sec" in str(exc)

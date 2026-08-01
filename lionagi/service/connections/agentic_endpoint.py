@@ -14,6 +14,10 @@ class AgenticEndpoint(Endpoint):
 
     is_cli: ClassVar[bool] = True
 
+    # Early-first-chunk transports gate run.py's liveness watchdog (LIONAGI_WORKER_LIVENESS_TIMEOUT).
+    # See docs/internals/runtime.md.
+    streams_first_output_early: ClassVar[bool] = False
+
     DEFAULT_CONCURRENCY_LIMIT: ClassVar[int] = 3
     DEFAULT_QUEUE_CAPACITY: ClassVar[int] = 10
 

@@ -49,12 +49,20 @@ class TestValidateItemType:
         with pytest.raises(ValidationError, match="duplicated"):
             _validate_item_type([Element, Element])
 
-    def test_non_observable_type_raises_validation_error(self):
+    def test_any_class_is_accepted_conformance_is_checked_at_admission(self):
+        """item_type normalizes classes; it does not judge conformance.
+
+        Observable is structural, so conformance belongs to instances, not
+        classes: a class assigning ``self.id`` in ``__init__`` declares nothing
+        at class level yet its instances conform. Rejecting such classes here
+        would contradict the pile's own admission rule, so the check lives at
+        admission, where a real object can be inspected.
+        """
+
         class PlainClass:
             pass
 
-        with pytest.raises(ValidationError):
-            _validate_item_type(PlainClass)
+        assert _validate_item_type(PlainClass) == {PlainClass}
 
 
 # ---------------------------------------------------------------------------
@@ -344,17 +352,21 @@ class TestPileAsyncIteration:
         assert len(collected) == 4
 
     @pytest.mark.asyncio
-    async def test_anext_called_directly(self):
+    async def test_pile_is_not_an_async_iterator(self):
         a, b = Element(), Element()
         p = Pile(collections=[a, b])
-        item = await p.__anext__()
-        assert item is a
+        with pytest.raises(TypeError):
+            await anext(p)
 
     @pytest.mark.asyncio
-    async def test_anext_stop_async_iteration(self):
-        p = Pile(collections=[])
+    async def test_async_iterator_yields_then_stops(self):
+        a, b = Element(), Element()
+        p = Pile(collections=[a, b])
+        it = Pile.AsyncPileIterator(p)
+        assert await anext(it) is a
+        assert await anext(it) is b
         with pytest.raises(StopAsyncIteration):
-            await p.__anext__()
+            await anext(it)
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self):

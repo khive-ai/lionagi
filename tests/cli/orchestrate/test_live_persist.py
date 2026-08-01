@@ -51,6 +51,7 @@ def _minimal_env(orc_branch: Branch | None = None) -> OrchestrationEnv:
         orc_branch=orc_branch,
         builder=MagicMock(),
         orc_profile=None,
+        orc_profile_name=None,
         default_model_spec="claude",
         bare=False,
         effort=None,
@@ -102,6 +103,42 @@ async def test_start_creates_session_and_registers_hook_on_orc_branch(
     await stop_live_persist(env, status="completed")
 
 
+async def test_orchestration_manifest_tracks_start_and_terminal_status(
+    temp_db_path: Path, tmp_path: Path
+):
+    from lionagi.cli._runs import RunDir
+
+    env = _minimal_env()
+    env.run = RunDir(
+        run_id="orchestration-run",
+        state_root=tmp_path / "state",
+        artifact_root=tmp_path / "artifacts",
+    )
+    env.run.ensure_state_dirs()
+    env.run.ensure_artifact_root()
+
+    await start_live_persist(
+        env,
+        invocation_kind="flow",
+        agent_name="orchestrator",
+        model="codex/model",
+        provider="codex",
+    )
+
+    started = env.run.read_manifest()
+    assert started["branch_id"] == str(env.orc_branch.id)
+    assert started["agent_name"] == "orchestrator"
+    assert started["provider"] == "codex"
+    assert started["status"] == "running"
+    assert started["ended_at"] is None
+
+    await stop_live_persist(env, status="completed")
+
+    completed = env.run.read_manifest()
+    assert completed["status"] == "completed"
+    assert completed["ended_at"] >= completed["started_at"]
+
+
 # ── start_live_persist: failure path closes the DB ────────────────────────────
 
 
@@ -125,7 +162,7 @@ async def test_start_create_session_failure_closes_db(
 
     assert env._live_persist is None
     # No persistence is wired after the DB failure. Persistence rides the hook
-    # bus (ADR-0023b) and its emit hook (_persist_via_bus) is registered only by
+    # bus (ADR-0047) and its emit hook (_persist_via_bus) is registered only by
     # route_message_persistence — never reached here — so on_message_added holds
     # just the branch's baseline signal-emission hook (_schedule_emit).
     assert env.orc_branch.on_message_added == [env.orc_branch._schedule_emit]
@@ -182,6 +219,82 @@ async def test_register_branch_hook_creates_row_on_first_message(
     assert str(msg.id) in session_prog
 
     await stop_live_persist(env, status="completed")
+
+
+async def test_reactive_spawn_persists_spawned_branch(
+    temp_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A spawned branch is wired before its first message reaches persistence."""
+    from lionagi.casts.emission import SpawnRequest, TaskAssignment
+    from lionagi.cli.orchestrate.flow import _DagState, _execute_dag, _PlanResult
+    from lionagi.operations.builder import OperationGraphBuilder
+
+    env = _minimal_env()
+    worker = Branch(name="worker")
+    env.session.include_branches(worker)
+    env.builder = OperationGraphBuilder()
+    node_id = env.builder.add_operation(
+        "operate",
+        node_id="initial",
+        branch=worker,
+        instruction="spawn follow-up work",
+    )
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    spawned_branch_ids: list[str] = []
+
+    async def operate(self, instruction=None, **kwargs):
+        if self.id == worker.id:
+            return SpawnRequest(
+                instruction="persist the spawned result",
+                assignee="worker",
+                independent=True,
+            )
+        spawned_branch_ids.append(str(self.id))
+        await self.msgs.a_add_message(assistant_response="durable spawned result")
+        return "durable spawned result"
+
+    monkeypatch.setattr(Branch, "operate", operate)
+    plan_result = _PlanResult(
+        assignments=[TaskAssignment(task="spawn follow-up work", assignee="worker")],
+        agent_ids=["worker"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=[node_id],
+        known_nodes={node_id},
+        deps_by_node={node_id: []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={"worker": worker},
+        worker_models=["test/model"],
+    )
+
+    try:
+        exec_result = await _execute_dag(
+            env,
+            plan_result,
+            dag_state,
+            max_concurrent=1,
+            max_ops=0,
+        )
+
+        assert exec_result.n_spawned == 1
+        assert len(spawned_branch_ids) == 1
+        spawned_branch_id = spawned_branch_ids[0]
+        assert spawned_branch_id in ctx["branch_prog_ids"]
+        spawned_row = await ctx["db"].get_branch(spawned_branch_id)
+        assert spawned_row is not None
+        assert spawned_row["session_id"] == ctx["session_id"]
+        progression = await ctx["db"].get_progression(ctx["branch_prog_ids"][spawned_branch_id])
+        assert len(progression) == 1
+    finally:
+        await stop_live_persist(env, status="completed")
 
 
 async def test_register_branch_hook_ensure_branch_row_idempotent(
@@ -297,10 +410,10 @@ async def test_hook_swallows_db_write_failure(
     _register_branch_hook(env._live_persist, worker)
     hook = env._live_persist["hooks"][-1][1]
 
-    async def boom(self, msg):
+    async def boom(self, msg, **kwargs):
         raise RuntimeError("simulated busy timeout")
 
-    monkeypatch.setattr(StateDB, "insert_message", boom)
+    monkeypatch.setattr(StateDB, "_persist_live_message", boom)
 
     msg = MessageManager.create_instruction(
         instruction="hi",
@@ -445,6 +558,77 @@ async def test_stop_aggregates_usage_across_all_dag_leg_branches(
     # Must be a real sum across every leg, not just one branch's value and not zero.
     assert s["num_turns"] not in (0, 1, 3, 2)
     assert s["input_tokens"] not in (0, 10, 100, 200)
+
+
+async def test_stop_finalizes_branch_status_for_all_dag_legs(
+    temp_db_path: Path,
+):
+    """BRANCH_END: every leg tracked via ctx["hooks"] (including the
+    orchestrator branch itself, which never gets a per-op NodeCompleted/
+    NodeFailed status write from cli/orchestrate/flow.py) gets its terminal
+    status/ended_at written at teardown."""
+    from lionagi.protocols.messages.manager import MessageManager
+
+    orc_branch = Branch(name="orchestrator")
+    env = _minimal_env(orc_branch=orc_branch)
+    await start_live_persist(env)
+    orc_hook = env._live_persist["hooks"][0][1]
+    orc_msg = MessageManager.create_instruction(
+        instruction="plan", sender="u", recipient=str(orc_branch.id)
+    )
+    await orc_hook(orc_msg)  # first message -> lazily creates the orc branch row
+
+    worker = Branch(name="worker-1")
+    env.session.include_branches(worker)
+    _register_branch_hook(env._live_persist, worker)
+    worker_hook = env._live_persist["hooks"][-1][1]
+    worker_msg = MessageManager.create_instruction(
+        instruction="do", sender="u", recipient=str(worker.id)
+    )
+    await worker_hook(worker_msg)
+
+    await stop_live_persist(env, status="failed")
+
+    async with StateDB() as db:
+        orc_row = await db.get_branch(str(orc_branch.id))
+        worker_row = await db.get_branch(str(worker.id))
+
+    assert orc_row is not None
+    assert orc_row["status"] == "failed"
+    assert orc_row["ended_at"] is not None
+    assert worker_row is not None
+    assert worker_row["status"] == "failed"
+    assert worker_row["ended_at"] is not None
+
+
+async def test_stop_does_not_clobber_worker_status_flow_already_finalized(
+    temp_db_path: Path,
+):
+    """A worker branch flow.py's own NodeCompleted handler already marked
+    'completed' must survive teardown's coarser run-level BRANCH_END even
+    when the overall session ends 'failed' because a different leg failed."""
+    from lionagi.protocols.messages.manager import MessageManager
+
+    env = _minimal_env()
+    await start_live_persist(env)
+
+    worker = Branch(name="worker-done")
+    env.session.include_branches(worker)
+    _register_branch_hook(env._live_persist, worker)
+    hook = env._live_persist["hooks"][-1][1]
+    msg = MessageManager.create_instruction(instruction="a", sender="u", recipient=str(worker.id))
+    await hook(msg)
+
+    ctx = env._live_persist
+    # Simulate flow.py's NodeCompleted per-op write finalizing this leg early.
+    await ctx["db"].update_branch(str(worker.id), status="completed", ended_at=111.0)
+
+    await stop_live_persist(env, status="failed")
+
+    async with StateDB() as db:
+        worker_row = await db.get_branch(str(worker.id))
+    assert worker_row["status"] == "completed"
+    assert worker_row["ended_at"] == 111.0
 
 
 async def test_stop_removes_persistence_handler_from_bus(
@@ -709,6 +893,72 @@ def test_finalize_stores_dag_extras_for_live_persist_teardown(
     assert (tmp_path / f"{orc_branch_id}.json").exists()
 
 
+def test_finalize_merges_summed_khive_injection_stats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import lionagi.cli.orchestrate._orchestration as orch_mod
+    from lionagi.cli.orchestrate._orchestration import finalize_orchestration
+
+    monkeypatch.setattr(orch_mod, "save_last_branch_pointer", lambda *_: None)
+    monkeypatch.setattr(orch_mod, "hint", lambda *_: None)
+
+    env = _minimal_env()
+    worker = Branch(name="worker")
+    env.session.include_branches(worker)
+    for branch in (env.orc_branch, worker):
+        _mock_chat_model(branch)
+        branch.providers.register(object())
+    env.orc_branch.providers.stats.update({"recall_turns": 2, "blocks_injected": 3, "failed": 1})
+    worker.providers.stats.update(
+        {"recall_turns": 4, "writeback_records": 5, "writeback_failed": 2}
+    )
+    configure_run_for_finalize(env, tmp_path)
+
+    finalize_orchestration(
+        env,
+        kind="fanout",
+        prompt="analyze",
+        extras={"existing": "value"},
+        emit_hints=False,
+    )
+
+    assert env._finalize_extras == {
+        "existing": "value",
+        "khive_injection": {
+            "recall_turns": 6,
+            "blocks_injected": 3,
+            "failed": 1,
+            "writeback_records": 5,
+            "writeback_failed": 2,
+        },
+    }
+
+
+def test_finalize_omits_khive_injection_stats_without_registered_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import lionagi.cli.orchestrate._orchestration as orch_mod
+    from lionagi.cli.orchestrate._orchestration import finalize_orchestration
+
+    monkeypatch.setattr(orch_mod, "save_last_branch_pointer", lambda *_: None)
+    monkeypatch.setattr(orch_mod, "hint", lambda *_: None)
+
+    env = _minimal_env()
+    _mock_chat_model(env.orc_branch)
+    configure_run_for_finalize(env, tmp_path)
+
+    finalize_orchestration(
+        env,
+        kind="flow",
+        prompt="analyze",
+        extras={"existing": "value"},
+        emit_hints=False,
+    )
+
+    assert env._finalize_extras == {"existing": "value"}
+    assert "khive_injection" not in env._finalize_extras
+
+
 # ── Test 2.3 — finalize emits resume hints for orchestrator and workers ────────
 
 
@@ -951,8 +1201,29 @@ async def test_stop_close_failure_logs_warning_and_clears_context(
 async def test_stop_persists_cancelled_status_with_dag_metadata(
     temp_db_path: Path,
 ):
-    env = _minimal_env()
+    """'cancelled' must land on both the session row AND every DAG leg's
+    branch row -- not just 'completed'/'failed', which finalize_branch()'s
+    guard used to special-case."""
+    from lionagi.protocols.messages.manager import MessageManager
+
+    orc_branch = Branch(name="orchestrator")
+    env = _minimal_env(orc_branch=orc_branch)
     await start_live_persist(env)
+    orc_hook = env._live_persist["hooks"][0][1]
+    await orc_hook(
+        MessageManager.create_instruction(
+            instruction="plan", sender="u", recipient=str(orc_branch.id)
+        )
+    )
+
+    worker = Branch(name="worker-1")
+    env.session.include_branches(worker)
+    _register_branch_hook(env._live_persist, worker)
+    worker_hook = env._live_persist["hooks"][-1][1]
+    await worker_hook(
+        MessageManager.create_instruction(instruction="do", sender="u", recipient=str(worker.id))
+    )
+
     ctx = env._live_persist
     env._finalize_extras = dag_extras()
 
@@ -960,13 +1231,20 @@ async def test_stop_persists_cancelled_status_with_dag_metadata(
 
     async with StateDB() as db:
         s = await db.get_session(ctx["session_id"])
+        orc_row = await db.get_branch(str(orc_branch.id))
+        worker_row = await db.get_branch(str(worker.id))
 
     assert s["status"] == "cancelled"
     assert_dag_and_identity(s["node_metadata"])
     assert s["ended_at"] is not None
 
+    assert orc_row["status"] == "cancelled"
+    assert orc_row["ended_at"] is not None
+    assert worker_row["status"] == "cancelled"
+    assert worker_row["ended_at"] is not None
 
-# ── ADR-0029: artifact contract snapshot and verification ─────────────────────
+
+# ── ADR-0064: artifact contract snapshot and verification ─────────────────────
 
 
 async def test_start_persists_artifact_contract(
@@ -1080,7 +1358,123 @@ async def test_stop_verification_preserves_non_completed_reason(
     assert v["status"] == "failed"
 
 
-# ── ADR-0029 + ADR-0028: session→invocation propagation on missing artifact ──
+# ── issue #2053: post-completion finalize error must not flip a successful DAG ──
+
+
+async def test_stop_finalize_error_stays_completed_with_distinct_reason(
+    temp_db_path: Path,
+):
+    """A DAG that completed cleanly, but whose post-completion finalize step
+    (team-teardown/persistence) raised, must keep status="completed" (exit 0)
+    — the finalize error surfaces via its own reason code instead of flipping
+    the run's terminal status, and is distinguishable from both a clean
+    completion and a real DAG failure."""
+    env = _minimal_env()
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    # Mirrors what _finalize_flow (lionagi/cli/orchestrate/flow.py) stashes on
+    # the env when a post-DAG finalize step (e.g. _post_results_to_team's file
+    # lock) raises after the DAG already produced its result.
+    env._finalize_error = {"error_class": "TimeoutError", "error": "team lock timed out"}
+
+    final_status = await stop_live_persist(env, status="completed")
+    assert final_status == "completed"
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+    assert s["status_reason_code"] == "run.completed.finalize_error"
+    assert s["status_reason_code"] not in ("run.completed.ok", "run.failed.exception")
+    assert "TimeoutError" in s["status_reason_summary"]
+
+
+async def test_stop_finalize_error_does_not_override_real_dag_failure_reason(
+    temp_db_path: Path,
+):
+    """When the DAG itself failed, a finalize error must not mask the real
+    failure reason — it's recorded, but FAILED_EXCEPTION (or whatever the DAG
+    raised) stays the reason code, not COMPLETED_FINALIZE_ERROR."""
+    env = _minimal_env()
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    env._finalize_error = {"error_class": "OSError", "error": "disk full"}
+    dag_exc = RuntimeError("planner blew up")
+
+    final_status = await stop_live_persist(env, status="failed", exception=dag_exc)
+    assert final_status == "failed"
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "failed"
+    assert s["status_reason_code"] == "run.failed.exception"
+
+
+# ── output-write failure is a real failure, not a finalize hiccup ─────────────
+
+
+async def test_stop_artifact_write_error_flips_completed_to_failed_with_distinct_reason(
+    temp_db_path: Path,
+):
+    """Unlike a finalize hiccup (team post, snapshots), the synthesis artifact
+    IS the run's output. A DAG that completed but whose output write raised
+    must be reported as failed (exit 1), not completed — exit 0 with no
+    artifact is a success claim for a run that produced nothing. This must
+    fail against the pre-split code, where the write shared the same
+    `env._finalize_error` field as best-effort side effects and never
+    flipped `final_status`."""
+    env = _minimal_env()
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    # Mirrors what _finalize_flow (lionagi/cli/orchestrate/flow.py) stashes on
+    # the env when writing the synthesis artifact itself raises.
+    env._artifact_write_error = {"error_class": "OSError", "error": "disk full"}
+
+    final_status = await stop_live_persist(env, status="completed")
+    assert final_status == "failed"
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "failed"
+    assert s["status_reason_code"] == "run.failed.artifact_write"
+    assert s["status_reason_code"] not in ("run.completed.ok", "run.completed.finalize_error")
+    assert "OSError" in s["status_reason_summary"]
+
+
+async def test_stop_artifact_write_error_does_not_override_real_dag_failure_reason(
+    temp_db_path: Path,
+):
+    """When the DAG itself failed for an unrelated reason, an artifact-write
+    error found alongside it must not mask the real failure reason — the
+    original exception's reason code stays, with the write error recorded
+    only in metadata."""
+    env = _minimal_env()
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    env._artifact_write_error = {"error_class": "OSError", "error": "disk full"}
+    dag_exc = RuntimeError("planner blew up")
+
+    final_status = await stop_live_persist(env, status="failed", exception=dag_exc)
+    assert final_status == "failed"
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "failed"
+    assert s["status_reason_code"] == "run.failed.exception"
+
+
+# ── ADR-0064 + ADR-0057: session→invocation propagation on missing artifact ──
 #
 # The tests above prove the *session* row flips to failed/FAILED_MISSING_ARTIFACT.
 # A multi-leg `li play`/`li o flow` run is read by callers (Studio, `li status`,
@@ -1089,6 +1483,352 @@ async def test_stop_verification_preserves_non_completed_reason(
 # these confirm the flip a reviewer/critic gate leg produces actually reaches
 # the record a status-reader queries, and pin down exactly what does and does
 # not survive the trip.
+
+
+def _git(path: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", *args], cwd=str(path), capture_output=True, check=True)
+
+
+def _init_git_repo(path: Path) -> None:
+    _git(path, "init", "-b", "main")
+    _git(path, "config", "user.email", "test@test.com")
+    _git(path, "config", "user.name", "Test")
+    (path / "README.md").write_text("initial\n")
+    _git(path, "add", ".")
+    _git(path, "commit", "-m", "init")
+    _git(path, "checkout", "-b", "feature")
+
+
+async def test_stop_no_artifact_no_commits_flips_to_completed_empty(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """Completion-trust gate: a leg that declares no artifact contract and
+    leaves the worktree exactly where base found it — no commits ahead, no
+    dirty tree — must not read as a trustworthy `completed`."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed_empty"
+    assert s["status_reason_code"] == "run.completed_empty.no_evidence"
+    v = s["artifact_verification_json"]
+    # No artifact contract was declared, so verification itself is a no-op —
+    # the git evidence check is what actually gated this.
+    assert v is None
+
+
+async def test_stop_commits_ahead_of_base_stays_completed(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """Control case: commits ahead of base are real evidence — stays completed."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "fix.py").write_text("print('fixed')\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "the fix")
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+
+
+async def test_stop_dirty_working_tree_stays_completed(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """Control case: reproduces the reported incident shape — a substantive
+    fix sitting uncommitted in the working tree counts as evidence too."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "fix.py").write_text("print('uncommitted fix')\n")
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+
+
+async def test_stop_assistant_output_only_stays_completed(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """A research/read-only leg whose deliverable is its response text — no
+    commit, no dirty tree, no artifact — is legitimate work. A durable
+    assistant message must count as completion evidence in its own right,
+    or schedule chaining breaks for every read-only agent."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    async with StateDB() as db:
+        msg_id = "msg-answer-1"
+        await db.insert_message(
+            {
+                "id": msg_id,
+                "created_at": 1.0,
+                "content": {"assistant_response": "The answer to your question is 42."},
+                "role": "assistant",
+            }
+        )
+        await db.append_to_progression(ctx["session_prog_id"], msg_id)
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+
+
+async def test_stop_flushes_pending_only_message_before_completion_evidence(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """Teardown retries the only text event before deciding the run is empty."""
+    from sqlalchemy import event
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+    db = ctx["db"]
+    progression_updates = 0
+
+    def fail_second_progression(conn, cursor, statement, parameters, context, executemany):
+        nonlocal progression_updates
+        if statement.lstrip().startswith("UPDATE progressions"):
+            progression_updates += 1
+            if progression_updates == 2:
+                raise RuntimeError("injected middle progression failure")
+
+    event.listen(db._engine.sync_engine, "before_cursor_execute", fail_second_progression)
+    try:
+        only_message = await env.orc_branch.msgs.a_add_message(assistant_response="durable answer")
+    finally:
+        event.remove(db._engine.sync_engine, "before_cursor_execute", fail_second_progression)
+
+    assert await db.get_progression(ctx["session_prog_id"]) == []
+    assert ctx["message_retry_queues"][0].pending_count == 1
+
+    final_status = await stop_live_persist(env, status="completed")
+
+    async with StateDB() as check_db:
+        session_progression = await check_db.get_progression(ctx["session_prog_id"])
+        session = await check_db.get_session(ctx["session_id"])
+    assert session_progression == [str(only_message.id)]
+    assert final_status == "completed"
+    assert session["status"] == "completed"
+    assert session["status_reason_code"] != "run.completed_empty.no_evidence"
+
+
+async def test_stop_whitespace_only_assistant_message_still_gates(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """A blank/whitespace-only assistant message is not a real deliverable —
+    it must not be able to game the gate into staying `completed`."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    async with StateDB() as db:
+        msg_id = "msg-blank-1"
+        await db.insert_message(
+            {
+                "id": msg_id,
+                "created_at": 1.0,
+                "content": {"assistant_response": "   "},
+                "role": "assistant",
+            }
+        )
+        await db.append_to_progression(ctx["session_prog_id"], msg_id)
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed_empty"
+
+
+async def test_stop_no_cwd_never_gates_on_git_evidence(
+    temp_db_path: Path,
+):
+    """No cwd (e.g. a bare `li agent` with no --cwd) means the check has no
+    opinion — must not downgrade a completion it can't evaluate."""
+    env = _minimal_env()
+    assert env.cwd is None
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+
+
+async def test_teardown_skips_already_terminal_session_without_rejection_audit(
+    temp_db_path: Path,
+):
+    """A session already terminal (e.g. finalized by an earlier, concurrent
+    teardown of the same session) must not attempt a redundant terminal
+    overwrite — that trips the ADR-0035 floor and records a
+    status_transition_rejected admin event for a write that was never a real
+    integrity violation."""
+    env = _minimal_env()
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    async with StateDB() as db:
+        await db.update_status(
+            "session",
+            ctx["session_id"],
+            new_status="failed",
+            reason_code="run.failed.exception",
+            source="executor",
+            actor=ctx["session_id"],
+        )
+
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+        rejections = await db.list_admin_events(
+            action="status_transition_rejected", target_id=ctx["session_id"]
+        )
+    assert s is not None
+    # This invocation's own outcome was not persisted -- the earlier terminal
+    # record (from the "other" writer) is what must survive.
+    assert s["status"] == "failed"
+    assert rejections == []
+
+
+async def test_reconciled_linked_engine_completed_with_output_stays_completed(
+    temp_db_path: Path,
+    tmp_path: Path,
+):
+    """A profile session reconciled to a linked engine session's terminal
+    'completed' status must not then be demoted to 'completed_empty' by the
+    completion-trust gate just because the *profile* session's own
+    progression carries no assistant output — the linked engine session's own
+    progression (real answer text) is legitimate completion evidence too."""
+    from lionagi.cli._runs import teardown_persist
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    env = _minimal_env()
+    env.cwd = str(repo)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    engine_uid = "12121212-3434-5656-7878-909090909090"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "user",
+                    "uuid": "e-u1",
+                    "timestamp": "2026-06-20T00:00:00.000Z",
+                    "sessionId": engine_uid,
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "what is the answer?"}],
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "uuid": "e-a1",
+                    "timestamp": "2026-06-20T00:00:01.000Z",
+                    "sessionId": engine_uid,
+                    "message": {
+                        "role": "assistant",
+                        "model": "claude-opus-4-8",
+                        "content": [{"type": "text", "text": "The real answer is 42."}],
+                    },
+                },
+            ],
+            tool_names={},
+            status="completed",
+        )
+
+    final_status = await teardown_persist(
+        ctx,
+        status="failed",
+        exception=ProviderError("stream error"),
+        cwd=str(repo),
+        engine_session_uid=engine_uid,
+    )
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+        linked = await db.get_session(session_db_id(engine_uid))
+    assert linked["status"] == "completed"
+    assert final_status == "completed"
+    assert s is not None
+    assert s["status"] == "completed"
+    assert s["status_reason_code"] != "run.completed_empty.no_evidence"
 
 
 async def test_missing_artifact_session_failure_propagates_to_invocation_status(
@@ -1214,6 +1954,184 @@ async def test_all_legs_completed_resolves_invocation_completed(
     assert inv_status == "completed"
 
 
+async def test_child_finalize_error_surfaces_at_invocation_not_flattened_to_ok(
+    temp_db_path: Path,
+):
+    """issue #2053, seam 2: a child session can be "completed" (its own DAG
+    produced its result) while carrying a COMPLETED_FINALIZE_ERROR reason
+    (a guarded best-effort teardown step -- team post, snapshot, resume
+    pointer, graph -- failed). _resolve_invocation_terminal_flow must not
+    flatten that into plain COMPLETED_OK: a reader of the invocation record
+    needs to see the same degraded-but-not-failed distinction the child
+    record already carries, not a false "all clean" signal.
+
+    This must FAIL against the pre-fix resolver, which only inspects
+    child_statuses (all "completed") and returns RunReasons.COMPLETED_OK
+    regardless of status_reason_code.
+    """
+    from lionagi.cli.orchestrate.flow import _resolve_invocation_terminal_flow
+    from lionagi.state.reasons import RunReasons
+
+    invocation_id = "inv-child-finalize-error"
+
+    async with StateDB() as db:
+        await db.create_invocation({"id": invocation_id, "skill": "flow", "started_at": 0.0})
+
+    env = _minimal_env()
+    await start_live_persist(env, invocation_kind="flow", invocation_id=invocation_id)
+    ctx = env._live_persist
+    assert ctx is not None
+
+    # Mirrors what _finalize_flow stashes on the env when a post-DAG,
+    # non-output finalize step (e.g. the team-inbox post) raises after the
+    # DAG already produced its result.
+    env._finalize_error = {"error_class": "TimeoutError", "error": "team lock timed out"}
+
+    final_status = await stop_live_persist(env, status="completed")
+    assert final_status == "completed"
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+    assert s["status_reason_code"] == RunReasons.COMPLETED_FINALIZE_ERROR
+
+    (
+        inv_status,
+        inv_reason_code,
+        inv_summary,
+        inv_evidence,
+        _inv_metadata,
+    ) = await _resolve_invocation_terminal_flow(invocation_id, fallback_status="completed")
+
+    # The DAG's own work succeeded -- do not fail the run for a best-effort
+    # teardown step.
+    assert inv_status == "completed"
+    # But the degraded reason must survive the child->invocation hop, not
+    # collapse into indistinguishable clean success.
+    assert inv_reason_code == RunReasons.COMPLETED_FINALIZE_ERROR
+    assert inv_reason_code != RunReasons.COMPLETED_OK
+    assert any(e.get("id") == ctx["session_id"] for e in inv_evidence)
+
+    # Persist and read back exactly as _run_flow's finally block does --
+    # "the record a status-reader sees" for the invocation itself.
+    async with StateDB() as db:
+        await db.update_status(
+            "invocation",
+            invocation_id,
+            new_status=inv_status,
+            reason_code=inv_reason_code,
+            reason_summary=inv_summary,
+            evidence_refs=inv_evidence,
+            source="executor",
+            actor=invocation_id,
+            metadata=_inv_metadata,
+        )
+        inv_row = await db.get_invocation(invocation_id)
+    assert inv_row is not None
+    assert inv_row["status"] == "completed"
+    assert inv_row["status_reason_code"] == RunReasons.COMPLETED_FINALIZE_ERROR
+
+
+async def test_finalize_side_effects_guarded_independently(
+    temp_db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """issue #2053, secondary: the best-effort finalize side effects (team
+    post, snapshot/resume-pointer, graph image) must each be guarded on
+    their own -- a raising team post must not skip the snapshot/resume
+    pointer step that runs after it.
+
+    This must FAIL against the pre-fix code, where all three shared one
+    try/except: the first raise (team post) skipped `finalize_orchestration`
+    entirely, so no session snapshot/resume pointer was ever written.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import lionagi.cli.orchestrate._orchestration as orch_mod
+    from lionagi.cli.orchestrate.flow import (
+        _DagState,
+        _ExecResult,
+        _finalize_flow,
+        _PlanResult,
+    )
+
+    monkeypatch.setattr(orch_mod, "save_last_branch_pointer", lambda run_id, bid: None)
+
+    env = _minimal_env()
+    env.team_data = {"id": "team-x", "name": "team-x"}
+    configure_run_for_finalize(env, tmp_path)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+
+    plan_result = _PlanResult(
+        assignments=[SimpleNamespace(assignee="worker")],
+        agent_ids=["op1"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["op1"],
+        known_nodes={"op1"},
+        deps_by_node={"op1": []},
+        reactive=False,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["claude"],
+    )
+    exec_result = _ExecResult(
+        agent_results=[
+            {
+                "id": "op1",
+                "agent_id": "op1",
+                "name": "worker",
+                "assignee": "worker",
+                "response": "done",
+                "model": "claude",
+                "spawned": False,
+                "time_ms": 100.0,
+            }
+        ],
+        n_spawned=0,
+        t_exec_elapsed=0.1,
+    )
+
+    with patch(
+        "lionagi.cli.orchestrate.flow._post_results_to_team",
+        side_effect=RuntimeError("team lock timed out"),
+    ):
+        _finalize_flow(
+            env,
+            "do the thing",
+            plan_result,
+            dag_state,
+            exec_result,
+            None,
+            output_format="text",
+            show_graph=False,
+        )
+
+    assert env._finalize_error is not None
+    assert env._finalize_error["error_class"] == "RuntimeError"
+
+    final_status = await stop_live_persist(env, status="completed")
+    assert final_status == "completed"
+
+    async with StateDB() as db:
+        session = await db.get_session(ctx["session_id"])
+    assert session is not None
+    assert session["status_reason_code"] == "run.completed.finalize_error"
+    node_metadata = session["node_metadata"]
+    assert isinstance(node_metadata, dict)
+    # The snapshot/resume-pointer step (finalize_orchestration) ran despite
+    # the earlier team-post failure -- proven by its extras landing in
+    # node_metadata.
+    assert node_metadata.get("agents") is not None
+    assert node_metadata["agents"][0]["id"] == "op1"
+
+
 # ── bench545 regressions: plan-time per-leg wiring + escalation backstop ──────
 #
 # Both tests below reproduce the actual production gap (play fe9a23ac,
@@ -1266,7 +2184,7 @@ async def test_build_dag_wires_role_artifact_defaults_into_live_contract_and_fai
 
     with patch(
         "lionagi.cli.orchestrate.flow.build_worker_branch",
-        return_value=(Branch(name="reviewer"), "codex/gpt-5.5", None),
+        return_value=(Branch(name="reviewer"), "codex/gpt-5.5", None, False),
     ):
         await _build_dag(env, "review this PR", plan_result, reactive_spec="off")
 
@@ -1376,6 +2294,184 @@ async def test_execute_dag_escalation_without_artifact_declaration_fails_loud(
     assert any(e.get("id") == "worker" for e in evidence)
 
 
+async def test_execute_dag_drains_inflight_branch_status_before_teardown(
+    temp_db_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from lionagi.casts.emission import TaskAssignment
+    from lionagi.cli.orchestrate.flow import _DagState, _execute_dag, _PlanResult
+    from lionagi.engines import PlanningEngine
+    from lionagi.session.signal import NodeCompleted
+
+    env = _minimal_env()
+    worker = Branch(name="worker")
+    env.session.include_branches(worker)
+    await start_live_persist(env, invocation_kind="flow")
+    ctx = env._live_persist
+    assert ctx is not None
+    write_started = asyncio.Event()
+    release_write = asyncio.Event()
+    events: list[str] = []
+    real_update_branch = ctx["db"].update_branch
+
+    async def delayed_update_branch(branch_id, **kwargs):
+        events.append("write-started")
+        write_started.set()
+        await release_write.wait()
+        await real_update_branch(branch_id, **kwargs)
+        events.append("write-finished")
+
+    monkeypatch.setattr(ctx["db"], "update_branch", delayed_update_branch)
+    plan_result = _PlanResult(
+        assignments=[TaskAssignment(task="work", assignee="worker")],
+        agent_ids=["worker"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=False,
+        spawn_roles=None,
+        role_base={"worker": worker},
+        worker_models=["codex/model"],
+    )
+
+    async def run_dag(graph, **kwargs):
+        await env.session.emit(NodeCompleted(op_id="node-0", name="worker"))
+        return {
+            "operation_results": {"node-0": "done"},
+            "spawned_operations": 0,
+            "escalated_operations": [],
+        }
+
+    engine_run = SimpleNamespace(run_dag=run_dag)
+    with patch.object(PlanningEngine, "new_run", return_value=engine_run):
+
+        async def execute_then_teardown():
+            await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+            events.append("teardown-started")
+            await stop_live_persist(env, status="completed")
+
+        execute_task = asyncio.create_task(execute_then_teardown())
+        await write_started.wait()
+        await asyncio.sleep(0)
+        assert not execute_task.done()
+        events.append("teardown-waiting")
+        release_write.set()
+        await execute_task
+
+    assert events.index("write-finished") < events.index("teardown-started")
+    assert env._live_persist is None
+
+
+async def test_flow_timeout_shields_completed_branch_status_until_commit(
+    temp_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from lionagi._errors import TimeoutError as LionTimeoutError
+    from lionagi.casts.emission import TaskAssignment
+    from lionagi.cli.orchestrate import flow as flow_module
+    from lionagi.cli.orchestrate._orchestration import register_branch_hook
+    from lionagi.engines import PlanningEngine
+    from lionagi.operations.builder import OperationGraphBuilder
+    from lionagi.session.signal import NodeCompleted
+
+    env = _minimal_env()
+    env.run.run_id = "timeout-status-drain"
+    env.builder = OperationGraphBuilder()
+
+    release_write = asyncio.Event()
+    execution_cancelled = asyncio.Event()
+    status_write_cancelled = asyncio.Event()
+    write_committed = asyncio.Event()
+    worker_id = ""
+
+    async def plan_once(*args, **kwargs):
+        return [TaskAssignment(task="finish one operation", assignee="worker")]
+
+    async def build_worker(*args, **kwargs):
+        nonlocal worker_id
+        worker = Branch(name=kwargs["agent_id"])
+        worker_id = str(worker.id)
+        env.session.include_branches(worker)
+        ctx = env._live_persist
+        assert ctx is not None
+        register_branch_hook(ctx, worker)
+        await worker.msgs.a_add_message(assistant_response="durable result")
+
+        real_update_branch = ctx["db"].update_branch
+
+        async def delayed_update_branch(branch_id, **fields):
+            if fields.get("status") != "completed":
+                return await real_update_branch(branch_id, **fields)
+            try:
+                await release_write.wait()
+            except asyncio.CancelledError:
+                status_write_cancelled.set()
+                raise
+            await real_update_branch(branch_id, **fields)
+            write_committed.set()
+
+        real_close = ctx["db"].close
+
+        async def tracked_close():
+            assert write_committed.is_set()
+            await real_close()
+
+        monkeypatch.setattr(ctx["db"], "update_branch", delayed_update_branch)
+        monkeypatch.setattr(ctx["db"], "close", tracked_close)
+        return worker, "test/model", None, False
+
+    class BlockingEngineRun:
+        async def run_dag(self, graph, **kwargs):
+            node_id = str(next(iter(graph.internal_nodes)))
+            await env.session.emit(NodeCompleted(op_id=node_id, name="worker"))
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                execution_cancelled.set()
+                raise
+
+    async def release_after_timeout():
+        await execution_cancelled.wait()
+        await asyncio.sleep(0.05)
+        release_write.set()
+
+    async def setup_env(**kwargs):
+        return env
+
+    monkeypatch.setattr(flow_module, "setup_orchestration", setup_env)
+    monkeypatch.setattr(flow_module, "available_roles", lambda: ["worker"])
+    monkeypatch.setattr(flow_module, "plan", plan_once)
+    monkeypatch.setattr(flow_module, "build_worker_branch", build_worker)
+    monkeypatch.setattr(PlanningEngine, "new_run", lambda self, *, session: BlockingEngineRun())
+
+    release_task = asyncio.create_task(release_after_timeout())
+    try:
+        with pytest.raises(LionTimeoutError):
+            await flow_module._run_flow("test/model", "run once", timeout=2)
+    finally:
+        release_write.set()
+        release_task.cancel()
+        await asyncio.gather(release_task, return_exceptions=True)
+
+    assert execution_cancelled.is_set()
+    assert not status_write_cancelled.is_set()
+    assert write_committed.is_set()
+    async with StateDB() as db:
+        branch = await db.get_branch(worker_id)
+    assert branch is not None
+    assert branch["status"] == "completed"
+    assert env._live_persist is None
+
+
 async def test_execute_dag_escalation_backstop_catches_reactively_spawned_node(
     temp_db_path: Path,
     tmp_path: Path,
@@ -1389,6 +2485,7 @@ async def test_execute_dag_escalation_backstop_catches_reactively_spawned_node(
     `escalated_operations` but absent from `node_ids`/`known_nodes` — and
     confirm it still surfaces past the backstop.
     """
+    from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
     from lionagi.casts.emission import TaskAssignment
@@ -1417,6 +2514,14 @@ async def test_execute_dag_escalation_backstop_catches_reactively_spawned_node(
         role_base={},
         worker_models=["codex/gpt-5.5"],
     )
+
+    # This node was injected directly (e.g. an EscalationRequest child, or a
+    # raw Session.flow inject()) rather than through role_node_builder, so it
+    # carries no stamped spawn_id in the graph — the evidence must fall back
+    # to its raw node id, same as the artifact-recovery loop's own unstamped
+    # fallback. env.builder defaults to a bare MagicMock() (_minimal_env),
+    # whose auto-attributes would otherwise look like a "found" node.
+    env.builder.get_graph = lambda: SimpleNamespace(nodes=[], internal_nodes={})
 
     from lionagi.engines import PlanningEngine
 

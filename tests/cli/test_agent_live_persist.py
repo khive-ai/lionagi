@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import threading
 from pathlib import Path
 from unittest import mock
@@ -62,7 +64,7 @@ async def test_setup_creates_session_branch_progression_rows(
     assert ctx["branch_prog_id"]
     assert ctx["existing_msg_ids"] == set()
     assert ctx["new_msg_ids"] == []
-    # Persistence rides the hook bus (ADR-0023b): the persist handler is on the
+    # Persistence rides the hook bus (ADR-0047): the persist handler is on the
     # session bus, and the branch's emit hook drives MESSAGE_ADD.
     from lionagi.hooks.bus import HookPoint
 
@@ -387,6 +389,45 @@ async def test_hook_dedupes_existing_messages_on_resume(
     await _teardown_live_persist(ctx2, status="completed")
 
 
+async def test_hook_persists_one_assistant_message_in_one_transaction(
+    temp_db_path: Path,
+):
+    """The live hook commits one assistant message and its bookkeeping together."""
+    from lionagi.protocols.messages.manager import MessageManager
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+    msg = MessageManager.create_assistant_response(
+        assistant_response="one transaction",
+        recipient=str(branch.id),
+    )
+    statements: list[str] = []
+    db = ctx["db"]
+    async with db._read() as conn:
+        raw_conn = await conn.get_raw_connection()
+        await raw_conn.driver_connection.set_trace_callback(statements.append)
+    try:
+        await ctx["hook"](msg)
+    finally:
+        async with db._read() as conn:
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.set_trace_callback(None)
+
+    tx_statements = [statement.strip().upper() for statement in statements]
+    assert tx_statements.count("BEGIN IMMEDIATE") == 1
+    assert tx_statements.count("COMMIT") == 1
+
+    async with StateDB() as check_db:
+        saved = await check_db.get_message(str(msg.id))
+        branch_progression = await check_db.get_progression(ctx["branch_prog_id"])
+        session_progression = await check_db.get_progression(ctx["session_prog_id"])
+    assert saved is not None
+    assert branch_progression == [str(msg.id)]
+    assert session_progression == [str(msg.id)]
+
+    await _teardown_live_persist(ctx, status="completed")
+
+
 async def test_hook_swallows_db_write_failure(
     temp_db_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -400,11 +441,11 @@ async def test_hook_swallows_db_write_failure(
     branch = Branch(name="b1")
     ctx = await _setup_live_persist(branch)
 
-    # Monkeypatch insert_message to raise.
-    async def boom(self, msg):
+    # Monkeypatch the live-persist bundle to raise.
+    async def boom(self, msg, **kwargs):
         raise RuntimeError("simulated busy timeout")
 
-    monkeypatch.setattr(StateDB, "insert_message", boom)
+    monkeypatch.setattr(StateDB, "_persist_live_message", boom)
 
     msg = MessageManager.create_instruction(
         instruction="hi",
@@ -420,6 +461,97 @@ async def test_hook_swallows_db_write_failure(
         "expected WARNING log on hook DB-write failure"
     )
 
+    await _teardown_live_persist(ctx, status="completed")
+
+
+async def test_hook_retries_middle_transaction_failure_before_next_message(
+    temp_db_path: Path,
+):
+    """A rolled-back message remains pending and commits before the next event."""
+    from sqlalchemy import event
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+    db = ctx["db"]
+    progression_updates = 0
+
+    def fail_second_progression(conn, cursor, statement, parameters, context, executemany):
+        nonlocal progression_updates
+        if statement.lstrip().startswith("UPDATE progressions"):
+            progression_updates += 1
+            if progression_updates == 2:
+                raise RuntimeError("injected middle progression failure")
+
+    event.listen(db._engine.sync_engine, "before_cursor_execute", fail_second_progression)
+    try:
+        lost = await branch.msgs.a_add_message(instruction="lost")
+    finally:
+        event.remove(db._engine.sync_engine, "before_cursor_execute", fail_second_progression)
+
+    assert await db.get_message(str(lost.id)) is None
+    assert await db.get_progression(ctx["branch_prog_id"]) == []
+    assert await db.get_progression(ctx["session_prog_id"]) == []
+    assert ctx["message_retry_queues"][0].pending_count == 1
+    assert ctx["new_msg_ids"] == []
+
+    next_message = await branch.msgs.a_add_message(instruction="next")
+
+    assert await db.get_progression(ctx["branch_prog_id"]) == [
+        str(lost.id),
+        str(next_message.id),
+    ]
+    assert await db.get_progression(ctx["session_prog_id"]) == [
+        str(lost.id),
+        str(next_message.id),
+    ]
+    assert await db.get_message(str(lost.id)) is not None
+    assert await db.get_message(str(next_message.id)) is not None
+    assert ctx["message_retry_queues"][0].pending_count == 0
+    assert ctx["new_msg_ids"] == [str(lost.id), str(next_message.id)]
+
+    await _teardown_live_persist(ctx, status="completed")
+
+
+async def test_hook_preserves_order_when_first_queued_retry_fails_again(
+    temp_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A later event cannot bypass an earlier queued event that still fails."""
+    from lionagi.protocols.messages.manager import MessageManager
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+    original_persist = StateDB._persist_live_message
+    attempted_ids: list[str] = []
+
+    async def fail_persist(self, message, **kwargs):
+        attempted_ids.append(message["id"])
+        raise RuntimeError("simulated transient failure")
+
+    monkeypatch.setattr(StateDB, "_persist_live_message", fail_persist)
+
+    first = MessageManager.create_instruction(
+        instruction="first",
+        sender="user",
+        recipient=str(branch.id),
+    )
+    await ctx["hook"](first)
+    attempted_ids.clear()
+
+    second = MessageManager.create_instruction(
+        instruction="second",
+        sender="user",
+        recipient=str(branch.id),
+    )
+    await ctx["hook"](second)
+
+    assert attempted_ids == [str(first.id)]
+    assert ctx["message_retry_queues"][0].pending_count == 2
+    async with StateDB() as db:
+        assert await db.get_message(str(second.id)) is None
+        assert await db.get_progression(ctx["branch_prog_id"]) == []
+
+    monkeypatch.setattr(StateDB, "_persist_live_message", original_persist)
     await _teardown_live_persist(ctx, status="completed")
 
 
@@ -479,6 +611,121 @@ async def test_teardown_updates_session_bookmarks_and_status(
     assert s["first_msg_id"] == str(msg_a.id)
     assert s["last_msg_id"] == str(msg_b.id)
     assert s["ended_at"] is not None
+
+
+async def test_teardown_extras_preserve_existing_node_metadata(
+    temp_db_path: Path,
+):
+    """Teardown extras extend the session metadata object.
+
+    Process identity from setup must survive telemetry writes.
+    """
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    async with StateDB() as db:
+        before = await db.get_session(ctx["session_id"])
+    initial_metadata = before["node_metadata"]
+    if isinstance(initial_metadata, str):
+        initial_metadata = json.loads(initial_metadata)
+
+    counters = {
+        "recall_turns": 2,
+        "blocks_injected": 3,
+        "failed": 1,
+        "writeback_records": 5,
+        "writeback_failed": 2,
+    }
+    await _teardown_live_persist(
+        ctx,
+        status="failed",
+        exception=RuntimeError("boom"),
+        extras={"khive_injection": counters},
+    )
+
+    async with StateDB() as db:
+        after = await db.get_session(ctx["session_id"])
+    final_metadata = after["node_metadata"]
+    if isinstance(final_metadata, str):
+        final_metadata = json.loads(final_metadata)
+
+    assert all(final_metadata[key] == value for key, value in initial_metadata.items())
+    assert final_metadata["khive_injection"] == counters
+
+
+async def test_teardown_finalizes_branch_status_and_ended_at(
+    temp_db_path: Path,
+):
+    """The single-branch agent path never gets branches.status written
+    anywhere else (create_branch() doesn't set it and there was no
+    terminal-status hook) — teardown's BRANCH_END emission is its only
+    finalize."""
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    async with StateDB() as db:
+        before = await db.get_branch(str(branch.id))
+    assert before["status"] is None
+    assert before["ended_at"] is None
+
+    await _teardown_live_persist(ctx, status="completed")
+
+    async with StateDB() as db:
+        after = await db.get_branch(str(branch.id))
+    assert after["status"] == "completed"
+    assert after["ended_at"] is not None
+
+
+async def test_teardown_finalizes_branch_status_failed_on_exception(
+    temp_db_path: Path,
+):
+    """A branch whose operation raised must not be left with a NULL/'running'
+    status forever — teardown finalizes it to the run's actual outcome."""
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    await _teardown_live_persist(ctx, status="failed", exception=RuntimeError("boom"))
+
+    async with StateDB() as db:
+        b = await db.get_branch(str(branch.id))
+    assert b["status"] == "failed"
+    assert b["ended_at"] is not None
+
+
+async def test_teardown_branch_end_skipped_when_defer_terminal(
+    temp_db_path: Path,
+):
+    """defer_terminal=True skips ALL DB mutation, including BRANCH_END — the
+    resumed leg's own (non-deferred) teardown owns the real finalize."""
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    await _teardown_live_persist(ctx, status="timed_out", defer_terminal=True)
+
+    async with StateDB() as db:
+        b = await db.get_branch(str(branch.id))
+    assert b["status"] is None
+    assert b["ended_at"] is None
+
+
+async def test_teardown_branch_end_guard_skips_already_terminal_branch(
+    temp_db_path: Path,
+):
+    """finalize_branch()'s guard: a branch row already in a terminal status
+    (however it got there) is never overwritten by a later teardown's
+    coarser run-level status."""
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    async with StateDB() as db:
+        await db.update_branch(str(branch.id), status="completed", ended_at=111.0)
+
+    await _teardown_live_persist(ctx, status="failed", exception=RuntimeError("boom"))
+
+    async with StateDB() as db:
+        b = await db.get_branch(str(branch.id))
+    assert b["status"] == "completed"
+    assert b["ended_at"] == 111.0
 
 
 async def test_teardown_detaches_persistence_from_bus(
@@ -558,7 +805,6 @@ async def test_rejected_second_setup_leaves_first_context_intact(
 
 async def test_failed_setup_releases_branch_claim(
     temp_db_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ):
     """Setup failing AFTER the wrapper session claims the branch must release
     the claim, so a retry (or a later run) can wrap the branch again."""
@@ -567,14 +813,19 @@ async def test_failed_setup_releases_branch_claim(
     async def boom():
         raise RuntimeError("simulated db-open failure")
 
-    monkeypatch.setattr(_runs_mod, "_open_shared_db", boom)
-
     branch = Branch(name="b1")
-    ctx = await _setup_live_persist(branch)
-    assert ctx is None
-    assert branch._owning_session_id is None
 
-    monkeypatch.undo()
+    # Scoped to its own MonkeyPatch context (not the test's shared `monkeypatch`
+    # fixture) so undoing it on exit only reverts `_open_shared_db` — reusing
+    # the shared fixture + `monkeypatch.undo()` here would also roll back
+    # `temp_db_path`'s DEFAULT_DB_PATH patch and point the retry below at the
+    # real `~/.lionagi/state.db`.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(_runs_mod, "_open_shared_db", boom)
+        ctx = await _setup_live_persist(branch)
+        assert ctx is None
+        assert branch._owning_session_id is None
+
     ctx2 = await _setup_live_persist(branch)
     assert ctx2 is not None
     await _teardown_live_persist(ctx2, status="completed")
@@ -583,6 +834,171 @@ async def test_failed_setup_releases_branch_claim(
 async def test_teardown_with_none_context_is_noop(temp_db_path: Path):
     """If setup returned None (failed), teardown(None) must be safe."""
     await _teardown_live_persist(None, status="completed")  # MUST NOT raise
+
+
+# ── defer_terminal: auto-resume must not stamp a premature terminal status ────
+
+
+async def test_teardown_defer_terminal_leaves_session_running(
+    temp_db_path: Path,
+):
+    """defer_terminal=True (an auto-resume leg is about to fire on this same
+    session) must skip the status write entirely, leaving the session at
+    'running' for the resumed leg to own the real terminal write."""
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    result = await _teardown_live_persist(ctx, status="timed_out", defer_terminal=True)
+
+    assert result == "timed_out"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s["status"] == "running"
+    assert s["ended_at"] is None
+
+
+async def test_teardown_defer_terminal_still_detaches_hooks(
+    temp_db_path: Path,
+):
+    """Even when the status write is deferred, non-status bookkeeping (hook
+    unroute) still runs so a closed-DB handler cannot fire later."""
+    from lionagi.hooks.bus import HookPoint
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+    bus = branch._hooks
+
+    await _teardown_live_persist(ctx, status="timed_out", defer_terminal=True)
+
+    assert ctx["hook"] not in bus.handlers_for(HookPoint.MESSAGE_ADD)
+    assert branch._persist_via_bus not in branch.on_message_added
+
+
+async def test_teardown_non_resume_timeout_stamps_terminal_unchanged(
+    temp_db_path: Path,
+):
+    """defer_terminal defaults to False: a genuine (non-auto-resume) timeout
+    still stamps a terminal 'timed_out' status exactly as before this fix."""
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    result = await _teardown_live_persist(ctx, status="timed_out")
+
+    assert result == "timed_out"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s["status"] == "timed_out"
+    assert s["ended_at"] is not None
+
+
+# ── ADR-0035 terminal-race: a second teardown must not crash past callers ─────
+
+
+async def test_teardown_already_terminal_session_reports_attempted_status(
+    temp_db_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    """A teardown that reattaches to a session an EARLIER, unrelated run
+    already finalized (setup_agent_persist reuses an existing branch's
+    session without checking terminality) must not let the stale persisted
+    status masquerade as this invocation's outcome: a later leg's genuine
+    'failed' must not be silently reported back as the old 'completed'. The
+    rejection must still protect the DB row (ADR-0035 unchanged) — only the
+    caller-visible return value differs, and it's logged at warning level.
+
+    Setup now reopens a resumed session before the leg runs, so by the time
+    this teardown reads the row it is running rather than terminal and the
+    write lands. The stale status can no longer masquerade as this leg's
+    outcome because it is no longer there to do so, and the earlier leg's
+    outcome is kept in the transition history rather than on the row.
+    """
+    branch = Branch(name="b1")
+    ctx1 = await _setup_live_persist(branch)
+    first = await _teardown_live_persist(ctx1, status="completed")
+    assert first == "completed"
+
+    # A later leg attaches to the SAME session/branch row, which the earlier
+    # leg already took terminal (mirrors a resume/follow-up reusing a branch
+    # whose session an earlier run finalized).
+    ctx2 = await _setup_live_persist(branch)
+    assert ctx2 is not None
+    assert ctx2["session_id"] == ctx1["session_id"]
+
+    with caplog.at_level(logging.WARNING):
+        second = await _teardown_live_persist(ctx2, status="failed", exception=RuntimeError("boom"))
+
+    assert second == "failed"  # this invocation's honest outcome, not "completed"
+    assert not any(
+        rec.levelno >= logging.WARNING and "already terminal" in rec.message
+        for rec in caplog.records
+    )
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx1["session_id"])
+        history = await db.fetch_all(
+            "SELECT previous_status, status FROM status_transitions "
+            "WHERE entity_type = 'session' AND entity_id = ? ORDER BY created_at",
+            (ctx1["session_id"],),
+        )
+
+    # The row now describes the leg that just ran.
+    assert s["status"] == "failed"
+    # And the earlier leg is not erased by that: reopening is recorded as a
+    # transition like any other, so the whole sequence stays readable.
+    assert [(r["previous_status"], r["status"]) for r in history] == [
+        (None, "running"),
+        ("running", "completed"),
+        ("completed", "running"),
+        ("running", "failed"),
+    ]
+
+
+async def test_teardown_concurrent_race_non_terminal_entry_returns_winner_status(
+    temp_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    """A true concurrent race: this teardown observes the session non-
+    terminal at entry, but a separate writer finalizes the row between that
+    read and this teardown's own update_status() call. Unlike the already-
+    terminal-on-entry case above, this is the benign race the catch's
+    read-back path exists for: return the winner's persisted status at
+    debug level, not a warning."""
+    from lionagi.state.db import StateDB as _StateDB
+    from lionagi.state.reasons import RunReasons
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch)
+
+    real_update_status = _StateDB.update_status
+    calls = {"n": 0}
+
+    async def racing_update_status(self, *a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # A separate writer finalizes the row first, simulating a
+            # concurrent teardown of this same in-flight session.
+            async with _StateDB() as other:
+                await other.update_status(
+                    "session",
+                    ctx["session_id"],
+                    new_status="completed",
+                    reason_code=RunReasons.COMPLETED_OK,
+                    source="executor",
+                )
+        return await real_update_status(self, *a, **kw)
+
+    monkeypatch.setattr(_StateDB, "update_status", racing_update_status)
+
+    with caplog.at_level(logging.WARNING):
+        result = await _teardown_live_persist(ctx, status="failed", exception=RuntimeError("boom"))
+
+    assert result == "completed"  # the race winner's persisted status
+    assert not any(rec.levelno >= logging.WARNING for rec in caplog.records)
+
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s["status"] == "completed"
 
 
 # ── End-to-end: no aiosqlite thread leak across setup+teardown ────────────────
@@ -886,7 +1302,7 @@ async def test_setup_resume_repairs_null_session_progression_id(
     await _teardown_live_persist(ctx, status="completed")
 
 
-# ── ADR-0029: artifact contract snapshot and verification ─────────────────────
+# ── ADR-0064: artifact contract snapshot and verification ─────────────────────
 
 
 async def test_setup_persists_artifact_contract(temp_db_path: Path):
@@ -1006,3 +1422,327 @@ async def test_teardown_verification_preserves_non_completed_reason(
     v = s["artifact_verification_json"]
     assert isinstance(v, dict)
     assert v["status"] == "failed"
+
+
+# ── Phantom 'failed' suppression: linked engine session is alive/completed ───
+
+
+async def test_teardown_suppresses_failed_when_linked_engine_session_running(
+    temp_db_path: Path,
+):
+    """A stream/provider error must not read as 'failed' while the real engine session is still running."""
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working on it"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="implementer")
+    assert ctx is not None
+
+    exc = ProviderError("abandoned stream reader")
+    final_status = await _teardown_live_persist(
+        ctx, status="failed", exception=exc, engine_session_uid=engine_uid
+    )
+
+    assert final_status == "running"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "running"
+    assert s["node_metadata"]["linked_engine_session_id"] == session_db_id(engine_uid)
+
+
+async def test_teardown_leaves_branch_untouched_when_suppressed_to_running(
+    temp_db_path: Path,
+):
+    """BRANCH_END must never fire for the phantom-'failed'-suppression case:
+    when the linked engine session is still running, teardown's final_status
+    resolves to 'running' (non-terminal), so the branch row — like the
+    session row above — must be left exactly as create_branch() left it, not
+    stamped with an ended_at from a status that isn't actually final."""
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-111111111111"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "still working"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="implementer")
+    assert ctx is not None
+
+    async with StateDB() as db:
+        before = await db.get_branch(str(branch.id))
+    assert before["status"] is None
+    assert before["ended_at"] is None
+
+    exc = ProviderError("abandoned stream reader")
+    final_status = await _teardown_live_persist(
+        ctx, status="failed", exception=exc, engine_session_uid=engine_uid
+    )
+    assert final_status == "running"
+
+    async with StateDB() as db:
+        after = await db.get_branch(str(branch.id))
+    assert after["status"] is None
+    assert after["ended_at"] is None
+
+
+async def test_teardown_suppresses_failed_when_linked_engine_session_completed(
+    temp_db_path: Path,
+):
+    """A stream/provider error must not read as 'failed' once the real engine session has completed."""
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "done"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="completed",
+        )
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="reviewer")
+    assert ctx is not None
+
+    exc = ProviderError("abandoned stream reader")
+    final_status = await _teardown_live_persist(
+        ctx, status="failed", exception=exc, engine_session_uid=engine_uid
+    )
+
+    assert final_status == "completed"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "completed"
+    assert s["node_metadata"]["linked_engine_session_id"] == session_db_id(engine_uid)
+
+
+async def test_teardown_keeps_failed_without_linked_engine_session(temp_db_path: Path):
+    """No linked engine session (or no engine_session_uid at all) → a real failure stays failed."""
+    from lionagi.providers._provider_errors import ProviderError
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="implementer")
+    assert ctx is not None
+
+    exc = ProviderError("genuine failure")
+    final_status = await _teardown_live_persist(
+        ctx, status="failed", exception=exc, engine_session_uid="no-such-session-uid"
+    )
+
+    assert final_status == "failed"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "failed"
+
+
+async def test_teardown_keeps_failed_for_real_wrapper_bug_even_when_linked_running(
+    temp_db_path: Path,
+):
+    """A genuine profile-layer exception (not a ProviderError) must stay 'failed' even
+    when a linked engine session is running/completed — suppression is narrowly scoped
+    to the CLI provider's own reported stream errors, not arbitrary wrapper bugs."""
+    from lionagi.state.claude_mirror import mirror_session
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-111111111111"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working on it"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="implementer")
+    assert ctx is not None
+
+    exc = RuntimeError("bug in artifact verification")
+    final_status = await _teardown_live_persist(
+        ctx, status="failed", exception=exc, engine_session_uid=engine_uid
+    )
+
+    assert final_status == "failed"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "error_name,message",
+    [("ProviderQuotaError", "usage limit reached"), ("ProviderAuthError", "not logged in")],
+)
+async def test_teardown_keeps_failed_for_genuine_provider_error_even_when_linked_running(
+    temp_db_path: Path, error_name, message
+):
+    """ProviderQuotaError/ProviderAuthError are genuine, well-classified provider
+    failures -- unlike the generic unclassified stream/transport ProviderError, they
+    must never be suppressed into 'running'/'completed' just because a linked engine
+    session happens to still be alive."""
+    import lionagi.providers._provider_errors as provider_errors
+    from lionagi.state.claude_mirror import mirror_session
+
+    error_cls = getattr(provider_errors, error_name)
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-222222222221"
+    async with StateDB() as db:
+        await mirror_session(
+            db,
+            session_uid=engine_uid,
+            events=[
+                {
+                    "type": "assistant",
+                    "uuid": "e1",
+                    "timestamp": "2026-07-05T00:00:00.000Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "working on it"}],
+                    },
+                }
+            ],
+            tool_names={},
+            status="running",
+        )
+
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="implementer")
+    assert ctx is not None
+
+    exc = error_cls(message)
+    final_status = await _teardown_live_persist(
+        ctx, status="failed", exception=exc, engine_session_uid=engine_uid
+    )
+
+    assert final_status == "failed"
+    async with StateDB() as db:
+        s = await db.get_session(ctx["session_id"])
+    assert s is not None
+    assert s["status"] == "failed"
+
+
+async def test_teardown_reconciles_after_delayed_mirror_row_creation(
+    temp_db_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The claude/codex mirror row for engine_session_uid may not exist YET at teardown
+    time (mirror-lag race) — _linked_engine_session must bounded-retry and pick it up
+    instead of immediately falling through to 'failed'."""
+    from lionagi.providers._provider_errors import ProviderError
+    from lionagi.state.claude_mirror import mirror_session, session_db_id
+
+    engine_uid = "aaaaaaaa-bbbb-cccc-dddd-222222222222"
+    branch = Branch(name="b1")
+    ctx = await _setup_live_persist(branch, agent_name="implementer")
+    assert ctx is not None
+
+    real_get_session = StateDB.get_session
+    calls: list[str] = []
+    created = False
+
+    async def delayed_get_session(self, session_id, *a, **kw):
+        nonlocal created
+        if session_id == session_db_id(engine_uid) and not created:
+            calls.append(session_id)
+            if len(calls) < 3:
+                # Row doesn't exist yet the first couple of lookups —
+                # simulate the mirror still catching up.
+                return None
+            created = True
+            # Write the mirror row through the SAME connection teardown is
+            # using (self) -- opening a second StateDB() to the same sqlite
+            # file from inside this monkeypatch recurses into SQLAlchemy's
+            # engine-connect event dispatch. mirror_session() itself calls
+            # db.get_session(sid) internally, so `created` must already be
+            # True before this await to avoid re-entering this branch.
+            await mirror_session(
+                self,
+                session_uid=engine_uid,
+                events=[
+                    {
+                        "type": "assistant",
+                        "uuid": "e1",
+                        "timestamp": "2026-07-05T00:00:00.000Z",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "done"}],
+                        },
+                    }
+                ],
+                tool_names={},
+                status="completed",
+            )
+        return await real_get_session(self, session_id, *a, **kw)
+
+    monkeypatch.setattr(StateDB, "get_session", delayed_get_session)
+
+    exc = ProviderError("abandoned stream reader")
+    final_status = await _teardown_live_persist(
+        ctx,
+        status="failed",
+        exception=exc,
+        engine_session_uid=engine_uid,
+    )
+
+    assert len(calls) >= 3
+    assert final_status == "completed"

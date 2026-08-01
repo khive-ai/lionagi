@@ -53,9 +53,13 @@ When editing `session/`, `operations/`, or `cli/orchestrate/`: preserve these co
 - `lionagi/protocols/*` → `tests/protocols/*`
 - `lionagi/service/*` → `tests/service/*`
 - `lionagi/ln/*` → `tests/libs/concurrency/*`, `tests/ln/*`
-- `lionagi/cli/*` → smoke with `li o flow ... --dry-run` for structure or `--bare --yolo` for a short real run; add smoke assertions in `tests/docs/` when changing user-facing output shape.
+- `lionagi/cli/*` → `tests/cli/*`; additionally smoke with `li o flow ... --dry-run` for structure or `--bare --yolo` for a short real run, and add smoke assertions in `tests/docs/` when changing user-facing output shape.
 
-CLI has no dedicated unit test suite.
+### Proving a guard is actually covered
+
+A test that fails when you revert the whole fix proves only that *some* part of it matters. When a change has more than one part, revert each part on its own and check that the test still fails. Parts frequently reach the same outcome by different paths, and a part that stays green when reverted alone is pinned by nothing.
+
+A part that is individually redundant is not necessarily wrong — redundancy across entry points is often deliberate. What is wrong is the belief that a test covers it. Find the caller where that part is *not* redundant and pin it there.
 
 ## Coding Standards
 
@@ -128,7 +132,10 @@ agent = await create_agent(spec)
 await agent.communicate("Add type hints to all public functions in auth.py.")
 print(await sandbox_diff(session))         # inspect changes before committing
 await sandbox_commit(session, "feat: add type hints to auth module")
-await sandbox_merge(session)               # merge into base; or sandbox_discard(session)
+# base_branch="main" is a protected name — merging into it needs an explicit
+# opt-in (a per-call agent argument would let the agent self-approve, so
+# there is no such argument on SandboxRequest; this is an operator decision).
+await sandbox_merge(session, allow_protected=True)   # or sandbox_discard(session)
 ```
 
 **Permission policies**

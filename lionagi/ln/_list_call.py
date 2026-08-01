@@ -26,7 +26,6 @@ def lcall(
     **kwargs: Any,
 ) -> list[R]:
     """Sync map of func over input with optional input/output flatten/dropna/unique transforms."""
-    # Validate and extract callable function
     if not callable(func):
         try:
             func_list = list(func)
@@ -36,12 +35,14 @@ def lcall(
         except TypeError as e:
             raise ValueError("func must be callable or iterable with one callable.") from e
 
-    # Validate output processing options
     if output_unique and not (output_flatten or output_dropna):
         raise ValueError("unique_output requires flatten or dropna for post-processing.")
 
-    # Process input based on sanitization flag
-    if input_flatten or input_dropna:
+    if input_flatten or input_dropna or input_unique or input_use_values:
+        # Route through to_list whenever any input transform is requested, not
+        # only on flatten/dropna: otherwise input_use_values is ignored (a
+        # mapping yields its keys) and input_unique is silently dropped instead
+        # of raising the documented "unique=True requires flatten=True".
         input_ = to_list(
             input_,
             flatten=input_flatten,
@@ -57,7 +58,6 @@ def lcall(
             except TypeError:
                 input_ = [input_]
 
-    # Process elements and collect results
     out = []
     append = out.append
 
@@ -70,7 +70,6 @@ def lcall(
         except Exception:
             raise
 
-    # Apply output processing if requested
     if output_flatten or output_dropna:
         out = to_list(
             out,

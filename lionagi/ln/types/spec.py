@@ -19,7 +19,7 @@ from .base import Meta
 # Global cache for annotated types with bounded size
 _MAX_CACHE_SIZE = int(os.environ.get("LIONAGI_FIELD_CACHE_SIZE", "10000"))
 _annotated_cache: OrderedDict[tuple[type, tuple[Meta, ...]], type] = OrderedDict()
-_cache_lock = threading.RLock()  # Thread-safe access to cache
+_cache_lock = threading.RLock()
 
 
 __all__ = ("Spec", "CommonMeta")
@@ -105,12 +105,15 @@ class Spec:
 
         if not_sentinel(base_type, True):
             import types
+            import typing
 
+            # get_origin, not hasattr("__origin__"): any object can define that
+            # attribute, so presence alone lets an arbitrary instance pose as a
+            # type annotation. get_origin only answers for real typing forms.
             is_valid_type = (
                 isinstance(base_type, type)
-                or hasattr(base_type, "__origin__")
+                or typing.get_origin(base_type) is not None
                 or isinstance(base_type, types.UnionType)
-                or str(type(base_type)) == "<class 'types.UnionType'>"
             )
             if not is_valid_type:
                 raise ValueError(f"base_type must be a type or type annotation, got {base_type}")

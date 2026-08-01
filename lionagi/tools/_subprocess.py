@@ -48,12 +48,8 @@ def _subprocess_sync(
     timeout_ms: int | None = None,
     env: Mapping[str, str] | None = None,
 ) -> dict:
-    """Run ``cmd`` synchronously. ``env=None`` (the default) inherits the full
-    parent environment, matching every pre-existing caller. Pass an explicit
-    ``env`` mapping to run the child with only those variables — callers that
-    execute less-trusted or workspace-scoped commands (e.g. the ADR-0089
-    sandbox-backend seam) should build a minimal, named environment rather
-    than rely on this default."""
+    """Run ``cmd`` synchronously; ``env=None`` inherits the parent environment,
+    an explicit mapping scopes less-trusted commands to a minimal one."""
     try:
         proc = subprocess.Popen(  # noqa: S603
             cmd,

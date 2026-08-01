@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resolveApiBase, resolveAuthToken } from "./api";
 
 describe("resolveApiBase", () => {
@@ -109,6 +109,106 @@ describe("resolveApiBase", () => {
     const result = resolveApiBase();
     expect(result).toBe("");
   });
+
+  it("is same-origin for HTTPS on a non-local hostname (single-origin Docker deploy)", () => {
+    // https://server.example — Docker/reverse-proxy deployment serving the
+    // SPA and API from one origin behind TLS termination.
+    vi.stubGlobal("window", {
+      ...window,
+      __STUDIO_API_BASE__: undefined,
+      location: {
+        ...window.location,
+        port: "",
+        hostname: "server.example",
+        protocol: "https:",
+      },
+    });
+    const result = resolveApiBase();
+    expect(result).toBe("");
+  });
+
+  it("still honors an explicit runtime override for a hosted-static deploy on HTTPS", () => {
+    // https://lion-studio.khive.ai — static SPA driving a separate local
+    // daemon must opt in explicitly rather than relying on a hostname guess.
+    vi.stubGlobal("window", {
+      ...window,
+      __STUDIO_API_BASE__: "http://127.0.0.1:8765",
+      location: {
+        ...window.location,
+        port: "",
+        hostname: "lion-studio.khive.ai",
+        protocol: "https:",
+      },
+    });
+    const result = resolveApiBase();
+    expect(result).toBe("http://127.0.0.1:8765");
+  });
+
+  it("does not apply the hosted-https default over plain http on a remote hostname", () => {
+    vi.stubGlobal("window", {
+      ...window,
+      __STUDIO_API_BASE__: undefined,
+      location: {
+        ...window.location,
+        port: "",
+        hostname: "lion-studio.khive.ai",
+        protocol: "http:",
+      },
+    });
+    const result = resolveApiBase();
+    expect(result).toBe("");
+  });
+
+  it("does not apply the hosted-https default for https on localhost", () => {
+    vi.stubGlobal("window", {
+      ...window,
+      __STUDIO_API_BASE__: undefined,
+      location: {
+        ...window.location,
+        port: "",
+        hostname: "localhost",
+        protocol: "https:",
+      },
+    });
+    const result = resolveApiBase();
+    expect(result).toBe("");
+  });
+
+  describe("VITE_STUDIO_API_BASE (build-time env)", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("uses VITE_STUDIO_API_BASE when no runtime override is set", () => {
+      vi.stubEnv("VITE_STUDIO_API_BASE", "https://api.hosted.example");
+      vi.stubGlobal("window", {
+        ...window,
+        __STUDIO_API_BASE__: undefined,
+        location: { ...window.location, port: "", hostname: "server.example", protocol: "https:" },
+      });
+      expect(resolveApiBase()).toBe("https://api.hosted.example");
+    });
+
+    it("ignores an empty VITE_STUDIO_API_BASE and falls through to origin logic", () => {
+      vi.stubEnv("VITE_STUDIO_API_BASE", "");
+      vi.stubGlobal("window", {
+        ...window,
+        __STUDIO_API_BASE__: undefined,
+        location: { ...window.location, port: "", hostname: "server.example", protocol: "http:" },
+      });
+      expect(resolveApiBase()).toBe("");
+    });
+
+    it("prefers the runtime override over VITE_STUDIO_API_BASE when both are set", () => {
+      vi.stubEnv("VITE_STUDIO_API_BASE", "https://api.hosted.example");
+      vi.stubGlobal("window", {
+        ...window,
+        __STUDIO_API_BASE__: "http://127.0.0.1:8765",
+        location: { ...window.location, port: "", hostname: "server.example", protocol: "https:" },
+      });
+      expect(resolveApiBase()).toBe("http://127.0.0.1:8765");
+    });
+  });
 });
 
 describe("resolveAuthToken", () => {
@@ -177,6 +277,76 @@ describe("fetchJson Authorization header", () => {
     expect(captured.length).toBeGreaterThan(0);
     const headers = captured[0]?.headers as Record<string, string> | undefined;
     expect(headers?.["Authorization"]).toBeUndefined();
+  });
+});
+
+describe("fetchJson HTML-fallback / no-backend guard", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+    vi.stubGlobal("window", {
+      ...window,
+      __STUDIO_API_BASE__: undefined,
+      location: { ...window.location, port: "", hostname: "server.example", protocol: "http:" },
+    });
+  });
+
+  it("throws a clear error when the SPA rewrite returns index.html for an /api/* path", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response("<!doctype html><html><body>app</body></html>", {
+            status: 200,
+            headers: { "Content-Type": "text/html" },
+          }),
+        ),
+      ),
+    );
+
+    const { getStats } = await import("./api");
+    await expect(getStats()).rejects.toThrow(/returned HTML instead of JSON/);
+    await expect(getStats()).rejects.toThrow(/VITE_STUDIO_API_BASE/);
+  });
+
+  it("still parses a normal JSON response with an explicit content-type", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ playbooks: 3, agents: 1 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getStats } = await import("./api");
+    const result = await getStats();
+    expect(result).toEqual({ playbooks: 3, agents: 1 });
+  });
+
+  it("still parses a JSON response when no content-type header is present (existing behavior)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ playbooks: 5 }), { status: 200 }))),
+    );
+
+    const { getStats } = await import("./api");
+    const result = await getStats();
+    expect(result).toEqual({ playbooks: 5 });
+  });
+
+  it("returns undefined for a 204 No Content response instead of throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))),
+    );
+
+    const { deleteEngineDef } = await import("./api");
+    const result = await deleteEngineDef("def-1");
+    expect(result).toBeUndefined();
   });
 });
 

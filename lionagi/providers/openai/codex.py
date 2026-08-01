@@ -5,14 +5,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
+import re
 import warnings
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from textwrap import shorten
 from typing import Any, Literal
 
+import toml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lionagi.libs.path_safety import check_add_dirs_safe as check_add_dir_entries_safe
@@ -67,9 +68,54 @@ CodexReasoningEffort = Literal[
     "medium",
     "high",
     "xhigh",
+    "max",
+    "ultra",
 ]
 
 __all__ = ("CodexCodeRequest", "stream_codex_cli", "CodexCLIEndpoint")
+
+
+# --------------------------------------------------------------------------- -c value serialization
+# codex's `-c key=value` parses `value` as TOML, falling back to a raw string
+# literal only when TOML parsing fails (see `codex exec --help`). A
+# JSON-style dump of a dict/list is NOT valid TOML (`:` instead of `=`,
+# unquoted-key rules differ) — it either mis-parses into the fallback literal
+# string (breaking any override whose target field expects a table, e.g.
+# `mcp_servers.<name>.env`) or, worse, coincidentally parses into a
+# different-than-intended TOML value. Every override value must therefore be
+# emitted as syntactically valid TOML instead.
+_TOML_BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _toml_scalar(value: str | int | float | bool) -> str:
+    """Render a single TOML scalar (or its quoted-string form), via the
+    vendored ``toml`` encoder so quoting/escaping stays spec-correct."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    # toml.dumps({"x": value}) always renders "x = <literal>\n" for scalars;
+    # strip the synthetic key so only the literal remains.
+    dumped = toml.dumps({"x": value})
+    return dumped[len("x = ") :].rstrip("\n")
+
+
+def _toml_key(key: str) -> str:
+    return key if _TOML_BARE_KEY_RE.match(key) else _toml_scalar(key)
+
+
+def toml_override_value(value: Any) -> str:
+    """Serialize ``value`` as a TOML value literal suitable for the
+    right-hand side of a codex `-c key=value` override (an inline table for
+    dicts, a TOML array for lists, spec-correct scalars otherwise)."""
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        pairs = ", ".join(f"{_toml_key(k)} = {toml_override_value(v)}" for k, v in value.items())
+        return "{ " + pairs + " }"
+    if isinstance(value, list | tuple):
+        return "[" + ", ".join(toml_override_value(v) for v in value) + "]"
+    if isinstance(value, str | int | float | bool):
+        return _toml_scalar(value)
+    raise TypeError(f"Unsupported codex `-c` override value type: {type(value)!r}")
 
 
 # --------------------------------------------------------------------------- request model
@@ -217,10 +263,22 @@ class CodexCodeRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _clamp_effort(cls, values):
-        """Clamp effort 'max' → 'xhigh' for both effort fields (Codex enum does not include 'max')."""
+        """Clamp max/ultra down to the target model's supported ceiling (model-dependent: the gpt-5.6 family accepts max, sol/terra also ultra; earlier models top out at xhigh).
+
+        `values` is the raw constructor input — a caller who omits `model=`
+        (relying on the field default) leaves the key absent here, since
+        Pydantic v2 applies field defaults after `mode="before"` validators
+        run. Falling back to the field's own default keeps the clamp
+        consistent between an omitted `model` and that same default passed
+        explicitly.
+        """
+        from lionagi.service.providers import _clamp_codex_effort
+
+        model = values.get("model", cls.model_fields["model"].default)
         for key in ("reasoning_effort", "plan_mode_reasoning_effort"):
-            if values.get(key) == "max":
-                values[key] = "xhigh"
+            effort = values.get(key)
+            if isinstance(effort, str):
+                values[key] = _clamp_codex_effort(effort, model)
         return values
 
     # ── images & config (special-cased) ───────────────────────────
@@ -325,12 +383,10 @@ class CodexCodeRequest(BaseModel):
         else:
             args.extend(["--disable", "tool_search"])
 
-        # System prompt → -c developer_instructions=<val>
-        # (Codex CLI has no --system-prompt flag; uses developer_instructions)
+        # Codex CLI has no --system-prompt flag; uses -c developer_instructions.
         if self.system_prompt:
             args.extend(["-c", f"developer_instructions={self.system_prompt}"])
 
-        # Reasoning effort → -c reasoning_effort=<val>
         if self.reasoning_effort:
             args.extend(["-c", f"reasoning_effort={self.reasoning_effort}"])
         if self.plan_mode_reasoning_effort:
@@ -341,24 +397,25 @@ class CodexCodeRequest(BaseModel):
                 ]
             )
 
-        # Fast mode → -c service_tier=fast
         if self.fast_mode:
             args.extend(["-c", "service_tier=fast"])
 
-        # Images (repeat -i per image)
         for image in self.images:
             args.extend(["-i", image])
 
-        # Config overrides (-c key=value)
         for key, value in self.config_overrides.items():
-            serialized = json.dumps(value) if not isinstance(value, str) else value
-            args.extend(["-c", f"{key}={serialized}"])
+            args.extend(["-c", f"{key}={toml_override_value(value)}"])
 
         # Working directory (always emit)
         args.extend(["-C", str(self.cwd())])
 
-        # Prompt always last, after -- to prevent flag interpretation
-        args.extend(["--", self.prompt])
+        # The prompt goes to the child's stdin, not the command line: a whole
+        # conversation easily exceeds the OS limit on total argument length,
+        # and the spawn then fails with "Argument list too long" instead of
+        # running. `-` is codex's documented way to say "read the
+        # instructions from stdin"; it stays after `--` so it is parsed as
+        # the prompt argument and never as a flag.
+        args.extend(["--", "-"])
 
         return args
 
@@ -377,10 +434,9 @@ async def _ndjson_from_cli(request: CodexCodeRequest):
     if CODEX_CLI is None:
         raise RuntimeError("Codex CLI not found. Install with: npm i -g @openai/codex")
     cmd = [CODEX_CLI, *request.as_cmd_args()]
-    # Do NOT pass cwd here: Codex CLI already receives the workspace via the
-    # '-C <repo>' argument emitted by as_cmd_args().  Setting cwd= would cause
-    # the CLI to resolve '-C repo' from inside 'repo', producing 'repo/repo'.
-    async with contextlib.aclosing(ndjson_from_cli(cmd)) as stream:
+    # Do NOT pass cwd here — Codex CLI already gets the workspace via -C <repo>;
+    # setting both double-resolves to 'repo/repo'. See docs/internals/runtime.md.
+    async with contextlib.aclosing(ndjson_from_cli(cmd, stdin_data=request.prompt)) as stream:
         async for obj in stream:
             yield obj
 
@@ -451,6 +507,19 @@ async def stream_codex_cli(
     theme = request.cli_display_theme or "light"
     _start_monotonic = asyncio.get_running_loop().time()
 
+    # turn.completed reports usage/cost as a running total-to-date, not a
+    # per-turn delta. run.py stamps each "result" chunk's metadata onto
+    # whichever AssistantResponse it next flushes, and _collect_branch_usage
+    # SUMS that metadata across every message on the branch -- if a tool call
+    # flushes a message between two turn.completed events, each cumulative
+    # snapshot lands on a different message and earlier turns get counted
+    # again. Track the last-seen cumulative values here so only the marginal
+    # (this-turn-only) delta is ever exposed per event.
+    _prev_input_tokens = 0
+    _prev_output_tokens = 0
+    _prev_cost: float = 0.0
+    _seen_cost = False
+
     stream = stream_codex_cli_events(request)
     try:
         async for obj in stream:
@@ -463,7 +532,9 @@ async def stream_codex_cli(
                     obj.get("session_id", obj.get("id")),
                 )
                 session.model = obj.get("model")
-                sc = StreamChunk(type="system", metadata=obj)
+                # Codex uses "thread_id" not "session_id"; normalize into the
+                # metadata key every CLI provider's system chunk carries.
+                sc = StreamChunk(type="system", metadata={**obj, "session_id": session.session_id})
                 session.chunks.append(sc)
                 yield sc
 
@@ -622,27 +693,60 @@ async def stream_codex_cli(
 
             # -- turn.completed (usage stats) --
             elif typ == "turn.completed":
-                session.usage = obj.get("usage", {})
-                session.total_cost_usd = obj.get("total_cost_usd", obj.get("cost"))
+                turn_usage = obj.get("usage", {}) or {}
+                session.usage = turn_usage
+                turn_cost = obj.get("total_cost_usd", obj.get("cost"))
+                session.total_cost_usd = turn_cost
                 session.num_turns = (session.num_turns or 0) + 1
+
+                # Terminal usage/cost/turns -- the only channel run.py reads
+                # provider-reported usage from (persisted onto model_response,
+                # see run.py's "result" chunk handling; mirrors claude_code's
+                # "result" event). turn.completed can fire more than once per
+                # run() call for multi-turn codex sessions, and each event's
+                # usage/cost is cumulative-to-date, not a per-turn delta --
+                # emit only the marginal contribution since the previous
+                # event (clamped at 0 in case a provider quirk ever reports a
+                # lower running total) so summing across every flushed
+                # message reconstructs the true total exactly once, not N
+                # times over.
+                cur_input = int(
+                    turn_usage.get("input_tokens", turn_usage.get("prompt_tokens", 0)) or 0
+                )
+                cur_output = int(
+                    turn_usage.get("output_tokens", turn_usage.get("completion_tokens", 0)) or 0
+                )
+                delta_input = max(cur_input - _prev_input_tokens, 0)
+                delta_output = max(cur_output - _prev_output_tokens, 0)
+                _prev_input_tokens = cur_input
+                _prev_output_tokens = cur_output
+
+                result_meta: dict[str, Any] = {}
+                if delta_input or delta_output:
+                    result_meta["usage"] = {
+                        "input_tokens": delta_input,
+                        "output_tokens": delta_output,
+                    }
+                if isinstance(turn_cost, (int, float)):
+                    delta_cost = float(turn_cost) - (_prev_cost if _seen_cost else 0.0)
+                    _prev_cost = float(turn_cost)
+                    _seen_cost = True
+                    result_meta["total_cost_usd"] = max(delta_cost, 0.0)
+                # Each turn.completed occurrence is exactly one new turn --
+                # unlike usage/cost this is already a delta, never a running
+                # total (num_turns is incremented locally above, not read off
+                # the event), so it is always safe to emit as 1.
+                result_meta["num_turns"] = 1
+                rsc = StreamChunk(type="result", metadata=result_meta)
+                session.chunks.append(rsc)
+                yield rsc
 
             # -- turn.failed / error --
             elif typ in ("turn.failed", "error"):
                 session.is_error = True
                 err = obj.get("error", {})
-                # The CLI puts the human-readable message in different spots
-                # depending on event type: "error" events carry a TOP-LEVEL
-                # "message" with no "error" key (e.g. usage-limit errors), while
-                # "turn.failed" nests it under error.message.  Check both —
-                # otherwise a top-level-message error renders as the useless
-                # str() of an empty dict and the actionable text is discarded.
-                # Normalise null/missing error payloads: JSON "error": null
-                # arrives as None here (obj.get returns the default only when the
-                # key is absent, not when it is explicitly null).
-                # IMPORTANT: capture the raw value BEFORE normalising.  The
-                # benign-EOS predicate below must see the original value; a null
-                # payload normalised to {} would otherwise match the empty-dict
-                # sentinel and silently swallow a real (malformed) provider error.
+                # Error message location varies by event type; capture the raw
+                # value pre-normalization for the benign-EOS check below.
                 _raw_err = err
                 if err is None:
                     err = {}
@@ -659,26 +763,8 @@ async def stream_codex_cli(
                     if isinstance(err, dict)
                     else obj.get("message", str(err))
                 )
-                # Detect a benign end-of-stream sentinel: some codex CLI versions
-                # emit ``{"type": "error", "error": {}}`` when a resumed session
-                # ends normally rather than with a real failure.  Tag these
-                # explicitly so run() can treat them as clean EOS rather than
-                # propagating them as RunFailed.
-                #
-                # Narrowing criteria (must ALL hold):
-                #   1. Event type is "error" — "turn.failed" events are NEVER benign
-                #      regardless of their error payload, because they signal an
-                #      explicit model-side failure (e.g. rate_limit, context_overflow).
-                #   2. The error payload is EXACTLY the empty dict in the RAW event.
-                #      A structured payload with falsy values ({"message": ""},
-                #      {"message": None}) is a real failure whose detail happens to be
-                #      empty — only the bare {} sentinel is produced by a resumed-session
-                #      EOF.  Crucially, ``"error": null`` (raw value = None) is NOT the
-                #      sentinel: it indicates a malformed/unexpected provider envelope
-                #      and must surface as a real error.  We test _raw_err (the value
-                #      before null-normalisation) to preserve this distinction.
-                #   3. The top-level event carries no failure indicators beyond the
-                #      known EOF envelope (no "code", "message", or "status" keys).
+                # Benign-EOS sentinel on resumed sessions — see docs/internals/runtime.md
+                # for the exact 3-condition classification.
                 _is_benign_eos = (
                     typ == "error"
                     and "error" in obj  # a bare {"type": "error"} is malformed, not EOF
@@ -756,6 +842,22 @@ async def stream_codex_cli(
                 session.duration_ms = obj.get("duration_ms", obj.get("duration"))
                 session.is_error = obj.get("is_error", obj.get("error") is not None)
 
+                # Legacy terminal event (older CLI versions) -- same seam as
+                # turn.completed above.
+                result_meta: dict[str, Any] = {}
+                if session.usage:
+                    result_meta["usage"] = session.usage
+                if session.total_cost_usd is not None:
+                    result_meta["total_cost_usd"] = session.total_cost_usd
+                if session.num_turns is not None:
+                    result_meta["num_turns"] = session.num_turns
+                if session.duration_ms is not None:
+                    result_meta["duration_ms"] = session.duration_ms
+                if result_meta:
+                    rsc = StreamChunk(type="result", metadata=result_meta)
+                    session.chunks.append(rsc)
+                    yield rsc
+
             elif typ == "done":
                 break
     finally:
@@ -801,6 +903,9 @@ class CodexCLIEndpoint(AgenticHandlersMixin, AgenticEndpoint):
     _handler_params = _CODEX_HANDLER_PARAMS
     _handler_kwarg = "codex_handlers"
     _request_model = CodexCodeRequest
+    # Codex streams a "thread.started"/"system" event right after spawn —
+    # see stream_codex_cli() above.
+    streams_first_output_early = True
 
     def __init__(self, config: EndpointConfig = None, **kwargs):
         handlers = kwargs.pop("codex_handlers", None)

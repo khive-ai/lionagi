@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0024 session health classifier tests — pure-function; caller passes process/artifact/lock signals."""
+"""ADR-0057 session health classifier tests — pure-function; caller passes process/artifact/lock signals."""
 
 from __future__ import annotations
 
@@ -14,8 +14,54 @@ from lionagi.state.health import (
     classify_session_health,
     worst_health,
 )
+from lionagi.state.staleness import staleness_check, threshold_for_kind
 
 NOW = 1_000_000.0
+
+
+@pytest.mark.parametrize(
+    ("offset", "stale_result", "alive_health", "unknown_health"),
+    [
+        (-1, None, SessionHealth.IDLE, SessionHealth.IDLE),
+        (0, None, SessionHealth.IDLE, SessionHealth.IDLE),
+        (1, "stale", SessionHealth.UNRESPONSIVE, SessionHealth.STALE),
+    ],
+)
+def test_health_and_staleness_entry_points_share_threshold_boundary(
+    offset: int,
+    stale_result: str | None,
+    alive_health: SessionHealth,
+    unknown_health: SessionHealth,
+) -> None:
+    threshold = threshold_for_kind("agent")
+    session = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - threshold - offset,
+        "message_count": 1,
+    }
+
+    assert staleness_check(session, now=NOW) == stale_result
+    assert (
+        classify_session_health(
+            session,
+            now=NOW,
+            process_alive=True,
+            has_artifacts=True,
+            has_stale_locks=False,
+        )
+        == alive_health
+    )
+    assert (
+        classify_session_health(
+            session,
+            now=NOW,
+            process_alive=None,
+            has_artifacts=True,
+            has_stale_locks=False,
+        )
+        == unknown_health
+    )
 
 
 # ── Terminal sessions ────────────────────────────────────────────────────────
@@ -150,10 +196,12 @@ def test_flow_threshold_more_lenient_than_agent():
     )
 
 
-# ── Running, process dead ────────────────────────────────────────────────────
+# ── Running, liveness unknown (no matchable pid) ────────────────────────────
 
 
-def test_running_process_dead_with_messages_is_stale():
+def test_running_liveness_unknown_but_recently_messaging_is_healthy():
+    """Externally-driven sessions expose no matchable pid; recent messages
+    outrank process visibility as life-evidence."""
     s = {
         "status": "running",
         "invocation_kind": "agent",
@@ -163,14 +211,85 @@ def test_running_process_dead_with_messages_is_stale():
     h = classify_session_health(
         s,
         now=NOW,
-        process_alive=False,
+        process_alive=None,
+        has_artifacts=True,
+        has_stale_locks=False,
+    )
+    assert h == SessionHealth.HEALTHY
+
+
+def test_running_liveness_unknown_quiet_hours_is_idle():
+    s = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - 2 * 3600,
+        "message_count": 5,
+    }
+    h = classify_session_health(
+        s,
+        now=NOW,
+        process_alive=None,
+        has_artifacts=True,
+        has_stale_locks=False,
+    )
+    assert h == SessionHealth.IDLE
+
+
+def test_running_liveness_unknown_exactly_at_threshold_is_idle():
+    """Equality with the kind threshold stays on the alive side of the
+    boundary — the same contract as the alive branch's UNRESPONSIVE cut."""
+    s = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - 6 * 3600,
+        "message_count": 5,
+    }
+    h = classify_session_health(
+        s,
+        now=NOW,
+        process_alive=None,
+        has_artifacts=True,
+        has_stale_locks=False,
+    )
+    assert h == SessionHealth.IDLE
+
+
+def test_running_process_alive_exactly_at_threshold_is_idle():
+    """Alive/dead branches share the equality boundary."""
+    s = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - 6 * 3600,
+        "message_count": 5,
+    }
+    h = classify_session_health(
+        s,
+        now=NOW,
+        process_alive=True,
+        has_artifacts=True,
+        has_stale_locks=False,
+    )
+    assert h == SessionHealth.IDLE
+
+
+def test_running_liveness_unknown_past_threshold_is_stale():
+    s = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - 7 * 3600,
+        "message_count": 5,
+    }
+    h = classify_session_health(
+        s,
+        now=NOW,
+        process_alive=None,
         has_artifacts=True,
         has_stale_locks=False,
     )
     assert h == SessionHealth.STALE
 
 
-def test_running_process_dead_no_output_is_orphaned():
+def test_running_confirmed_dead_no_output_is_orphaned():
     """Never wrote a message, never produced artifacts, process gone."""
     s = {
         "status": "running",
@@ -188,8 +307,9 @@ def test_running_process_dead_no_output_is_orphaned():
     assert h == SessionHealth.ORPHANED
 
 
-def test_running_process_dead_no_messages_but_has_artifacts_is_stale():
-    """Artifacts present means the session produced *something* — not orphaned."""
+def test_running_liveness_unknown_no_messages_but_has_artifacts_not_orphaned():
+    """Artifacts present means the session produced *something* — not orphaned.
+    Recent activity still classifies it alive despite the missing process."""
     s = {
         "status": "running",
         "invocation_kind": "agent",
@@ -199,18 +319,18 @@ def test_running_process_dead_no_messages_but_has_artifacts_is_stale():
     h = classify_session_health(
         s,
         now=NOW,
-        process_alive=False,
+        process_alive=None,
         has_artifacts=True,
         has_stale_locks=False,
     )
-    assert h == SessionHealth.STALE
+    assert h == SessionHealth.HEALTHY
 
 
 # ── Edge cases ────────────────────────────────────────────────────────────────
 
 
 def test_null_status_treated_as_completed():
-    """ADR-0017 legacy rows with NULL status fall through the terminal branch."""
+    """ADR-0057 legacy rows with NULL status fall through the terminal branch."""
     s = {"status": None}
     h = classify_session_health(
         s,
@@ -264,3 +384,44 @@ def test_worst_health_zombie_beats_orphaned():
 def test_severity_table_covers_all_health_levels():
     """Catch drift between SessionHealth and HEALTH_SEVERITY."""
     assert set(HEALTH_SEVERITY) == set(SessionHealth)
+
+
+# ── Running, confirmed dead (recorded pid no longer running) ─────────────────
+
+
+def test_running_confirmed_dead_recent_messages_is_stale():
+    """Positive evidence of death outranks the activity guard: a run whose
+    recorded pid is gone must not render healthy however fresh its messages."""
+    s = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - 30,
+        "message_count": 5,
+    }
+    h = classify_session_health(
+        s,
+        now=NOW,
+        process_alive=False,
+        has_artifacts=True,
+        has_stale_locks=False,
+    )
+    assert h == SessionHealth.STALE
+
+
+def test_running_confirmed_dead_quiet_hours_is_stale_not_idle():
+    """Confirmed death skips the idle band entirely — a dead process is not
+    'quiet', it is gone."""
+    s = {
+        "status": "running",
+        "invocation_kind": "agent",
+        "last_message_at": NOW - 2 * 3600,
+        "message_count": 5,
+    }
+    h = classify_session_health(
+        s,
+        now=NOW,
+        process_alive=False,
+        has_artifacts=True,
+        has_stale_locks=False,
+    )
+    assert h == SessionHealth.STALE

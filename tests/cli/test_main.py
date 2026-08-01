@@ -3,7 +3,182 @@
 
 """Tests for lionagi.cli.main — _handle_play_shortcut."""
 
-from lionagi.cli.main import _handle_play_shortcut
+import subprocess
+import sys
+
+import pytest
+import yaml
+
+from lionagi.cli._util import EXIT_CODE_ENVIRONMENT_ERROR
+from lionagi.cli.main import _handle_play_shortcut, main
+from lionagi.state.lifecycle.callbacks import DEFAULT_TERMINAL_CALLBACKS
+
+
+def test_main_resolves_notify_settings_project_dir_from_cwd_flag(monkeypatch):
+    """`li <cmd> --cwd DIR ...` must resolve notify.on_terminal against DIR's
+    own .lionagi/settings.yaml, not the shell's own cwd -- the bootstrap
+    call happens before argparse has parsed --cwd for any subcommand, so
+    main() pre-scans argv for it the same way it already does for -v."""
+    calls: list[dict] = []
+
+    def _spy(*, project_dir=None):
+        calls.append({"project_dir": project_dir})
+        return False
+
+    monkeypatch.setattr(
+        "lionagi.state.lifecycle.notify_settings.register_settings_terminal_callback",
+        _spy,
+    )
+    main(["skill", "--cwd", "/some/project", "definitely-not-a-real-skill-xyz"])
+    assert calls == [{"project_dir": "/some/project"}]
+
+
+def test_main_resolves_notify_settings_project_dir_from_cwd_equals_form(monkeypatch):
+    calls: list[dict] = []
+
+    def _spy(*, project_dir=None):
+        calls.append({"project_dir": project_dir})
+        return False
+
+    monkeypatch.setattr(
+        "lionagi.state.lifecycle.notify_settings.register_settings_terminal_callback",
+        _spy,
+    )
+    main(["skill", "--cwd=/other/project", "definitely-not-a-real-skill-xyz"])
+    assert calls == [{"project_dir": "/other/project"}]
+
+
+def test_main_resolves_notify_settings_project_dir_last_of_repeated_cwd_flags(monkeypatch):
+    """`--cwd /a --cwd /b` must resolve against /b -- argparse itself honors the
+    last occurrence of a repeated flag, so the pre-argparse notify-bootstrap scan
+    must mirror that precedence instead of taking the first match."""
+    calls: list[dict] = []
+
+    def _spy(*, project_dir=None):
+        calls.append({"project_dir": project_dir})
+        return False
+
+    monkeypatch.setattr(
+        "lionagi.state.lifecycle.notify_settings.register_settings_terminal_callback",
+        _spy,
+    )
+    main(
+        [
+            "skill",
+            "--cwd",
+            "/a",
+            "--cwd",
+            "/b",
+            "definitely-not-a-real-skill-xyz",
+        ]
+    )
+    assert calls == [{"project_dir": "/b"}]
+
+
+def test_main_resolves_notify_settings_project_dir_last_of_mixed_cwd_forms(monkeypatch):
+    """Mixed `--cwd DIR` / `--cwd=DIR` forms still resolve to whichever occurs
+    last in argv, regardless of which form it uses."""
+    calls: list[dict] = []
+
+    def _spy(*, project_dir=None):
+        calls.append({"project_dir": project_dir})
+        return False
+
+    monkeypatch.setattr(
+        "lionagi.state.lifecycle.notify_settings.register_settings_terminal_callback",
+        _spy,
+    )
+    main(
+        [
+            "skill",
+            "--cwd=/a",
+            "--cwd",
+            "/b",
+            "definitely-not-a-real-skill-xyz",
+        ]
+    )
+    assert calls == [{"project_dir": "/b"}]
+
+    calls.clear()
+    main(
+        [
+            "skill",
+            "--cwd",
+            "/a",
+            "--cwd=/b",
+            "definitely-not-a-real-skill-xyz",
+        ]
+    )
+    assert calls == [{"project_dir": "/b"}]
+
+
+def test_main_notify_settings_project_dir_none_without_cwd_flag(monkeypatch):
+    calls: list[dict] = []
+
+    def _spy(*, project_dir=None):
+        calls.append({"project_dir": project_dir})
+        return False
+
+    monkeypatch.setattr(
+        "lionagi.state.lifecycle.notify_settings.register_settings_terminal_callback",
+        _spy,
+    )
+    main(["skill", "definitely-not-a-real-skill-xyz"])
+    assert calls == [{"project_dir": None}]
+
+
+def test_main_notify_settings_ignores_cwd_after_end_of_options_sentinel(monkeypatch):
+    """A literal '--cwd VALUE' occurring only after '--' (e.g. inside a
+    scheduled action_prompt's free-form text) must not be picked up, mirroring
+    the existing -v/--verbose sentinel-respecting scan."""
+    calls: list[dict] = []
+
+    def _spy(*, project_dir=None):
+        calls.append({"project_dir": project_dir})
+        return False
+
+    monkeypatch.setattr(
+        "lionagi.state.lifecycle.notify_settings.register_settings_terminal_callback",
+        _spy,
+    )
+    main(["skill", "definitely-not-a-real-skill-xyz", "--", "--cwd", "/should/not/be/used"])
+    assert calls == [{"project_dir": None}]
+
+
+@pytest.mark.parametrize(
+    "filter_value",
+    [
+        "session",
+        {"unexpected": True},
+        {"kinds": 0},
+        {"kinds": ["not-a-terminal-entity"]},
+    ],
+    ids=["non-mapping", "unknown-key", "non-list-kinds", "unknown-kind"],
+)
+def test_main_bootstrap_disables_invalid_notify_filter(tmp_path, filter_value):
+    settings_dir = tmp_path / ".lionagi"
+    settings_dir.mkdir()
+    (settings_dir / "settings.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "notify": {
+                    "on_terminal": {
+                        "enabled": True,
+                        "adapter": {"kind": "exec", "argv": ["echo", "ok"]},
+                        "filter": filter_value,
+                    }
+                }
+            }
+        )
+    )
+
+    name = "notify.settings.on_terminal"
+    DEFAULT_TERMINAL_CALLBACKS.unregister(name)
+    try:
+        main(["skill", f"--cwd={tmp_path}", "definitely-not-a-real-skill-xyz"])
+        assert name not in DEFAULT_TERMINAL_CALLBACKS
+    finally:
+        DEFAULT_TERMINAL_CALLBACKS.unregister(name)
 
 
 def test_handle_play_shortcut_rewrites_name_to_flow_argv():
@@ -34,7 +209,7 @@ def test_handle_play_shortcut_passthrough_for_non_play():
     assert result == argv
 
 
-# ─── ADR-0029 §9: `li play check` pre-flight artifact contract ───
+# ─── ADR-0064 D3: `li play check` pre-flight artifact contract ───
 
 
 def test_play_check_no_args_prints_usage(capsys):
@@ -105,6 +280,46 @@ def test_play_check_playbook_with_contract(tmp_path, monkeypatch, capsys):
     assert "fixture" in out
     assert "1 required" in out and "1 optional" in out
     assert "review" in out and "notes" in out
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected_code", "expected_text"),
+    [
+        (ModuleNotFoundError("No module named 'thing'", name="thing"), 78, "thing"),
+        (RuntimeError("profile is malformed"), 1, "could not be loaded"),
+    ],
+)
+def test_play_check_separates_a_missing_module_from_a_bad_profile(
+    tmp_path, monkeypatch, caplog, raised, expected_code, expected_text
+):
+    """`li play check` loads the named agent profile, and that import can fail two ways.
+
+    A malformed profile is a real finding and the check should report it as a
+    failure. A profile this installation cannot import is not a finding at all:
+    nothing was checked, and returning the same code makes a broken environment
+    look like a playbook with a broken profile - which sends someone to edit a
+    file that is fine.
+    """
+    pb_path = tmp_path / "withagent.playbook.yaml"
+    pb_path.write_text("name: withagent\nmodel: claude/sonnet\nprompt: do z\nagent: someprofile\n")
+
+    from lionagi.cli import orchestrate as _orch
+
+    def fake_resolve(name):
+        return (pb_path, None) if name == "withagent" else _orch._resolve_playbook_path(name)
+
+    def fake_load(name):
+        raise raised
+
+    monkeypatch.setattr(_orch, "_resolve_playbook_path", fake_resolve)
+    monkeypatch.setattr("lionagi.cli.main._resolve_playbook_path", fake_resolve, raising=False)
+    monkeypatch.setattr("lionagi.cli._providers.load_agent_profile", fake_load)
+
+    with caplog.at_level("ERROR"):
+        result = _handle_play_shortcut(["play", "check", "withagent"])
+
+    assert result == expected_code
+    assert expected_text in caplog.text
 
 
 def test_play_check_playbook_without_contract(tmp_path, monkeypatch, capsys):
@@ -212,3 +427,95 @@ def test_cli_package_getattr_raises_for_unknown_attr():
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_command_registry_loaders_expose_parser_and_handler():
+    """Every registry entry resolves before a command-specific parse needs it."""
+    import lionagi.cli.main as main_module
+
+    for spec in main_module._COMMAND_REGISTRY:
+        module = spec.loader()
+        assert callable(getattr(module, spec.parser_factory))
+        assert callable(getattr(module, spec.handler))
+
+
+def test_version_and_root_help_work_in_fresh_cli_processes():
+    for argv in (["--version"], ["--help"]):
+        result = subprocess.run(
+            [sys.executable, "-m", "lionagi.cli", *argv],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_leaf_command_parse_error_preserves_full_root_usage():
+    result = subprocess.run(
+        [sys.executable, "-m", "lionagi.cli", "casts", "--__registry_bogus__"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 2
+    # The root usage in the error must list the whole command set, not just
+    # the selected command.
+    assert "agent" in result.stderr
+    assert "doctor" in result.stderr
+
+
+def test_broken_command_loader_reports_error_without_traceback(capsys, monkeypatch):
+    import lionagi.cli.main as main_module
+
+    monkeypatch.setitem(
+        main_module._COMMAND_BY_NAME,
+        "agent",
+        main_module._CommandSpec(
+            "agent",
+            "broken",
+            lambda: __import__("missing_lionagi_command_module"),
+            "add_agent_subparser",
+            "run_agent",
+        ),
+    )
+    rc = main_module.main(["agent", "--help"])
+    # A module missing from the environment is reported as an unusable
+    # environment, not as a failed run: exit 1 here is what a run that started
+    # and failed returns, and a caller reading the status could not tell the two
+    # apart. The concise report is unchanged — only the status distinguishes.
+    assert rc == EXIT_CODE_ENVIRONMENT_ERROR
+    err = capsys.readouterr().err
+    assert "missing_lionagi_command_module" in err
+    assert "Traceback" not in err
+
+
+def test_a_command_loader_failing_for_another_reason_is_an_ordinary_failure(capsys, monkeypatch):
+    """Only a missing module means the environment is unusable.
+
+    The loader boundary splits on the exception type, so the other side of that
+    split needs its own case: a command module that imports fine but raises
+    while being set up is a defect in this installation's code, not a missing
+    piece of it, and reporting it as an unusable environment would send the
+    caller off to install something that is already there.
+    """
+    import lionagi.cli.main as main_module
+
+    def _explode():
+        raise RuntimeError("bad module")
+
+    monkeypatch.setitem(
+        main_module._COMMAND_BY_NAME,
+        "agent",
+        main_module._CommandSpec(
+            "agent",
+            "broken",
+            _explode,
+            "add_agent_subparser",
+            "run_agent",
+        ),
+    )
+    rc = main_module.main(["agent", "--help"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "failed to load" in err
+    assert "Traceback" not in err

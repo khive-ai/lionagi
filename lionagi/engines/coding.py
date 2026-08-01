@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import Field
 
 from lionagi.casts.emission import Verdict
+from lionagi.ln._json_dump import raise_if_non_finite
 from lionagi.ln.concurrency import run_sync
 from lionagi.tools._subprocess import _SHELL_CONTROL, _subprocess_sync
 
@@ -43,11 +44,8 @@ __all__ = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Events — the pipeline vocabulary. The engine stamps ``eid`` (W/P/T/V/K, no
-# collision with hypothesis's F/Q/E/H/X/R/C/A); refs link a stage to its
-# upstream stage so the export is a walkable chain.
-# ---------------------------------------------------------------------------
+# --- Events — the pipeline vocabulary (eid prefixes W/P/T/V/K; no collision
+# with hypothesis's F/Q/E/H/X/R/C/A); refs link each stage to its upstream one. ---
 
 
 CodingChainEvent = ChainEvent
@@ -153,9 +151,7 @@ _REF_ATTRS = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Worker observability events (abort + heartbeat + activity)
-# ---------------------------------------------------------------------------
+# --- Worker observability events (abort + heartbeat + activity) ---
 
 
 class WorkAborted(EngineEvent):
@@ -181,12 +177,8 @@ class WorkerActivity(EngineEvent):
 
 
 class AutoRepairApplied(EngineEvent):
-    """Emitted when the harness auto-applies a repair command before a test gate.
-
-    Distinct from a worker fix round: the worker produced the change; the harness
-    normalized it mechanically (e.g. ``cargo fmt --all``).  The dataset records
-    both so analysis can separate worker-produced vs harness-normalized diffs.
-    """
+    """Emitted when the harness auto-applies a repair command before a test gate;
+    distinct from a worker fix round (the harness normalized the diff mechanically)."""
 
     cmd: str = Field(description="The auto-repair command that was run.")
     files: list[str] = Field(
@@ -198,9 +190,7 @@ class AutoRepairApplied(EngineEvent):
     )
 
 
-# ---------------------------------------------------------------------------
-# Spec lint
-# ---------------------------------------------------------------------------
+# --- Spec lint ---
 
 _RE_ACCEPTANCE = re.compile(r"acceptance.{0,20}criteria|acceptance:", re.IGNORECASE)
 _RE_TEST_CMD = re.compile(r"test_cmd\s*:", re.IGNORECASE)
@@ -236,9 +226,7 @@ def _lint_spec(
     return warnings
 
 
-# ---------------------------------------------------------------------------
-# Spec normalization
-# ---------------------------------------------------------------------------
+# --- Spec normalization ---
 
 
 def _normalize_spec(spec: str | dict[str, Any]) -> tuple[str, str]:
@@ -265,9 +253,7 @@ def _normalize_spec(spec: str | dict[str, Any]) -> tuple[str, str]:
     raise TypeError(f"coding spec must be str or dict, got {type(spec)!r}")
 
 
-# ---------------------------------------------------------------------------
-# Instructions
-# ---------------------------------------------------------------------------
+# --- Instructions ---
 
 
 def _plan_instruction(task_text: str, workspace: str) -> str:
@@ -338,9 +324,7 @@ def _verify_instruction(plan: WorkPlanned, change: ChangeProposed, t: TestsRan, 
     )
 
 
-# ---------------------------------------------------------------------------
-# Run context
-# ---------------------------------------------------------------------------
+# --- Run context ---
 
 
 class CodingRun(ChainRun):
@@ -358,8 +342,8 @@ class CodingRun(ChainRun):
         self.diff: str = ""
         self.export_dir: Path | None = None
         self._test_runs: int = 0
-        # Pre-implement workspace snapshot: maps path → porcelain XY status.
-        # None means the snapshot could not be taken (non-git or spawn failure).
+        # Pre-implement workspace snapshot: path → porcelain XY status; None
+        # means the snapshot could not be taken (non-git or spawn failure).
         self._ws_baseline: dict[str, str] | None = {}
         # Paths newly changed/added since the baseline (populated by _run).
         self._ws_delta: list[str] = []
@@ -385,6 +369,11 @@ class CodingRun(ChainRun):
         """Render each CodeResultRecorded as a ResultRecorded input dict for hypothesis ingestion."""
         seeds: list[dict[str, Any]] = []
         for k in self.events_of(CodeResultRecorded):
+            # The measurements are the likeliest place for a division by zero to
+            # surface, and they are serialized into a string that lands inside a
+            # durable artifact — a NaN token there breaks the nested document
+            # for every reader but Python's own.
+            raise_if_non_finite(k.measurements, default=str)
             seeds.append(
                 {
                     "experiment_ref": k.experiment_ref,
@@ -411,6 +400,7 @@ class CodingRun(ChainRun):
             "hypothesis_seeds": self.to_hypothesis_seeds(),
         }
         results_path = d / "results.json"
+        raise_if_non_finite(payload, default=str)
         results_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         md = _render_report(self, report)
         report_path = d / "report.md"
@@ -453,9 +443,7 @@ def _render_report(run: CodingRun, report: str) -> str:
     return "".join(parts) + "\n"
 
 
-# ---------------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------------
+# --- Engine ---
 
 
 class CodingEngine(Engine):
@@ -517,6 +505,7 @@ class CodingEngine(Engine):
         export_dir: str | Path | None = None,
         session: Any = None,
         on_event: Any = None,
+        on_branch_created: Any = None,
     ) -> CodeResultRecorded:
         """Normalize *spec* exactly once before creating run state; raises ValueError/TypeError for malformed specs before session initialization."""
         task_text, experiment_ref = _normalize_spec(spec)  # raises on bad input
@@ -528,6 +517,7 @@ class CodingEngine(Engine):
             _normalized=(task_text, experiment_ref),
             session=session,
             on_event=on_event,
+            on_branch_created=on_branch_created,
         )
 
     async def _run(
@@ -558,7 +548,7 @@ class CodingEngine(Engine):
             run.export_dir.mkdir(parents=True, exist_ok=True)
 
         # Collector first: stamps eids before anything reads them. The pipeline
-        # is sequential (no reactive spawning), so observers only stamp + store.
+        # is sequential (no reactive spawning), so the observer only stamps + stores.
         run.observe(CodingChainEvent, lambda e, _c: run.collect(e))
 
         lint_warnings = _lint_spec(task_text, workspace=run.workspace, strict=self.strict_spec)
@@ -568,18 +558,15 @@ class CodingEngine(Engine):
             run._spec_lint_warnings = lint_warnings
 
         plan = await self._plan(run)
-        # Snapshot workspace state before the implementer runs so the post-
-        # implement check computes a delta, not an absolute status read.
+        # Snapshot before the implementer runs so the post-implement check
+        # computes a delta, not an absolute status read.
         run._ws_baseline = await self._capture_ws_baseline(run)
         change = await self._implement(run, plan)
         if run._aborted:
             return await self._conclude(run, plan, passed=False, caveat="stage aborted by watchdog")
         if change is None:
-            # Emission is metadata; the workspace delta is ground truth.  Three
-            # outcomes after _implement returns None:
-            #   (a) delta non-empty  → work detected; proceed to test gate.
-            #   (b) delta empty      → no work; preserve no-change verdict.
-            #   (c) check failed     → unknown; fail open to test gate.
+            # Emission is metadata; the workspace delta is ground truth. Delta
+            # non-empty -> proceed to test gate; empty -> no-change verdict.
             delta, check_failed = await self._workspace_changed(run)
             run._ws_delta = delta
             if check_failed:
@@ -597,8 +584,8 @@ class CodingEngine(Engine):
                     run, plan, passed=False, caveat="implementer emitted no change"
                 )
             else:
-                # Work detected in workspace despite emission failure.  Synthesize
-                # a minimal ChangeProposed and proceed; emission failure is a warning.
+                # Work detected despite emission failure — synthesize a minimal
+                # ChangeProposed and proceed; treat the emission gap as a warning.
                 run.notify("metadata_missing", work_detected=True, files=delta)
                 change = run.collect(
                     ChangeProposed(
@@ -626,17 +613,20 @@ class CodingEngine(Engine):
                 model=self.model_for("plan"),
                 emits=emits,
             )
-            await run.operate_with_repair(
+            stage_coro = run.operate_with_repair(
                 agent,
                 _plan_instruction(run.task_text, run.workspace),
                 arrived=lambda: bool(run.events_of(WorkPlanned)),
                 emits=emits,
                 retries=self.repair_retries,
             )
+            # Soft watchdog: a hung planner is bounded but not fatal — the
+            # missing-plan branch below degrades to the raw task, so plan
+            # timeout must not poison run._aborted (which would fail the run).
+            await self._run_stage_with_watchdog(run, stage_coro, "plan", hard=False)
         plan = run.last(WorkPlanned)
         if plan is None:
-            # Degrade rather than crash: a planless run still implements against
-            # the raw task, so the stage's emission is best-effort.
+            # Degrade rather than crash: implement against the raw task.
             plan = run.collect(WorkPlanned(approach=run.task_text))
             run.notify("plan_missing", eid=plan.eid)
         return plan
@@ -679,11 +669,7 @@ class CodingEngine(Engine):
     async def _apply_auto_repairs(
         self, run: CodingRun, *, round_no: int
     ) -> list[AutoRepairApplied]:
-        """Run each auto_repair_cmd in sequence; emit AutoRepairApplied per command.
-
-        Returns the list of events emitted.  Errors are notified but never raise
-        — a failed auto-repair command is surfaced as a notification, not a crash.
-        """
+        """Run each auto_repair_cmd in sequence, emitting AutoRepairApplied per command; a failed command is notified, never raised."""
         if not self.auto_repair_cmds:
             return []
         applied: list[AutoRepairApplied] = []
@@ -764,11 +750,7 @@ class CodingEngine(Engine):
     async def _fast_test(
         self, run: CodingRun, change: ChangeProposed, *, round_no: int
     ) -> TestsRan | None:
-        """Run fast_test_cmd as an incremental gate for intermediate fix rounds.
-
-        Returns None when fast_test_cmd is not configured.  Auto-repair is NOT
-        run here — it fires in _test() which is always the authoritative leg.
-        """
+        """Run fast_test_cmd as an incremental gate; None if unconfigured. Auto-repair does NOT run here — only in _test(), the authoritative leg."""
         if self.fast_test_cmd is None:
             return None
         return await self._run_subprocess_gate(
@@ -779,18 +761,12 @@ class CodingEngine(Engine):
         self, run: CodingRun, plan: WorkPlanned, change: ChangeProposed, tests: TestsRan
     ) -> tuple[ChangeProposed, TestsRan]:
         """Re-prompt the implementer on failure and re-test, bounded by max_fix_rounds.
-
-        Mechanical rounds (failure attributable solely to fmt/lint output, satisfied
-        after auto-repair) skip the judge gate.  Substantive rounds pass through the
-        judge as before.  When fast_test_cmd is configured, intermediate rounds gate
-        on it first; the full test_cmd is always the final ground-truth leg.
-        """
+        Mechanical rounds (auto-repair alone) skip the judge gate; substantive ones go through."""
         agent = getattr(run, "_implementer", None)
         round_no = 0
         while not tests.passed and round_no < self.max_fix_rounds and agent is not None:
             round_no += 1
-            # Classify: mechanical if auto-repair commands are configured and the
-            # previous failure looks like a pure fmt/lint failure.
+            # Mechanical iff auto-repair is configured and the failure looks pure fmt/lint.
             is_mechanical = bool(self.auto_repair_cmds) and _looks_mechanical(tests)
             if is_mechanical:
                 run.notify("fix_mechanical", round=round_no)
@@ -803,8 +779,7 @@ class CodingEngine(Engine):
                     break
             before = len(run.events_of(ChangeProposed))
             if is_mechanical:
-                # Mechanical rounds skip re-prompting the worker: auto_repair_cmds
-                # already corrected the workspace.  Re-test directly.
+                # auto_repair_cmds already corrected the workspace — re-test directly.
                 pass
             else:
                 async with run._sem:
@@ -823,8 +798,8 @@ class CodingEngine(Engine):
                     run.notify("fix_no_change", round=round_no)
                     break
                 change = new_change
-            # Incremental gate: fast_test_cmd for intermediate substantive rounds;
-            # always run the full test_cmd as the final ground-truth leg.
+            # fast_test_cmd gates intermediate substantive rounds; the full
+            # test_cmd always runs as the final ground-truth leg.
             if (
                 not is_mechanical
                 and self.fast_test_cmd is not None
@@ -832,8 +807,7 @@ class CodingEngine(Engine):
             ):
                 fast = await self._fast_test(run, change, round_no=round_no)
                 if fast is not None and not fast.passed:
-                    # Fast gate failed — update tests for the fix instruction but
-                    # do not count this as the authoritative result yet.
+                    # Not yet the authoritative result — only feeds the fix instruction.
                     tests = fast
                     continue
             tests = await self._test(run, change, round_no=round_no)
@@ -847,8 +821,7 @@ class CodingEngine(Engine):
         run.diff = await self._capture_diff(run)
         emits = (VerifyResult,)
         async with run._sem:
-            # exempt: the verdict must report even when the expansion budget
-            # (fix-round agents) is spent — degrade, don't lose the verdict.
+            # exempt: the verdict must report even if the fix-round budget is spent.
             agent = await run.make_agent(
                 self.verify_role,
                 name="verify",
@@ -856,13 +829,17 @@ class CodingEngine(Engine):
                 emits=emits,
                 exempt=True,
             )
-            await run.operate_with_repair(
+            stage_coro = run.operate_with_repair(
                 agent,
                 _verify_instruction(plan, change, tests, run.diff),
                 arrived=lambda: bool(run.events_of(VerifyResult)),
                 emits=emits,
                 retries=self.repair_retries,
             )
+            # Soft watchdog: verify is advisory (the pass/fail verdict is the
+            # test result, not this note) and runs after the abort gate, so a
+            # hung verifier is bounded but must not set run._aborted.
+            await self._run_stage_with_watchdog(run, stage_coro, "verify", hard=False)
         return run.last(VerifyResult)
 
     async def _conclude(
@@ -896,8 +873,7 @@ class CodingEngine(Engine):
         }
         if run._spec_lint_warnings:
             measurements["spec_lint_warnings"] = run._spec_lint_warnings
-        # Record active tool grants so dataset consumers can correlate grant
-        # configuration with outcome — worker grants only, judge context excluded.
+        # Worker grants only (judge context excluded) so outcome correlates with them.
         if self.worker_extra_tools or self.worker_mcp_servers:
             measurements["worker_grants"] = {
                 "extra_tools": list(self.worker_extra_tools),
@@ -925,11 +901,7 @@ class CodingEngine(Engine):
     # -- worker helpers -------------------------------------------------------
 
     def _wrap_turn_timeout(self, agent: Any, run: CodingRun) -> Any:
-        """Return a proxy whose operate() is bounded by turn_timeout_s.
-
-        On TimeoutError the proxy emits a turn_timeout notification and returns
-        None so operate_with_repair sees arrived()=False and enters the fix path.
-        """
+        """Return a proxy whose operate() is bounded by turn_timeout_s; on timeout it notifies and returns None, driving operate_with_repair into the fix path."""
         if self.turn_timeout_s is None:
             return agent
         timeout_s = self.turn_timeout_s
@@ -952,11 +924,7 @@ class CodingEngine(Engine):
         return _Proxy()
 
     def _start_heartbeat(self, run: CodingRun, *, stage: str) -> asyncio.Task | None:
-        """Start a background task that emits WorkerHeartbeat at the configured interval.
-
-        Also emits WorkerActivity whenever a file in the workspace changes mtime.
-        Returns None when heartbeat_interval_s is None (disabled).
-        """
+        """Start a background task emitting WorkerHeartbeat on interval and WorkerActivity on file mtime changes; None if heartbeat_interval_s is unset."""
         if self.heartbeat_interval_s is None:
             return None
         t0 = run._t0
@@ -991,20 +959,31 @@ class CodingEngine(Engine):
         return asyncio.ensure_future(_loop())
 
     async def _run_stage_with_watchdog(
-        self, run: CodingRun, stage_coro: Any, stage_name: str
-    ) -> None:
-        """Run *stage_coro* bounded by stage_timeout_s; on timeout emit WorkAborted and set run._aborted."""
+        self, run: CodingRun, stage_coro: Any, stage_name: str, *, hard: bool = True
+    ) -> bool:
+        """Run *stage_coro* bounded by stage_timeout_s.
+
+        On timeout, emit a WorkAborted notification and return True. When
+        *hard* (the default, for implement/fix rounds) the timeout also sets
+        run._aborted, which concludes the run as failed. A *soft* stage
+        (hard=False, for plan/verify) is bounded but recoverable: the caller
+        degrades gracefully (raw-task plan, or a missing advisory verdict)
+        rather than failing the whole run.
+        """
         if self.stage_timeout_s is None:
             await stage_coro
-            return
+            return False
         t0 = monotonic()
         try:
             await asyncio.wait_for(stage_coro, timeout=self.stage_timeout_s)
+            return False
         except asyncio.TimeoutError:
             elapsed = round(monotonic() - t0, 1)
             reason = f"stage '{stage_name}' exceeded {self.stage_timeout_s}s wall-clock limit"
-            run.notify("WorkAborted", stage=stage_name, reason=reason, elapsed_s=elapsed)
-            run._aborted = True
+            run.notify("WorkAborted", stage=stage_name, reason=reason, elapsed_s=elapsed, hard=hard)
+            if hard:
+                run._aborted = True
+            return True
 
     async def _partial_export(
         self, run: CodingRun, *args: Any, **kwargs: Any
@@ -1056,16 +1035,8 @@ class CodingEngine(Engine):
         result = await run_sync(_subprocess_sync, ["git", "diff"], False, 30.0, run.workspace)
         tracked = result.get("stdout", "") if int(result.get("returncode", -1)) == 0 else ""
 
-        # Candidate set: union of all files any ChangeProposed claimed to touch
-        # plus the initial workspace delta (covers emission-failure rewrites).
-        # This is evaluated at verify time so fix-round additions are included.
-        #
-        # Normalize to workspace-relative POSIX before intersecting: the coding
-        # tool schema asks for absolute file_path values, so files_touched often
-        # carries absolute paths while git ls-files --others returns repo-relative
-        # ones.  Absolute paths under workspace are stripped to relative; relative
-        # paths are normalized (resolve ./.. components); absolute paths that
-        # escape the workspace are dropped — they cannot be untracked files here.
+        # Candidate set: union of the workspace delta and every file any ChangeProposed
+        # claimed to touch, normalized to workspace-relative POSIX before intersecting.
         raw_candidates: set[str] = set(run._ws_delta)
         final_change = run.last(ChangeProposed)
         if final_change is not None:
@@ -1083,8 +1054,7 @@ class CodingEngine(Engine):
             except ValueError:
                 pass  # absolute path outside workspace — drop
 
-        # Intersect with currently-untracked files to avoid double-counting
-        # paths that were later staged or committed during the run.
+        # Intersect with currently-untracked files: skip paths later staged/committed.
         untracked_result = await run_sync(
             _subprocess_sync,
             ["git", "ls-files", "--others", "--exclude-standard"],
@@ -1107,8 +1077,7 @@ class CodingEngine(Engine):
                 30.0,
                 run.workspace,
             )
-            # --no-index exits 1 when files differ (always true here); that is
-            # the normal success case, not an error.
+            # --no-index exits 1 when files differ (always true here) — normal, not an error.
             content = r.get("stdout", "")
             if content:
                 parts.append(content)
@@ -1133,11 +1102,7 @@ _RE_MECHANICAL = re.compile(
 
 
 def _looks_mechanical(tests: TestsRan) -> bool:
-    """Return True when the test failure output looks like a pure fmt/lint failure.
-
-    Heuristic only — used to skip the judge gate for mechanical rounds; the
-    authoritative result is always the full test_cmd exit code.
-    """
+    """True when the test failure output looks like a pure fmt/lint failure (heuristic, used to skip the judge gate; test_cmd exit code stays authoritative)."""
     if tests.passed:
         return False
     tail = tests.output_tail
@@ -1159,7 +1124,6 @@ def _parse_porcelain(output: str) -> dict[str, str]:
             continue
         xy = line[:2]
         rest = line[3:]
-        # Rename lines: "old -> new" — track the destination path.
         path = rest.split(" -> ", 1)[-1].strip()
         if path:
             mapping[path] = xy

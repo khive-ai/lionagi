@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 from lionagi import Branch
@@ -19,17 +21,28 @@ from lionagi.ln.concurrency import (
     run_async,
 )
 from lionagi.protocols.generic.log import DataLoggerConfig
+from lionagi.protocols.messages import ActionRequest, AssistantResponse
 from lionagi.state import provenance as _provenance
 from lionagi.state.artifact_verifier import resolve_artifact_contract
 
+from ._agent_depth import stamp_agent_depth
+from ._context_from import (
+    DEFAULT_CONTEXT_BUDGET_TOKENS,
+    ContextFromError,
+    resolve_and_build_context_block,
+)
 from ._logging import hint, log_error
+from ._mcp_resolve import McpConfigError, McpResolution, resolve_spawn_mcp_servers
 from ._providers import (
+    _CLAUDE_PROVIDER_NAMES,
     BACKENDS,
     PROVIDER_BYPASS_KWARGS,
     PROVIDER_EFFORT_KWARG,
     PROVIDER_FAST_KWARGS,
     PROVIDER_YOLO_KWARGS,
     PROVIDERS_EFFORT_VIA_MODEL_NAME,
+    _clamp_claude_effort,
+    _clamp_codex_effort,
     add_common_cli_args,
     build_chat_model,
     build_deadline_preamble,
@@ -46,29 +59,104 @@ from ._runs import (
     setup_agent_persist,
     teardown_agent_persist,
 )
-from ._util import EXIT_CODE_BY_STATUS, classify_exception
+from ._util import EXIT_CODE_BY_STATUS, classify_exception, validate_cwd_exists
 
-# ---------------------------------------------------------------------------
-# Preset names supported by --preset
-# ---------------------------------------------------------------------------
-
+# Preset names supported by --preset.
 _PRESET_CHOICES = ("coding",)
+
+# --image extension -> MIME type, matching InstructionContent's data-URI allowlist
+# (lionagi/protocols/messages/instruction.py _DATA_IMAGE_RE: png/jpe?g/gif/webp).
+_IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+_KHIVE_INJECTION_COUNTERS = (
+    "recall_turns",
+    "blocks_injected",
+    "failed",
+    "writeback_records",
+    "writeback_failed",
+)
+
+
+def _fold_injection_stats(totals: dict[str, int], stats: object) -> None:
+    """Add one provider-stat snapshot into session totals.
+
+    Unexpected values are ignored so telemetry cannot break teardown.
+    """
+    if not isinstance(stats, dict):
+        return
+    for counter in _KHIVE_INJECTION_COUNTERS:
+        value = stats.get(counter)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            totals[counter] += value
+
+
+async def _seed_injection_stats(live: dict | None, totals: dict[str, int]) -> None:
+    """Seed a top-level resume from its durable session counters.
+
+    Missing or malformed metadata leaves the new invocation at zero.
+    """
+    if not live or live.get("db") is None:
+        return
+    try:
+        session = await live["db"].get_session(live["session_id"])
+        metadata = session.get("node_metadata") if session else None
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        if isinstance(metadata, dict):
+            _fold_injection_stats(totals, metadata.get("khive_injection"))
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _load_image_data_uris(paths: list[str]) -> list[str]:
+    """Read each --image path and wrap it as a `data:image/...;base64,...` URI —
+    the same shape InstructionContent._format_image_item already accepts, so this
+    is a pure CLI-side reader, not a new content representation.
+
+    Raises FileNotFoundError / ValueError (with the offending path named) for a
+    missing path, a non-file path, or an unrecognized extension. Fails fast,
+    before any LLM call — same contract as --form / --prompt-file.
+    """
+    import base64
+
+    uris: list[str] = []
+    for raw_path in paths:
+        p = Path(raw_path)
+        if not p.exists():
+            raise FileNotFoundError(f"--image path not found: {raw_path!r}")
+        if not p.is_file():
+            raise ValueError(f"--image path is not a regular file: {raw_path!r}")
+        media_type = _IMAGE_MEDIA_TYPES.get(p.suffix.lower())
+        if media_type is None:
+            allowed = ", ".join(sorted(_IMAGE_MEDIA_TYPES))
+            raise ValueError(
+                f"--image {raw_path!r}: unrecognized extension {p.suffix!r}; "
+                f"supported extensions: {allowed}"
+            )
+        encoded = base64.b64encode(p.read_bytes()).decode("ascii")
+        uris.append(f"data:{media_type};base64,{encoded}")
+    return uris
 
 
 def _make_coding_preset(
     cwd: str | None = None,
     effort: str | None = "high",
     system_prompt: str | None = None,
+    role: str = "implementer",
 ):
     """Construct an AgentSpec.coding() instance; isolated for test monkeypatching."""
     from lionagi.agent.spec import AgentSpec
 
-    return AgentSpec.coding(cwd=cwd, effort=effort, system_prompt=system_prompt)
+    return AgentSpec.coding(cwd=cwd, effort=effort, system_prompt=system_prompt, role=role)
 
 
-# ---------------------------------------------------------------------------
-# WorkForm loading helpers (for --form)
-# ---------------------------------------------------------------------------
+# WorkForm loading helpers (for --form).
 
 
 _FORM_SPEC_ALLOWED_KEYS = frozenset({"title", "fields", "values"})
@@ -137,9 +225,8 @@ def _build_work_form(spec: dict, spec_path: str):
     raw_fields: dict = raw_fields_raw or {}
     raw_values: dict = raw_values_raw or {}
 
-    # Enforce: values without declared fields is not a valid use of --form.
-    # --form is a validation gate; forwarding unvalidated values silently
-    # defeats its purpose.  Use the prompt directly for unstructured context.
+    # --form is a validation gate; values without declared fields would be
+    # forwarded unvalidated, defeating that purpose.
     if raw_values and not raw_fields:
         raise ValueError(
             f"form spec {spec_path!r}: 'values' are declared but 'fields' is "
@@ -175,15 +262,120 @@ def _build_work_form(spec: dict, spec_path: str):
 
 
 def _form_to_context_block(form) -> str:
-    """Render a validated WorkForm's values as a structured context preamble.
-
-    Returns a string that can be prepended to the user's prompt so the LLM
-    receives the form values as structured inputs.
-    """
+    """Render a validated WorkForm's values as a structured context preamble
+    to prepend to the user's prompt."""
     lines = [f"[Work Form: {form.title}]"]
     for key, value in form.values.items():
         lines.append(f"  {key}: {value!r}")
     return "\n".join(lines)
+
+
+class _ProgressReport:
+    """Heartbeat text that distinguishes a working agent from a merely live one.
+
+    A bare elapsed-seconds timer reports that the event loop is scheduling, which
+    a reader takes as evidence that work is happening. Assistant responses and
+    action requests are added to the branch as the stream arrives, so counting
+    them says whether anything has actually landed since the run started.
+    """
+
+    def __init__(self, branch, now: float):
+        self._branch = branch
+        self._start = now
+        # The only read taken before the run starts, so every later count is a
+        # delta from it. Do not retry it on failure: a baseline adopted once
+        # messages have arrived would take them as the starting point and report
+        # work already done as no progress at all.
+        self._base = self._counts()
+        self._last = self._base
+        self._changed_at = now
+
+    def _counts(self) -> tuple[int, int, int] | None:
+        """(turns, tool calls, total messages), or None if they cannot be read."""
+        try:
+            messages = list(self._branch.msgs.messages)
+        except Exception:
+            return None
+        turns = sum(1 for m in messages if isinstance(m, AssistantResponse))
+        calls = sum(1 for m in messages if isinstance(m, ActionRequest))
+        return turns, calls, len(messages)
+
+    def line(self, now: float) -> str:
+        elapsed = int(now - self._start)
+        current = self._counts()
+        # Two different unreadable states, kept apart because they license
+        # different claims. The baseline is taken once and never retried, so a
+        # baseline that failed to read means no delta is computable for the rest
+        # of this run; a single unreadable snapshot may be one bad tick, and
+        # widening it past this tick claims more than was measured. Neither
+        # falls back to the previous reading, which would present a stale count
+        # as current.
+        if self._base is None:
+            return (
+                f"[progress] {elapsed}s elapsed — progress is not observable for "
+                "this run; this line means alive, not working"
+            )
+        if current is None:
+            return (
+                f"[progress] {elapsed}s elapsed — progress could not be read this "
+                "tick; this line means alive, not working"
+            )
+        if current[2] != self._last[2]:
+            self._last = current
+            self._changed_at = now
+        turns = self._last[0] - self._base[0]
+        calls = self._last[1] - self._base[1]
+        if turns <= 0 and calls <= 0:
+            return f"[progress] {elapsed}s elapsed — no completed turn yet ({elapsed}s since start)"
+        return (
+            f"[progress] {elapsed}s elapsed — {turns} turn{'' if turns == 1 else 's'}, "
+            f"{calls} tool call{'' if calls == 1 else 's'}, "
+            f"last activity {int(now - self._changed_at)}s ago"
+        )
+
+
+def _report_mcp_resolution(
+    resolution: McpResolution, *, provider: str, cwd: str | None, forwarded: bool
+) -> None:
+    """Say at spawn time what tool surface the leg is actually getting.
+
+    The whole point of resolving here is that a leg starting without the
+    servers its instructions assume should be visible when it is launched
+    rather than inferred from its output an hour later. Silence is reserved
+    for the one case where it is accurate: servers resolved and handed over.
+
+    ``forwarded`` is the caller's answer to "does this spawn hand the resolved
+    set to the leg?", read off the request that spawn built. This function must
+    not re-derive it from the provider name: a second list here is what let the
+    message contradict the spawn.
+    """
+    from lionagi.cli._logging import warn
+
+    if not forwarded:
+        if resolution.servers is not None:
+            warn(
+                f"MCP servers resolved from {resolution.source} are not carried to "
+                f"provider {provider!r} on this spawn path. This leg gets whatever "
+                "its own provider resolves for itself."
+            )
+        return
+
+    if resolution.servers is not None:
+        names = ", ".join(sorted(resolution.servers))
+        hint(f"[mcp] {len(resolution.servers)} server(s) from {resolution.source}: {names}")
+        return
+
+    if resolution.reason is None:
+        return  # --no-mcp-config: chosen, not degraded
+
+    target = cwd or os.getcwd()
+    warn(
+        f"no MCP servers are being handed to this leg ({resolution.reason}; searched "
+        f"from {resolution.searched_from}). It will start with only whatever the "
+        f"{provider} CLI discovers from {target} itself, which is where a leg pointed at "
+        "a checkout silently loses them. Pass --mcp-config PATH, or --no-mcp-config "
+        "to state that this is intended."
+    )
 
 
 async def _run_agent(
@@ -204,21 +396,58 @@ async def _run_agent(
     bypass: bool = False,
     preset: str | None = None,
     resume_on_timeout: bool = False,
+    context_from: list[str] | None = None,
+    context_budget: int | None = None,
+    notify: str | None = None,
+    images: list[str] | None = None,
+    mcp_config: str | None = None,
+    no_mcp_config: bool = False,
     _auto_resumed: bool = False,
+    _injection_totals: dict[str, int] | None = None,
 ) -> tuple[str, str, str, str, str | None]:
     """Execute one agent turn; returns (result, provider, branch_id, terminal_status, session_id).
 
-    session_id is None whenever live persistence never started (e.g. the
-    mangled resume-model-override guard fires before setup_agent_persist is
-    called, or setup itself failed and disabled persistence for this run).
+    session_id is None whenever live persistence never started.
     """
+    seed_injection_totals = _injection_totals is None
+    _injection_totals = (
+        dict.fromkeys(_KHIVE_INJECTION_COUNTERS, 0)
+        if _injection_totals is None
+        else dict(_injection_totals)
+    )
     effort = normalize_effort(effort)
+    # Fail fast before any run is allocated: a nonexistent --cwd must not spawn
+    # into a provider-created dir. Forward the tilde-expanded path — providers
+    # never expand `~`.
+    cwd = validate_cwd_exists(cwd)
+    # Read from *this* process's directory, before --cwd is applied to anything.
+    # The child's tool surface is meant to be a property of the submission, and
+    # this is the only point at which the submitting directory is still known.
+    mcp_resolution = resolve_spawn_mcp_servers(
+        mcp_config,
+        launch_dir=os.getcwd(),
+        disabled=no_mcp_config,
+    )
     if resume and continue_last:
         raise ConfigurationError("--resume / -r and --continue-last / -c are mutually exclusive.")
     if preset and (resume or continue_last):
         raise ConfigurationError(
             "--preset only applies to new branches; cannot combine with --resume / --continue-last."
         )
+    if context_from and (resume or continue_last):
+        raise ContextFromError(
+            "--context-from cannot be combined with --resume / -r or --continue-last / -c "
+            "(resume already carries the source context)."
+        )
+    if context_from:
+        effective_context_budget = (
+            context_budget if context_budget is not None else DEFAULT_CONTEXT_BUDGET_TOKENS
+        )
+        context_block = await resolve_and_build_context_block(
+            context_from, effective_context_budget
+        )
+        if context_block:
+            prompt = f"{context_block}\n\n{prompt}"
 
     # Cache cancellation exception class while event loop is running;
     # cancelled_exc_classes() in the error path needs it after loop exit.
@@ -240,12 +469,33 @@ async def _run_agent(
             effort = normalize_effort(profile.effort)
         if profile.yolo and not yolo:
             yolo = True
+        if profile.bypass and not bypass:
+            bypass = True
         if profile.fast_mode and not fast:
             fast = True
         if profile.timeout and timeout is None:
             timeout = profile.timeout
         if profile.resume_on_timeout and not resume_on_timeout:
             resume_on_timeout = True
+
+    # Validate a declared profile `role:` key up front: a falsy-but-present
+    # value must fail loudly here, not silently fall back to "implementer".
+    profile_role_extra = (getattr(profile, "extra", None) or {}) if profile else {}
+    has_role_key = "role" in profile_role_extra
+    profile_role = profile_role_extra.get("role") if has_role_key else None
+    if has_role_key and (not isinstance(profile_role, str) or not profile_role.strip()):
+        raise ConfigurationError(
+            f"agent profile {getattr(profile, 'name', '<unknown>')!r} declares a "
+            f"`role` key but its value {profile_role!r} is not a non-empty "
+            "string; set it to a valid role name, or remove the key to keep "
+            "the plain profile path (no role/policy composition)."
+        )
+
+    stamp_agent_depth(agent_name)
+
+    # True only when a NEW branch took the create_agent path (--preset coding
+    # or an opted-in profile `role:` key) — see the add_message guard below.
+    took_create_agent_path = False
 
     branch: Branch | None = None
     if continue_last:
@@ -259,16 +509,15 @@ async def _run_agent(
             hint(f"[resume] prefix-matched {resume} → {resolved_branch_id}")
         branch = Branch.from_dict(json.loads(branch_path.read_text()))
 
+    # Capture before the new-branch block below reassigns `branch`: the only
+    # reliable "reopened existing" vs "minting new" signal once that block runs.
+    is_resumed_branch = branch is not None
+
     if model_str is not None:
         ms = parse_model_spec(model_str)
         if branch is not None and "/" not in ms.model and ms.model not in BACKENDS:
-            # A resume-path override is grafted into the existing branch's
-            # config with no further validation (unlike a new branch, whose
-            # provider must resolve via build_chat_model/match_endpoint or
-            # fail naturally). A bare token that isn't a known backend name
-            # is almost always a mangled command — e.g. a --resume id split
-            # across two argv tokens leaves [fragment, prompt] as positionals
-            # and the fragment is read as MODEL.
+            # A bare token that isn't a known backend name is almost always a
+            # mangled command (e.g. a --resume id split across two argv tokens).
             log_error(
                 f"resume model override {model_str!r} does not look like a "
                 "model spec (expected 'provider/model', or a known name "
@@ -293,57 +542,129 @@ async def _run_agent(
             "or use --resume / --continue-last to reopen an existing one."
         )
 
+    from lionagi.agent.factory import _reject_unforwardable_explicit_mcp
+
+    _reject_unforwardable_explicit_mcp(
+        provider,
+        named_explicitly=mcp_resolution.explicit,
+        asked_for_servers=bool(mcp_resolution.servers),
+    )
+
     if branch is None:
-        # codex sandbox blocks tool calls without bypass — warn early.
+        # Codex blocks tool calls until file access is enabled. Surface this
+        # even without verbose output; CLI or profile approval flags suppress it.
         if provider == "codex" and not yolo and not bypass:
             from lionagi.cli._logging import warn
 
             warn(
-                "codex models require --bypass or --yolo for local file access. "
-                "Without one of these flags the agent may hang silently. "
-                "Re-run with --bypass or use an agent profile (-a)."
+                "codex models need file access enabled or the agent may hang "
+                "silently on its first tool call. Re-run with --yolo for the "
+                "sandboxed default, or use an agent profile (-a). --bypass also "
+                "works but disables the sandbox."
             )
-        chat_model = build_chat_model(provider, model, yolo, verbose, theme, effort, fast, bypass)
+        chat_model = build_chat_model(
+            provider,
+            model,
+            yolo,
+            verbose,
+            theme,
+            effort,
+            fast,
+            bypass,
+            mcp_servers=mcp_resolution.servers,
+        )
         effort = resolve_persisted_effort(provider, chat_model, effort)
+        # Two spawn shapes hand the set over in two different places, so the
+        # message has to read the one that applies. A plain leg gets only what
+        # build_chat_model already put on the request, which is knowable here;
+        # a create_agent leg is handed the set inside create_agent, so its
+        # message waits for the request that call produces (below).
+        takes_create_agent_path = preset == "coding" or has_role_key
+        if not takes_create_agent_path:
+            from lionagi.agent.factory import request_kwargs_carry_forwarded_mcp
 
-        if preset == "coding":
-            # 3a: use create_agent so CodingToolkit tools and path-guards are
-            # fully wired (guard_destructive on bash, guard_paths on
-            # reader/editor).  The factory installs the full system message via
-            # set_system() — compose the profile extension into the spec BEFORE
-            # calling create_agent so both preset role/policy AND the profile
-            # prompt land in a single system message.
-            #
-            # AgentSpec.coding(system_prompt=...) maps to spec.extra_prompt,
-            # which build_system_message() appends AFTER the role header and
-            # policy block — no duplication of the LION system text.
-            # The post-factory add_message on the preset path is skipped to
-            # avoid set_system replacing the composed message.
-            from lionagi.agent.factory import create_agent
+            # Read the request build_chat_model produced: the two transports
+            # put the set in different places, and a provider name is what got
+            # this wrong before.
+            built_config = getattr(getattr(chat_model, "endpoint", None), "config", None)
+            forwarded = request_kwargs_carry_forwarded_mcp(getattr(built_config, "kwargs", None))
+            _report_mcp_resolution(mcp_resolution, provider=provider, cwd=cwd, forwarded=forwarded)
 
-            # Use profile.raw_body (not profile.system_prompt) to avoid
-            # duplicating LION_SYSTEM_MESSAGE: _parse_profile prepends it into
-            # system_prompt when lion_system=True, and factory.py:117-125 also
-            # prepends it because spec.lion_system remains True.  raw_body is
-            # the profile body before that expansion; the factory adds the
-            # header exactly once.  When lion_system=False, raw_body==system_prompt
-            # so both paths are consistent.
+        # Opt-in profile `role:` key switches a plain `-a <profile>` leg onto
+        # the same create_agent path as --preset coding, parameterized by role.
+        if takes_create_agent_path:
+            took_create_agent_path = True
+            # Use create_agent so CodingToolkit tools and path-guards are wired;
+            # compose the profile extension into the spec before calling it.
+            from lionagi.agent.factory import (
+                create_agent,
+                request_carries_forwarded_mcp,
+            )
+
+            # Use profile.raw_body, not profile.system_prompt, to avoid
+            # duplicating LION_SYSTEM_MESSAGE (see docs/internals/cli.md).
             profile_extra = (getattr(profile, "raw_body", None) or "") if profile else ""
             spec = _make_coding_preset(
                 cwd=cwd,
                 effort=effort or "high",
                 system_prompt=profile_extra or None,
+                role=profile_role if has_role_key else "implementer",
             )
+            if profile is not None:
+                spec.khive_injection = getattr(profile, "khive_injection", None)
+            # AgentSpec.coding()/compose() default lion_system=True regardless
+            # of the profile's frontmatter — propagate an explicit opt-out.
+            if profile is not None and not profile.lion_system:
+                spec.lion_system = False
+            # Hand over the set resolved from the submitting directory. Without
+            # it the factory looks for a config of its own, and a leg pointed
+            # at a checkout gets whatever is found near the target instead of
+            # what this command resolved and reported.
             branch = await create_agent(
                 spec,
                 chat_model=chat_model,
                 log_config=DataLoggerConfig(auto_save_on_exit=False),
                 load_settings=False,
+                resolved_mcp_servers=mcp_resolution.servers,
+                resolved_mcp_explicit=mcp_resolution.explicit,
+            )
+            # The hand-over happened inside create_agent, so the request it
+            # produced is the only honest source for what this leg is getting.
+            _report_mcp_resolution(
+                mcp_resolution,
+                provider=provider,
+                cwd=cwd,
+                forwarded=request_carries_forwarded_mcp(branch),
             )
         else:
             branch = Branch(
                 chat_model=chat_model,
                 log_config=DataLoggerConfig(auto_save_on_exit=False),
+            )
+            # A bare `-a <profile>` leg still honors the profile's khive_injection
+            # opt-in (a context-provider concern, independent of the coding preset),
+            # keyed on `{agent_name}-recall-v1` to match the orchestrate path. Pass
+            # agent_name (guaranteed non-empty here), NOT profile.name — the latter's
+            # eager attribute access fires before the helper's guard can early-return.
+            if profile is not None:
+                from lionagi.agent.factory import register_profile_injection
+
+                register_profile_injection(branch, agent_name, profile)
+
+        # Fail fast: `li agent` only drives CLI-backed providers. The `run` op
+        # raises this same error deep inside once streaming — catching it here,
+        # before allocate_run/setup_agent_persist, keeps a bad provider prefix
+        # (e.g. 'gpt-5.3-codex-spark' vs 'codex/gpt-5.3-codex-spark') from
+        # persisting a run/session that would be recorded as a failed reliability
+        # event. New-branch only: a resume model override swaps only the model
+        # under the branch's existing (already-CLI) provider, never the provider.
+        if not branch.chat_model.is_cli:
+            cli_provider = getattr(branch.chat_model.endpoint.config, "provider", provider)
+            raise ConfigurationError(
+                f"run operation only supports CLI endpoints, but got provider={cli_provider!r}. "
+                "Use one of the CLI endpoint prefixes: claude_code, codex, gemini-cli, pi. "
+                "Did you mean 'gemini-cli/<model>' instead of 'gemini/<model>'? "
+                "The 'gemini' prefix routes to the REST API, not the local Gemini CLI."
             )
     else:
         cfg = branch.chat_model.endpoint.config.kwargs
@@ -361,15 +682,14 @@ async def _run_agent(
         if effort is not None:
             kwarg = PROVIDER_EFFORT_KWARG.get(provider)
             if kwarg:
+                if provider == "codex":
+                    effort = _clamp_codex_effort(effort, cfg.get("model"))
+                elif provider in _CLAUDE_PROVIDER_NAMES:
+                    effort = _clamp_claude_effort(effort, cfg.get("model") or "")
                 cfg[kwarg] = effort
             elif provider in PROVIDERS_EFFORT_VIA_MODEL_NAME:
                 # agy (Antigravity CLI) has no effort kwarg — fold effort into
                 # the resolved --model name instead (see resolve_agy_model).
-                # cfg["model"] here is the *persisted* prior resolution
-                # (already a concrete agy display name) unless the caller
-                # also passed a new model_str this turn — reapply_effort
-                # lets a fresh --effort replace that persisted suffix,
-                # while an explicit model_str given on this call still wins.
                 from lionagi.providers.google.gemini_code import resolve_agy_model
 
                 cfg["model"] = resolve_agy_model(
@@ -383,12 +703,47 @@ async def _run_agent(
             cfg.update(PROVIDER_YOLO_KWARGS.get(provider, {}))
         if fast:
             cfg.update(PROVIDER_FAST_KWARGS.get(provider, {}))
+        # A resumed leg re-spawns a CLI child, so it needs the server set handed
+        # to it just as a new one does; the persisted branch carries the model,
+        # not the caller's directory. Which providers can be given a set, and
+        # over which transport, is not this call site's question to answer.
+        from lionagi.agent.factory import (
+            apply_forwarded_mcp_servers,
+            request_kwargs_carry_forwarded_mcp,
+        )
 
-    # Profile system prompt for the non-preset path only.
-    # On the preset path the profile extension was already composed into the
-    # spec before create_agent ran (add_message would call set_system and
-    # replace the preset system message — see protocols/messages/manager.py:385).
-    if profile and profile.system_prompt and preset is None:
+        apply_forwarded_mcp_servers(
+            cfg,
+            mcp_resolution.servers,
+            provider=provider,
+            exclusive=not mcp_resolution.servers,
+        )
+        # A resumed leg re-spawns from the persisted request, which is the only
+        # thing that decides what it carries — read the answer off it.
+        _report_mcp_resolution(
+            mcp_resolution,
+            provider=provider,
+            cwd=cwd,
+            forwarded=request_kwargs_carry_forwarded_mcp(cfg),
+        )
+
+    # Add the profile system prompt for every leg EXCEPT one whose branch carries
+    # (or, on a brand-new leg, would carry) a create_agent-composed system message
+    # (role header + policy block) — full rationale in docs/internals/cli.md.
+    # Brand-new branch: `took_create_agent_path` is authoritative (preset can't
+    # combine with resume). Resumed branch: only the immutable
+    # CREATE_AGENT_BRANCH_ORIGIN_KEY marker counts as create_agent provenance —
+    # never re-derive it from persisted system-message content (Markdown
+    # headings are user-authored prompt text, not proof of origin, and a
+    # markerless branch with an explicitly requested role must get that role's
+    # system prompt rather than have it silently dropped).
+    if is_resumed_branch:
+        from lionagi.agent.factory import CREATE_AGENT_BRANCH_ORIGIN_KEY
+
+        composed_via_create_agent = bool(branch.metadata.get(CREATE_AGENT_BRANCH_ORIGIN_KEY))
+    else:
+        composed_via_create_agent = took_create_agent_path
+    if profile and profile.system_prompt and not composed_via_create_agent:
         branch.msgs.add_message(system=profile.system_prompt)
 
     if timeout is not None:
@@ -397,8 +752,22 @@ async def _run_agent(
 
     run = allocate_run()
     branch_id = str(branch.id)
-
     resolved_model_spec = _provenance.resolve_model_spec(provider, model)
+    run_manifest = {
+        "branch_id": branch_id,
+        "agent_name": agent_name,
+        "provider": provider,
+        "model": resolved_model_spec,
+        "status": "running",
+        "started_at": time.time(),
+        "ended_at": None,
+    }
+    if context_from:
+        run_manifest["context_from"] = list(context_from)
+    _write_run_manifest = getattr(run, "write_manifest", None)
+    if _write_run_manifest is not None:
+        _write_run_manifest(run_manifest)
+
     artifact_contract = resolve_artifact_contract(
         playbook_artifacts=None,
         agent_defaults=profile.artifact_defaults if profile else None,
@@ -414,6 +783,61 @@ async def _run_agent(
         effort=effort,
         project=project,
     )
+    if seed_injection_totals:
+        await _seed_injection_stats(live, _injection_totals)
+
+    # Session-scoped: teardown_agent_persist terminalizes only the session;
+    # invocation records are finalized externally and would never fire. Deferred
+    # auto-resume legs unregister without firing; the recursed leg registers anew.
+    _notify_scope_name: str | None = None
+    _notify_session_id = live.get("session_id") if live else None
+    if notify and _notify_session_id is not None:
+        from lionagi.cli.orchestrate._notify import (
+            register_flow_notify_scope,
+            unregister_flow_notify_scope,
+        )
+        from lionagi.state.lifecycle.notify_settings import (
+            record_notify_rejection_to_run,
+        )
+
+        def _notify_override_refused(reason: str) -> None:
+            # This run explicitly asked for a notifier and will not get one.
+            # Recording it here is what keeps a refusal distinguishable from
+            # never having configured one; both otherwise register nothing.
+            record_notify_rejection_to_run(run, reason)
+
+        _notify_scope_name = register_flow_notify_scope(
+            override=notify,
+            entity_kind="session",
+            entity_id=_notify_session_id,
+            invocation_id=invocation_id,
+            flow_kind="agent",
+            playbook=None,
+            save_dir=str(run.artifact_root),
+            cwd=cwd or os.getcwd(),
+            started_at=run_manifest["started_at"],
+            on_rejection=_notify_override_refused,
+        )
+
+    # notify.on_terminal (settings-driven, independent of --notify) outcome
+    # attribution: bind this run into the handler at registration time so a
+    # late-arriving outcome for this session lands here or nowhere -- never
+    # on a different run this process later allocates. Skipped when --notify
+    # already owns this same entity as an exclusive override (registering a
+    # second override for the same entity would fire the adapter twice).
+    _notify_outcome_scope_name: str | None = None
+    if not notify and _notify_session_id is not None:
+        from lionagi.state.lifecycle.notify_settings import (
+            register_run_notify_outcome_scope,
+            unregister_run_notify_outcome_scope,
+        )
+
+        _notify_outcome_scope_name = register_run_notify_outcome_scope(
+            run,
+            entity_kind="session",
+            entity_id=_notify_session_id,
+            project_dir=cwd,
+        )
 
     _terminal_status = "completed"
     _terminal_exc: BaseException | None = None
@@ -423,15 +847,12 @@ async def _run_agent(
         import asyncio as _asyncio
         import time as _hb_time
 
-        _hb_start = _hb_time.monotonic()
+        _hb_report = _ProgressReport(branch, _hb_time.monotonic())
 
         async def _heartbeat_loop():
             while True:
                 await _asyncio.sleep(60)
-                elapsed = int(_hb_time.monotonic() - _hb_start)
-                from lionagi.cli._logging import hint as _hint
-
-                _hint(f"[progress] {elapsed}s elapsed — agent still running…")
+                hint(_hb_report.line(_hb_time.monotonic()))
 
         try:
             _heartbeat_task = _asyncio.ensure_future(_heartbeat_loop())
@@ -445,6 +866,7 @@ async def _run_agent(
             persist_dir=str(run.stream_dir),
             snapshot_dir=str(run.branches_dir),
             timeout=timeout,
+            **({"images": images} if images else {}),
             **({"repo": cwd} if cwd else {}),
         )
     except (TimeoutError, LionTimeoutError) as exc:
@@ -464,6 +886,11 @@ async def _run_agent(
             log_error(f"{type(exc).__name__}: {exc}")
         raise
     finally:
+        # See docs/internals/cli.md for why an about-to-auto-resume leg must
+        # not stamp a terminal status here (ADR-0035 terminal guard).
+        will_auto_resume = (
+            _terminal_status == "timed_out" and resume_on_timeout and not _auto_resumed
+        )
         if _heartbeat_task is not None:
             _heartbeat_task.cancel()
             import asyncio as _asyncio2
@@ -477,13 +904,45 @@ async def _run_agent(
         import anyio
 
         with anyio.CancelScope(shield=True):
+            # Engine session id, used by teardown to tell a genuine failure
+            # from a wrapper exception racing a still-live engine session.
+            _engine_session_uid = getattr(branch.chat_model.endpoint, "session_id", None)
+            registry = getattr(branch, "_context_providers", None)
+            injection_stats = getattr(registry, "stats", None) if registry is not None else None
+            _fold_injection_stats(_injection_totals, injection_stats)
+            telemetry_extras = (
+                {"khive_injection": dict(_injection_totals)}
+                if not will_auto_resume and any(_injection_totals.values())
+                else None
+            )
+            telemetry_kw = {"extras": telemetry_extras} if telemetry_extras else {}
             effective_status = await teardown_agent_persist(
                 live,
                 status=_terminal_status,
                 exception=_terminal_exc,
+                cwd=cwd,
+                engine_session_uid=_engine_session_uid,
+                defer_terminal=will_auto_resume,
+                **telemetry_kw,
             )
             if effective_status != _terminal_status:
                 _terminal_status = effective_status
+            from lionagi.state.db import SESSION_TERMINAL_STATUSES
+
+            run_manifest["status"] = _terminal_status
+            if _terminal_status in SESSION_TERMINAL_STATUSES:
+                run_manifest["ended_at"] = time.time()
+            if _write_run_manifest is not None:
+                _write_run_manifest(run_manifest)
+            # Unregister after teardown fires the terminal transition.
+            if _notify_scope_name is not None:
+                unregister_flow_notify_scope(_notify_scope_name)
+            if _notify_outcome_scope_name is not None:
+                from lionagi.state.lifecycle.notify_settings import (
+                    unregister_run_notify_outcome_scope,
+                )
+
+                unregister_run_notify_outcome_scope(_notify_outcome_scope_name)
             await branch.mdls.shutdown()
 
     is_resume = bool(resume or continue_last)
@@ -493,6 +952,10 @@ async def _run_agent(
             f"re-run without -r (resume target: {resume or 'last'})"
         )
         _terminal_status = "failed"
+        run_manifest["status"] = _terminal_status
+        run_manifest["ended_at"] = time.time()
+        if _write_run_manifest is not None:
+            _write_run_manifest(run_manifest)
 
     save_last_branch_pointer(run.run_id, branch_id)
 
@@ -505,11 +968,8 @@ async def _run_agent(
             f"[auto-resume] session {session_id or branch_id} timed out after "
             f"{timeout}s — resuming once with 'continue and conclude the task'"
         )
-        # Carry the model that actually ran this leg (explicit --model, profile
-        # default, or whatever a prior resume already grafted) forward as an
-        # explicit override. Passing model_str=None here would let the
-        # agent_name profile's model re-apply on the resumed leg (see the
-        # profile-precedence block above), silently switching models mid-run.
+        # Carry the model forward explicitly — None would let the profile's
+        # model silently re-apply on the resumed leg, switching models.
         _effective_cfg = branch.chat_model.endpoint.config
         _effective_model_str = f"{_effective_cfg.provider}/{_effective_cfg.kwargs.get('model')}"
         return await _run_agent(
@@ -528,7 +988,11 @@ async def _run_agent(
             project=project,
             bypass=bypass,
             resume_on_timeout=resume_on_timeout,
+            notify=notify,
+            mcp_config=mcp_config,
+            no_mcp_config=no_mcp_config,
             _auto_resumed=True,
+            _injection_totals=_injection_totals,
         )
 
     return res or "", provider, branch_id, _terminal_status, session_id
@@ -544,7 +1008,9 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argu
             "Use -r / -c to continue a previous conversation. "
             "Use -a to load a profile from .lionagi/agents/. "
             "Use --preset to apply a built-in agent configuration. "
-            "Use --form to load and validate structured inputs before invoking."
+            "Use --form to load and validate structured inputs before invoking. "
+            "Use --context-from to hand a new agent distilled context from a "
+            "prior session/branch/run/file."
         ),
     )
     agent.add_argument(
@@ -563,13 +1029,19 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argu
         dest="prompt_flag",
         metavar="TEXT",
         default=None,
-        help="Prompt text (alternative to the positional PROMPT).",
+        help=(
+            "The instruction, as a flag instead of the positional PROMPT. Give it one way or "
+            "the other, never both."
+        ),
     )
     agent.add_argument(
         "--prompt-file",
         metavar="PATH",
         default=None,
-        help="Read the prompt from a file; '-' reads stdin (heredoc-friendly).",
+        help=(
+            "Read the instruction from a file; '-' reads stdin, which is heredoc-friendly. The "
+            "file is read once at spawn, so editing it afterwards cannot change the run."
+        ),
     )
     agent.add_argument(
         "-a",
@@ -578,9 +1050,19 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argu
         default=None,
         help=(
             "Load agent profile by name. Resolves "
-            ".lionagi/agents/<NAME>/<NAME>.md first, then .lionagi/agents/<NAME>.md. "
+            ".lionagi/agents/<NAME>/<NAME>.md first, then .lionagi/agents/<NAME>.md, "
+            "then a trusted+enabled plugin's declared profile "
+            "('<plugin>/<NAME>', or a bare NAME when only one plugin declares it). "
             "Profile provides system prompt, default model, effort, yolo, "
             "timeout, resume_on_timeout. CLI flags override profile settings."
+        ),
+    )
+    agent.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help=(
+            "Print every agent profile -a would resolve, as JSON, and exit without running "
+            "anything. Use it to find out what names are available here."
         ),
     )
     agent.add_argument(
@@ -588,13 +1070,19 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argu
         "--resume",
         metavar="BRANCH_ID",
         default=None,
-        help="Resume a previous branch by ID.",
+        help=(
+            "Continue a previous run by its branch id, keeping that conversation's history. "
+            "Cannot be combined with --context-from, which is for starting fresh."
+        ),
     )
     agent.add_argument(
         "-c",
         "--continue-last",
         action="store_true",
-        help="Continue the most recently used branch.",
+        help=(
+            "Continue the most recently used branch, keeping its history, without having to "
+            "look up its id."
+        ),
     )
     agent.add_argument(
         "--preset",
@@ -620,6 +1108,67 @@ def add_agent_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argu
         ),
     )
 
+    agent.add_argument(
+        "--image",
+        dest="image",
+        metavar="PATH",
+        action="append",
+        default=None,
+        help=(
+            "Attach an image file to the prompt (repeatable, e.g. "
+            "--image a.png --image b.jpg). Supported extensions: "
+            f"{', '.join(sorted(_IMAGE_MEDIA_TYPES))}. Each file is read, "
+            "base64-encoded, and attached as an image content part on the "
+            "user message."
+        ),
+    )
+    agent.add_argument(
+        "--context-from",
+        dest="context_from",
+        metavar="REF",
+        action="append",
+        default=None,
+        help=(
+            "Inject distilled context from a prior session id, branch id, run id, "
+            "or file path into this new branch's first instruction, above the "
+            "prompt. Repeatable (concatenated in argv order); the total budget "
+            "(see --context-budget) is shared across all refs. Rejected in "
+            "combination with -r / --resume or -c / --continue-last."
+        ),
+    )
+    agent.add_argument(
+        "--context-budget",
+        dest="context_budget",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            f"Total token budget for --context-from content "
+            f"(default {DEFAULT_CONTEXT_BUDGET_TOKENS}; ~4 chars/token)."
+        ),
+    )
+
+    agent.add_argument(
+        "--mcp-config",
+        dest="mcp_config",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Read this MCP config and hand its servers to the leg explicitly. "
+            "By default the nearest .mcp.json at or above the directory this "
+            "command was run in is used, so the leg's tools come from the "
+            "submission rather than from --cwd. The file is read once at spawn."
+        ),
+    )
+    agent.add_argument(
+        "--no-mcp-config",
+        dest="no_mcp_config",
+        action="store_true",
+        help=(
+            "Hand the leg no MCP servers, and say so deliberately instead of "
+            "arriving there by an empty search."
+        ),
+    )
     add_common_cli_args(agent)
     return agent
 
@@ -666,6 +1215,11 @@ def _resolve_model_and_prompt(args: argparse.Namespace) -> tuple[str | None, str
 
 def run_agent(args: argparse.Namespace) -> int:
     """Dispatch agent command."""
+    if getattr(args, "list_profiles", False):
+        from lionagi.cli._providers import build_agent_profile_catalog
+
+        print(json.dumps(build_agent_profile_catalog(), indent=2, sort_keys=True))
+        return 0
     resolved = _resolve_model_and_prompt(args)
     if resolved is None:
         return 1
@@ -699,6 +1253,15 @@ def run_agent(args: argparse.Namespace) -> int:
 
     prompt = form_prompt_prefix + prompt_text
 
+    # --image: load and validate BEFORE any LLM call, same contract as --form.
+    image_uris: list[str] | None = None
+    if getattr(args, "image", None):
+        try:
+            image_uris = _load_image_data_uris(args.image)
+        except (FileNotFoundError, ValueError) as exc:
+            log_error(str(exc))
+            return 1
+
     has_model = model is not None or args.agent is not None
     if not has_model and not (args.resume or args.continue_last):
         log_error(
@@ -726,8 +1289,22 @@ def run_agent(args: argparse.Namespace) -> int:
                 bypass=getattr(args, "bypass", False),
                 preset=getattr(args, "preset", None),
                 resume_on_timeout=getattr(args, "resume_on_timeout", False),
+                context_from=getattr(args, "context_from", None),
+                context_budget=getattr(args, "context_budget", None),
+                notify=getattr(args, "notify", None),
+                images=image_uris,
+                mcp_config=getattr(args, "mcp_config", None),
+                no_mcp_config=getattr(args, "no_mcp_config", False),
             )
         )
+    except McpConfigError as exc:
+        # An explicitly named --mcp-config that cannot be used: refuse at spawn,
+        # rather than starting a leg whose tool surface is not what was asked for.
+        log_error(str(exc))
+        return 2
+    except ContextFromError as exc:
+        log_error(str(exc))
+        return 2
     except KeyboardInterrupt:
         return EXIT_CODE_BY_STATUS["aborted"]
     except SigtermInterrupt as exc:

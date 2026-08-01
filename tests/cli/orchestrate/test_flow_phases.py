@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -12,9 +13,11 @@ from uuid import uuid4
 import pytest
 
 from lionagi.casts.emission import TaskAssignment
+from lionagi.cli.orchestrate._common import bare_worker_system
 from lionagi.cli.orchestrate.flow import (
     _build_dag,
     _DagState,
+    _deps_from_built_graph,
     _ExecResult,
     _execute_dag,
     _finalize_flow,
@@ -39,6 +42,11 @@ def _make_env(tmp_path, *, bare=True, total_budget=None, team_data=None, live_pe
 
     builder = _FakeBuilder()
     session = _FakeSession()
+    expected_worker_ids: list[str] = []
+
+    def expect_worker(agent_id: str) -> None:
+        if agent_id not in expected_worker_ids:
+            expected_worker_ids.append(agent_id)
 
     return SimpleNamespace(
         run=SimpleNamespace(
@@ -66,7 +74,27 @@ def _make_env(tmp_path, *, bare=True, total_budget=None, team_data=None, live_pe
         register_name=register_name,
         _live_persist=live_persist,
         _finalize_extras=None,
+        worker_artifact_dirs={},
+        expected_worker_ids=expected_worker_ids,
+        expect_worker=expect_worker,
     )
+
+
+class _FakeMsgs:
+    """Enough of the `Branch.msgs` surface to observe a system-prompt rewrite."""
+
+    def __init__(self, system_text: str):
+        self.system_text = system_text
+
+    @property
+    def system(self):
+        return SimpleNamespace(content=SimpleNamespace(system_message=self.system_text))
+
+    def create_system(self, *, system):
+        return system
+
+    def set_system(self, system) -> None:
+        self.system_text = system
 
 
 class _FakeOrcBranch:
@@ -107,13 +135,35 @@ class _FakeSession:
 
 
 class _FakeBuilder:
+    """Stub that keeps the real builder's edge semantics: an explicit list of
+    dependencies makes exactly those edges, `None` chains onto the current
+    heads. Callers that want a graph disagreeing with the plan can drive that
+    through `add_operation` and read it back off `get_graph()`.
+    """
+
     def __init__(self):
         self._nodes: list[str] = []
         self._ops: list[dict] = []
+        self._mapping: dict[str, dict] = {}
+        self._graph_nodes: dict[str, SimpleNamespace] = {}
+        self._heads: list[str] = []
+        self._edges = 0
 
-    def add_operation(self, op_type, *, branch, depends_on=None, instruction="", context=None):
+    def add_operation(
+        self, op_type, *, branch, depends_on=None, instruction="", context=None, **kwargs
+    ):
         node_id = f"node-{len(self._nodes)}"
         self._nodes.append(node_id)
+        self._mapping[node_id] = {"in": {}, "out": {}}
+        self._graph_nodes[node_id] = SimpleNamespace(id=node_id, metadata={})
+        heads = list(depends_on) if depends_on is not None else list(self._heads)
+        for head_id in heads:
+            if head_id in self._mapping:
+                self._edges += 1
+                edge_id = f"edge-{self._edges}"
+                self._mapping[head_id]["out"][edge_id] = node_id
+                self._mapping[node_id]["in"][edge_id] = head_id
+        self._heads = [node_id]
         self._ops.append(
             {
                 "id": node_id,
@@ -125,7 +175,13 @@ class _FakeBuilder:
         return node_id
 
     def get_graph(self):
-        return SimpleNamespace(nodes=list(self._nodes))
+        return SimpleNamespace(
+            nodes=list(self._nodes),
+            internal_nodes=dict(self._graph_nodes),
+            node_edge_mapping={
+                k: {"in": dict(v["in"]), "out": dict(v["out"])} for k, v in self._mapping.items()
+            },
+        )
 
 
 class _FakeDB:
@@ -175,7 +231,7 @@ async def test_build_dag_populates_node_ids(tmp_path):
 
     with patch(
         "lionagi.cli.orchestrate.flow.build_worker_branch",
-        return_value=(_FakeBranch("researcher"), "codex/gpt-5.5", None),
+        return_value=(_FakeBranch("researcher"), "codex/gpt-5.5", None, False),
     ):
         dag_state = await _build_dag(env, "do stuff", plan_result, reactive_spec="off")
 
@@ -183,6 +239,12 @@ async def test_build_dag_populates_node_ids(tmp_path):
     assert len(dag_state.worker_models) == 2
     assert dag_state.reactive is False
     assert dag_state.known_nodes == set(dag_state.node_ids)
+    # The plan is also the run's statement of which workers it will have, kept
+    # apart from the directories actually handed out so the two can disagree.
+    # `build_worker_branch` is patched out here, so nothing registered a
+    # directory — and the roster still names both workers.
+    assert env.expected_worker_ids == ["researcher", "implementer"]
+    assert env.worker_artifact_dirs == {}
 
 
 @pytest.mark.asyncio
@@ -203,13 +265,106 @@ async def test_build_dag_deps_by_node_format(tmp_path):
 
     with patch(
         "lionagi.cli.orchestrate.flow.build_worker_branch",
-        return_value=(_FakeBranch(), "codex/gpt-5.5", None),
+        return_value=(_FakeBranch(), "codex/gpt-5.5", None, False),
     ):
         dag_state = await _build_dag(env, "task", plan_result, reactive_spec="off")
 
     nid0, nid1 = dag_state.node_ids
     assert dag_state.deps_by_node[nid0] == []
     assert dag_state.deps_by_node[nid1] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_build_dag_deps_follow_the_built_graph_not_the_declared_plan(tmp_path):
+    """The reported dependencies are the edges that exist, not the ones asked for.
+
+    Four assignments wired so the declared plan and the built graph disagree in
+    both directions: step 2 is built exactly as declared and must still come out
+    right, step 3 loses a declared dependency, step 4 gains one no assignment
+    ever declared. Re-deriving from the plan would give [], ["1"], ["1", "2"], []
+    — three of the four wrong.
+    """
+    from lionagi.cli.orchestrate._common import _build_worker_operate_node as _real_build
+    from lionagi.operations.builder import OperationGraphBuilder
+
+    env = _make_env(tmp_path)
+    env.builder = OperationGraphBuilder()
+
+    assignments = [
+        TaskAssignment(task="a", assignee="researcher"),
+        TaskAssignment(task="b", assignee="architect", depends_on=["1"]),
+        TaskAssignment(task="c", assignee="implementer", depends_on=["1", "2"]),
+        TaskAssignment(task="d", assignee="critic"),
+    ]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher", "architect", "implementer", "critic"],
+        dep_indices=[[], [0], [0, 1], []],
+        pool=[],
+        budget_preambles={},
+    )
+
+    built: list[str] = []
+
+    def _diverging_build(builder, **kwargs):
+        step = len(built)
+        deps = kwargs.pop("depends_on")
+        if step == 2:
+            deps = [built[1]]  # declared on steps 1 and 2; only 2 gets built
+        elif step == 3:
+            deps = [built[0]]  # declared nothing; built onto step 1 anyway
+        node_id = _real_build(builder, depends_on=deps, **kwargs)
+        built.append(node_id)
+        return node_id
+
+    with (
+        patch(
+            "lionagi.cli.orchestrate.flow.build_worker_branch",
+            return_value=(_FakeBranch(), "codex/gpt-5.5", None, False),
+        ),
+        patch("lionagi.cli.orchestrate.flow._build_worker_operate_node", _diverging_build),
+    ):
+        dag_state = await _build_dag(env, "task", plan_result, reactive_spec="off")
+
+    nid0, nid1, nid2, nid3 = dag_state.node_ids
+    assert dag_state.deps_by_node[nid0] == []
+    assert dag_state.deps_by_node[nid1] == ["1"]  # declared and built agree
+    assert dag_state.deps_by_node[nid2] == ["2"]  # the plan says ["1", "2"]
+    assert dag_state.deps_by_node[nid3] == ["1"]  # the plan says []
+
+    # The Studio snapshot is rendered from the same reading, not a second one.
+    assert [op["depends_on"] for op in env._finalize_extras["operations"]] == [
+        [],
+        ["1"],
+        ["2"],
+        ["1"],
+    ]
+
+
+def test_deps_from_built_graph_names_a_head_that_has_no_plan_ordinal():
+    """A node injected after planning is named by its stamped spawn id."""
+    builder = _FakeBuilder()
+    planned = builder.add_operation("operate", branch=None, depends_on=[])
+    injected = builder.add_operation("operate", branch=None, depends_on=[planned])
+    child = builder.add_operation("operate", branch=None, depends_on=[injected])
+    builder._graph_nodes[injected].metadata["spawn_id"] = "spawn-1"
+
+    deps = _deps_from_built_graph(builder, {planned: "1"})
+
+    assert deps[planned] == []
+    assert deps[injected] == ["1"]
+    assert deps[child] == ["spawn-1"]
+
+
+def test_deps_from_built_graph_keeps_an_unnamed_head_rather_than_dropping_it():
+    """No ordinal and no spawn id: report the node id, never an empty list."""
+    builder = _FakeBuilder()
+    unnamed = builder.add_operation("operate", branch=None, depends_on=[])
+    child = builder.add_operation("operate", branch=None, depends_on=[unnamed])
+
+    deps = _deps_from_built_graph(builder, {})
+
+    assert deps[child] == [unnamed]
 
 
 @pytest.mark.asyncio
@@ -227,7 +382,7 @@ async def test_build_dag_reactive_all_grants_spawn(tmp_path):
 
     with patch(
         "lionagi.cli.orchestrate.flow.build_worker_branch",
-        return_value=(_FakeBranch(), "codex/gpt-5.5", None),
+        return_value=(_FakeBranch(), "codex/gpt-5.5", None, False),
     ):
         dag_state = await _build_dag(env, "task", plan_result, reactive_spec="all")
 
@@ -255,7 +410,7 @@ async def test_build_dag_pool_override_passes_to_worker(tmp_path):
 
     async def fake_build(env, *, agent_id, role, model_override=None, **kw):
         calls.append({"role": role, "model_override": model_override})
-        return _FakeBranch(role), model_override or "default", None
+        return _FakeBranch(role), model_override or "default", None, False
 
     with patch("lionagi.cli.orchestrate.flow.build_worker_branch", side_effect=fake_build):
         await _build_dag(env, "task", plan_result, reactive_spec="off")
@@ -361,13 +516,151 @@ async def test_execute_dag_tags_spawned_nodes(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_execute_dag_reactive_wires_spawn_branch_setup_for_cli_workspace(tmp_path):
+    """Reactive execution must pass a spawn_branch_setup callback into
+    run_dag that retargets a CLI-backed spawned branch's writable workspace
+    (chat_model.endpoint.config.kwargs['repo']) to that spawn's own artifact
+    dir. Branch.clone() otherwise carries the emitting leg's repo forward
+    unchanged — a sibling directory outside the spawned artifact contract —
+    so without this seam a spawned CLI child can only write where its
+    emitter can, not where its own artifact contract expects.
+
+    Only the workspace move is CLI-specific. A non-CLI spawned branch has no
+    `repo` kwarg to retarget, but it inherited the same prompt naming the
+    emitter's directory and it belongs on the same end-of-run roster, so it
+    must still be registered and have its prompt retargeted."""
+    env = _make_env(tmp_path)
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+
+    from lionagi.engines import PlanningEngine
+
+    fake_engine_run = MagicMock()
+    fake_engine_run.run_dag = MagicMock(
+        return_value=_asyncio_coro(
+            {"operation_results": {"node-0": "planned result"}, "spawned_operations": 0}
+        )
+    )
+
+    with patch.object(PlanningEngine, "new_run", return_value=fake_engine_run):
+        await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+
+    call_kwargs = fake_engine_run.run_dag.call_args.kwargs
+    spawn_branch_setup = call_kwargs["spawn_branch_setup"]
+    assert spawn_branch_setup is not None
+
+    operation = SimpleNamespace(metadata={"spawn_id": "spawn-1"})
+    cli_branch = SimpleNamespace(
+        chat_model=SimpleNamespace(
+            is_cli=True,
+            endpoint=SimpleNamespace(config=SimpleNamespace(kwargs={})),
+        )
+    )
+    spawn_branch_setup(operation, cli_branch)
+
+    expected_dir = env.run.agent_artifact_dir("spawn-1")
+    assert cli_branch.chat_model.endpoint.config.kwargs["repo"] == expected_dir
+    assert expected_dir.exists()
+
+    assert env.worker_artifact_dirs["spawn-1"] == expected_dir
+
+    non_cli_op = SimpleNamespace(metadata={"spawn_id": "spawn-2"})
+    non_cli_branch = SimpleNamespace(
+        chat_model=SimpleNamespace(
+            is_cli=False,
+            endpoint=SimpleNamespace(config=SimpleNamespace(kwargs={})),
+        ),
+        msgs=_FakeMsgs(bare_worker_system(artifact_dir="/somewhere/else/emitter")),
+    )
+    spawn_branch_setup(non_cli_op, non_cli_branch)
+
+    non_cli_dir = env.run.agent_artifact_dir("spawn-2")
+    # No writable-root concept, so no workspace move …
+    assert "repo" not in non_cli_branch.chat_model.endpoint.config.kwargs
+    # … but it is on the roster and its prompt names its own directory.
+    assert env.worker_artifact_dirs["spawn-2"] == non_cli_dir
+    assert f"ARTIFACT DIRECTORY: {non_cli_dir}" in non_cli_branch.msgs.system_text
+    assert "/somewhere/else/emitter" not in non_cli_branch.msgs.system_text
+    assert "not an assigned working directory" in non_cli_branch.msgs.system_text
+    assert "It is your working directory" not in non_cli_branch.msgs.system_text
+
+
+@pytest.mark.asyncio
+async def test_execute_dag_escalated_spawned_node_evidence_uses_spawn_id(tmp_path):
+    """An escalated node that was reactively spawned (not in the plan) must
+    surface its role_node_builder-stamped spawn_id in the escalation
+    evidence, not the internal Operation UUID — so a reviewer reading the
+    teardown evidence sees the same 'spawn-N' label the artifact dirs and
+    contract entries already use."""
+    env = _make_env(tmp_path)
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+
+    escalated_node = SimpleNamespace(
+        metadata={"assignee": "critic", "spawn_id": "spawn-7"}, branch_id=None
+    )
+    env.builder.get_graph = lambda: SimpleNamespace(
+        nodes=[], internal_nodes={"node-escalated": escalated_node}
+    )
+
+    from lionagi.engines import PlanningEngine
+
+    fake_engine_run = MagicMock()
+    fake_engine_run.run_dag = MagicMock(
+        return_value=_asyncio_coro(
+            {
+                "operation_results": {"node-0": "planned result"},
+                "spawned_operations": 1,
+                "escalated_operations": ["node-escalated"],
+            }
+        )
+    )
+
+    with patch.object(PlanningEngine, "new_run", return_value=fake_engine_run):
+        await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+
+    assert env._escalated_evidence == [
+        {"kind": "escalated_operation", "id": "spawn-7", "label": "spawn-7"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_execute_dag_spawned_node_registers_artifact_contract(tmp_path):
     """A spawned node running under a role with artifact_defaults must be
     attributed back to that role and get its own contract entry folded into
-    the live-persist context for post-run visibility — folded non-required,
-    since a spawned node is never told its artifact dir and so has no path to
-    satisfy a required entry (enforcing one would fail an otherwise-complete
-    run)."""
+    the live-persist context for post-run visibility, keeping the role's own
+    required flag (decorate_instruction tells the spawned node its artifact
+    dir + REQUIRED files before it runs, the same as a planned leg)."""
     env = _make_env(tmp_path)
     db = _FakeDB()
     env._live_persist = {
@@ -397,10 +690,13 @@ async def test_execute_dag_spawned_node_registers_artifact_contract(tmp_path):
         },
     )
 
-    # The spawned node's graph entry carries the assignee role_node_builder
-    # stamped on it (patterns.py) — that's how a post-run surface recovers
-    # which role a reactively-injected node ran under.
-    spawned_node = SimpleNamespace(metadata={"assignee": "implementer"}, branch_id=None)
+    # The spawned node's graph entry carries the spawn_id + assignee
+    # role_node_builder stamps on it at construction time (patterns.py) —
+    # that's how a post-run surface recovers which role a reactively-injected
+    # node ran under, and its stable correlation id.
+    spawned_node = SimpleNamespace(
+        metadata={"assignee": "implementer", "spawn_id": "spawn-1"}, branch_id=None
+    )
     env.builder.get_graph = lambda: SimpleNamespace(
         nodes=[], internal_nodes={"node-spawn-1": spawned_node}
     )
@@ -425,6 +721,7 @@ async def test_execute_dag_spawned_node_registers_artifact_contract(tmp_path):
 
     spawned = next(r for r in exec_result.agent_results if r.get("spawned"))
     assert spawned["assignee"] == "implementer"
+    assert spawned["id"] == "spawn-1"
 
     contract = env._live_persist["artifact_contract"]
     assert contract is not None
@@ -432,10 +729,10 @@ async def test_execute_dag_spawned_node_registers_artifact_contract(tmp_path):
     assert "spawn-1__report" in ids
     paths = {e["path"] for e in contract["expected"]}
     assert "spawn-1/report.md" in paths
-    # Folded non-required even though the role default declares required=True —
-    # a spawned node can't be held to an artifact it was never told to write.
+    # Stays required — the role default declares required=True and the
+    # spawned node was told its artifact dir before it ran (decorate_instruction).
     spawned_entry = next(e for e in contract["expected"] if e["id"] == "spawn-1__report")
-    assert spawned_entry["required"] is False
+    assert spawned_entry["required"] is True
 
 
 @pytest.mark.asyncio
@@ -467,7 +764,9 @@ async def test_execute_dag_spawned_node_without_role_defaults_no_contract(tmp_pa
         worker_models=["codex/gpt-5.5"],
         role_artifact_defaults={"implementer": None},
     )
-    spawned_node = SimpleNamespace(metadata={"assignee": "implementer"}, branch_id=None)
+    spawned_node = SimpleNamespace(
+        metadata={"assignee": "implementer", "spawn_id": "spawn-1"}, branch_id=None
+    )
     env.builder.get_graph = lambda: SimpleNamespace(
         nodes=[], internal_nodes={"node-spawn-1": spawned_node}
     )
@@ -491,6 +790,317 @@ async def test_execute_dag_spawned_node_without_role_defaults_no_contract(tmp_pa
         await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
 
     assert env._live_persist["artifact_contract"] is None
+
+
+@pytest.mark.asyncio
+async def test_execute_dag_spawned_ids_independent_of_completion_order(tmp_path):
+    """Two role-built spawned nodes must keep their builder-stamped spawn_id
+    regardless of which one appears FIRST in op_results — completion order
+    (dict insertion order here) must never override the stamped id. Reversing
+    the dict's insertion order relative to construction order is exactly the
+    scenario that let an unrelated node "steal" spawn-1 under the old
+    completion-order-derived minting."""
+    env = _make_env(tmp_path)
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+
+    # Node built SECOND (spawn-2) completes and is recorded FIRST; node built
+    # FIRST (spawn-1) completes and is recorded SECOND.
+    node_a = SimpleNamespace(
+        metadata={"assignee": "implementer", "spawn_id": "spawn-1"}, branch_id=None
+    )
+    node_b = SimpleNamespace(
+        metadata={"assignee": "researcher", "spawn_id": "spawn-2"}, branch_id=None
+    )
+    env.builder.get_graph = lambda: SimpleNamespace(
+        nodes=[], internal_nodes={"node-b": node_b, "node-a": node_a}
+    )
+
+    from lionagi.engines import PlanningEngine
+
+    fake_engine_run = MagicMock()
+    fake_engine_run.run_dag = MagicMock(
+        return_value=_asyncio_coro(
+            {
+                "operation_results": {
+                    "node-0": "planned result",
+                    # insertion order: node-b (spawn-2) BEFORE node-a (spawn-1)
+                    "node-b": "b result",
+                    "node-a": "a result",
+                },
+                "spawned_operations": 2,
+            }
+        )
+    )
+
+    with patch.object(PlanningEngine, "new_run", return_value=fake_engine_run):
+        exec_result = await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+
+    spawned_by_id = {r["id"]: r for r in exec_result.agent_results if r.get("spawned")}
+    assert spawned_by_id["spawn-2"]["response"] == "b result"
+    assert spawned_by_id["spawn-2"]["assignee"] == "researcher"
+    assert spawned_by_id["spawn-1"]["response"] == "a result"
+    assert spawned_by_id["spawn-1"]["assignee"] == "implementer"
+
+
+@pytest.mark.asyncio
+async def test_execute_dag_unstamped_node_fallback_skips_stamped_ids(tmp_path):
+    """A node injected WITHOUT going through role_node_builder (no spawn_id
+    in its metadata — e.g. an escalation child or a raw inject()) must fall
+    back to a synthesized id, but that fallback must never collide with an
+    id a role-built sibling already carries."""
+    env = _make_env(tmp_path)
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+
+    # role-built sibling already owns "spawn-1"; the unstamped node has no
+    # spawn_id and no assignee (a raw injected node carries neither).
+    stamped_node = SimpleNamespace(
+        metadata={"assignee": "researcher", "spawn_id": "spawn-1"}, branch_id=None
+    )
+    unstamped_node = SimpleNamespace(metadata={}, branch_id=None)
+    env.builder.get_graph = lambda: SimpleNamespace(
+        nodes=[],
+        internal_nodes={"node-stamped": stamped_node, "node-unstamped": unstamped_node},
+    )
+
+    from lionagi.engines import PlanningEngine
+
+    fake_engine_run = MagicMock()
+    fake_engine_run.run_dag = MagicMock(
+        return_value=_asyncio_coro(
+            {
+                "operation_results": {
+                    "node-0": "planned result",
+                    "node-unstamped": "unstamped result",
+                    "node-stamped": "stamped result",
+                },
+                "spawned_operations": 2,
+            }
+        )
+    )
+
+    with patch.object(PlanningEngine, "new_run", return_value=fake_engine_run):
+        exec_result = await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+
+    spawned_ids = {r["id"] for r in exec_result.agent_results if r.get("spawned")}
+    # spawn-1 is already taken by the stamped node — the fallback must skip
+    # it and mint spawn-2, never a second "spawn-1".
+    assert spawned_ids == {"spawn-1", "spawn-2"}
+
+
+@pytest.mark.asyncio
+async def test_execute_dag_role_attributed_node_missing_spawn_id_fails_loud(tmp_path):
+    """A node carrying a role assignee (the role_node_builder trail) but no
+    spawn_id indicates the stamping invariant broke upstream — this must
+    raise, not silently mint a fresh id that hides the defect."""
+    env = _make_env(tmp_path)
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+    broken_node = SimpleNamespace(metadata={"assignee": "researcher"}, branch_id=None)
+    env.builder.get_graph = lambda: SimpleNamespace(
+        nodes=[], internal_nodes={"node-broken": broken_node}
+    )
+
+    from lionagi.engines import PlanningEngine
+
+    fake_engine_run = MagicMock()
+    fake_engine_run.run_dag = MagicMock(
+        return_value=_asyncio_coro(
+            {
+                "operation_results": {
+                    "node-0": "planned result",
+                    "node-broken": "broken result",
+                },
+                "spawned_operations": 1,
+            }
+        )
+    )
+
+    with patch.object(PlanningEngine, "new_run", return_value=fake_engine_run):
+        with pytest.raises(RuntimeError, match="no spawn_id"):
+            await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+
+
+# ── Reactive spawn artifact enforcement through REAL teardown ─────────────────
+# Replaces the old interim regression test that pinned spawned artifacts as
+# permanently non-required (a spawned node used to have no way to learn its
+# own artifact dir before running). decorate_instruction now tells it that
+# dir before execution, so a role's required:True declaration is a real,
+# enforceable gate for a reactively spawned node too — exercised here through
+# the actual teardown path (start_live_persist / stop_live_persist / StateDB),
+# not just the in-memory contract dict.
+
+
+@pytest.fixture
+def _flow_phase_state_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    db_path = tmp_path / "state.db"
+    monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
+    return db_path
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["reviewer", "critic"])
+@pytest.mark.parametrize(
+    "outcome, file_content",
+    [
+        ("pass", "## Verdict\nAPPROVE\n"),
+        ("missing", None),
+        ("zero_byte", ""),
+    ],
+)
+async def test_reactive_spawn_required_artifact_persistence_matrix(
+    _flow_phase_state_db, tmp_path, monkeypatch, role, outcome, file_content
+):
+    """A spawned node running under reviewer/critic (both declare a required
+    review.md) must flip the run to failed at teardown when that artifact is
+    missing OR present-but-empty, and stay completed only when a real
+    non-empty file is written — the actual enforcement the role declaration
+    exists for, now that the spawned node is told its artifact dir up front."""
+    from lionagi import Branch, Session
+    from lionagi.casts.pattern import Role
+    from lionagi.cli._runs import allocate_run
+    from lionagi.cli.orchestrate._orchestration import (
+        OrchestrationEnv,
+        start_live_persist,
+        stop_live_persist,
+    )
+    from lionagi.engines import PlanningEngine
+    from lionagi.state.db import StateDB
+
+    orc_branch = Branch(name="orchestrator")
+    session = Session(default_branch=orc_branch)
+    # `save_dir` only moves the artifact root; the run's state dirs still land
+    # under the module-level runs root, which is the user's real one. Redirect
+    # it so the test allocates entirely inside tmp_path.
+    monkeypatch.setattr("lionagi.cli._runs.RUNS_ROOT", tmp_path / "runs")
+    run = allocate_run(save_dir=str(tmp_path / "artifacts"))
+
+    env = OrchestrationEnv(
+        run=run,
+        session=session,
+        orc_branch=orc_branch,
+        builder=MagicMock(),
+        orc_profile=None,
+        orc_profile_name=None,
+        default_model_spec="claude",
+        bare=False,
+        effort=None,
+        theme=None,
+        yolo=False,
+        bypass=False,
+        verbose=False,
+        fast=False,
+        cwd=None,
+    )
+    await start_live_persist(env, invocation_kind="flow", artifacts_path=str(run.artifact_root))
+
+    assignments = [TaskAssignment(task="review it", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    role_defaults = Role.load(role).artifact_defaults
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=True,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+        role_artifact_defaults={role: role_defaults},
+    )
+
+    spawned_node = SimpleNamespace(
+        metadata={"assignee": role, "spawn_id": "spawn-1"}, branch_id=None
+    )
+    env.builder.get_graph = lambda: SimpleNamespace(
+        nodes=[], internal_nodes={"node-spawn-1": spawned_node}
+    )
+
+    fake_engine_run = MagicMock()
+    fake_engine_run.run_dag = MagicMock(
+        return_value=_asyncio_coro(
+            {
+                "operation_results": {
+                    "node-0": "planned result",
+                    "node-spawn-1": "spawned result",
+                },
+                "spawned_operations": 1,
+            }
+        )
+    )
+    with patch.object(PlanningEngine, "new_run", return_value=fake_engine_run):
+        await _execute_dag(env, plan_result, dag_state, max_concurrent=1, max_ops=0)
+
+    # Simulate the spawned worker itself writing (or not writing) the file it
+    # was told about via decorate_instruction, at the exact path the contract
+    # entry expects (namespaced under its own stamped spawn_id).
+    if file_content is not None:
+        artifact_path = run.agent_artifact_dir("spawn-1") / "review.md"
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_text(file_content)
+
+    session_id = env._live_persist["session_id"]
+    await stop_live_persist(env, status="completed")
+
+    async with StateDB() as db:
+        s = await db.get_session(session_id)
+    assert s is not None
+    if outcome == "pass":
+        assert s["status"] == "completed"
+    else:
+        assert s["status"] == "failed"
+        assert s["status_reason_code"] == "run.failed.missing_artifact"
 
 
 # ── Tests for _synthesize ─────────────────────────────────────────────────────
@@ -885,6 +1495,168 @@ def test_finalize_flow_agents_includes_spawned_node(tmp_path):
     spawned_agent = next(a for a in captured["extras"]["agents"] if a["id"] == "spawn-1")
     assert spawned_agent["name"] == "implementer"
     assert spawned_agent["spawned"] is True
+
+
+# ── issue #2053: post-DAG finalize failures must not become DAG failures ──────
+
+
+def test_finalize_flow_team_post_failure_still_returns_output_and_records_error(tmp_path):
+    """A DAG that already produced its result must not lose that result because
+    a post-completion step (posting to the team inbox) raised. `_finalize_flow`
+    must still return the formatted output and stash the failure on
+    `env._finalize_error` instead of letting it propagate — a caller that let
+    this propagate used to have `_run_flow`'s `except BaseException` handler
+    reclassify a clean DAG completion as `failed` (classify_exception maps any
+    non-timeout/cancel exception to "failed")."""
+    env = _make_env(tmp_path, team_data={"id": "team-x", "name": "team-x"})
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=False,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+    exec_result = _ExecResult(
+        agent_results=[
+            {
+                "id": "researcher",
+                "agent_id": "researcher",
+                "name": "researcher",
+                "model": "codex/gpt-5.5",
+                "depends_on": [],
+                "spawned": False,
+                "response": "great research",
+                "time_ms": 100,
+            }
+        ],
+        n_spawned=0,
+        t_exec_elapsed=1.0,
+    )
+
+    with (
+        patch(
+            "lionagi.cli.orchestrate.flow._post_results_to_team",
+            side_effect=RuntimeError("team inbox lock timed out"),
+        ),
+        patch("lionagi.cli.orchestrate.flow.finalize_orchestration"),
+    ):
+        output = _finalize_flow(
+            env,
+            "task",
+            plan_result,
+            dag_state,
+            exec_result,
+            None,
+            output_format="text",
+            show_graph=False,
+        )
+
+    # The DAG's own result must survive the finalize-step failure.
+    assert isinstance(output, str)
+    assert len(output) > 0
+    # The failure is recorded, not silently dropped, but on its own field.
+    assert env._finalize_error is not None
+    assert env._finalize_error["error_class"] == "RuntimeError"
+    assert "team inbox lock timed out" in env._finalize_error["error"]
+
+
+def test_finalize_flow_artifact_write_failure_is_split_from_finalize_error(tmp_path):
+    """The synthesis artifact IS the run's output, not a best-effort finalize
+    side effect — a failure writing it must land on its own field
+    (`env._artifact_write_error`), distinct from `env._finalize_error`, and
+    must not prevent the rest of teardown (team post, `finalize_orchestration`)
+    from still running. Pre-split, this write shared the same try/except as
+    the team-inbox post and would have landed on `env._finalize_error`
+    instead — which the run's teardown treats as a mere hiccup that leaves
+    status="completed", exactly the "exit 0 with no artifact" outcome this
+    fix must prevent."""
+    finalize_calls: list = []
+
+    def _fake_finalize(env, *, kind, prompt, extras=None):
+        finalize_calls.append(extras)
+
+    env = _make_env(tmp_path, team_data={"id": "team-x", "name": "team-x"})
+    bad_synthesis_path = MagicMock()
+    bad_synthesis_path.write_text.side_effect = OSError("disk full")
+    env.run.synthesis_path = bad_synthesis_path
+
+    assignments = [TaskAssignment(task="x", assignee="researcher")]
+    plan_result = _PlanResult(
+        assignments=assignments,
+        agent_ids=["researcher"],
+        dep_indices=[[]],
+        pool=[],
+        budget_preambles={},
+    )
+    dag_state = _DagState(
+        node_ids=["node-0"],
+        known_nodes={"node-0"},
+        deps_by_node={"node-0": []},
+        reactive=False,
+        spawn_roles=None,
+        role_base={},
+        worker_models=["codex/gpt-5.5"],
+    )
+    exec_result = _ExecResult(
+        agent_results=[
+            {
+                "id": "researcher",
+                "agent_id": "researcher",
+                "name": "researcher",
+                "model": "codex/gpt-5.5",
+                "depends_on": [],
+                "spawned": False,
+                "response": "great research",
+                "time_ms": 100,
+            }
+        ],
+        n_spawned=1,
+        t_exec_elapsed=1.0,
+    )
+    synthesis_result = {
+        "model": "codex/gpt-5.5",
+        "response": "the synthesized answer",
+        "time_ms": 500,
+    }
+
+    with (
+        patch("lionagi.cli.orchestrate.flow._post_results_to_team") as fake_post,
+        patch("lionagi.cli.orchestrate.flow.finalize_orchestration", side_effect=_fake_finalize),
+    ):
+        output = _finalize_flow(
+            env,
+            "task",
+            plan_result,
+            dag_state,
+            exec_result,
+            synthesis_result,
+            output_format="text",
+            show_graph=False,
+        )
+
+    assert isinstance(output, str)
+    assert len(output) > 0
+
+    # The failure is on its own field, not folded into env._finalize_error.
+    assert env._artifact_write_error is not None
+    assert env._artifact_write_error["error_class"] == "OSError"
+    assert "disk full" in env._artifact_write_error["error"]
+    assert getattr(env, "_finalize_error", None) is None
+
+    # The guarded, non-output side effects still ran — an output failure
+    # must not block best-effort teardown.
+    fake_post.assert_called_once()
+    assert len(finalize_calls) == 1
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

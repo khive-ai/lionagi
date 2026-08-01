@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""lionagi.engines — domain-specific agent engines over the reactive substrate (ADR-0075)."""
+"""lionagi.engines — domain-specific agent engines over the reactive substrate (ADR-0034)."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from .engine import (
     Engine,
     EngineBudgetError,
     EngineEvent,
+    EngineResult,
     EngineRun,
     JudgeVerdict,
 )
@@ -49,6 +50,7 @@ from .research import (
 )
 from .review import (
     DEFAULT_DIMENSIONS,
+    DimensionClean,
     IssueFound,
     ReviewEngine,
     ReviewVerdict,
@@ -61,6 +63,7 @@ __all__ = (
     "ChainRun",
     "EngineEvent",
     "EngineBudgetError",
+    "EngineResult",
     "JudgeVerdict",
     # planning (Planned-DAG shape — li o flow as an engine)
     "PlanningEngine",
@@ -73,6 +76,7 @@ __all__ = (
     # review (Dimensional shape)
     "ReviewEngine",
     "IssueFound",
+    "DimensionClean",
     "VerifyResult",
     "ReviewVerdict",
     "DEFAULT_DIMENSIONS",
@@ -90,9 +94,8 @@ __all__ = (
     "ApplicationMapped",
     "trace_chains",
     "render_evidence",
-    # coding (Gated-Loop shape — plan/implement/test/fix/verify with a
-    # ground-truth subprocess test runner; CodeVerifyResult disambiguates the
-    # review engine's VerifyResult at the package level)
+    # coding (Gated-Loop shape); CodeVerifyResult disambiguates the review
+    # engine's VerifyResult at the package level
     "CodingEngine",
     "CodingRun",
     "CodingChainEvent",

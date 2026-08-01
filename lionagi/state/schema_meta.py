@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""SQLAlchemy MetaData for all 22 StateDB tables — single source of truth for schema DDL."""
+"""SQLAlchemy MetaData for all 28 StateDB tables — single source of truth for schema DDL."""
 
 from __future__ import annotations
 
@@ -123,7 +123,8 @@ invocations = Table(
         "status",
         Text,
         CheckConstraint(
-            "status IN ('running','completed','failed','timed_out','aborted','cancelled')",
+            "status IN ('running','completed','completed_empty','failed',"
+            "'timed_out','aborted','cancelled')",
             name="ck_invocations_status",
         ),
         nullable=False,
@@ -133,7 +134,7 @@ invocations = Table(
     Column("created_at", Float, nullable=False),
     Column("updated_at", Float, nullable=False),
     Column("node_metadata", JSON),
-    # ADR-0028 denormalized reason columns.
+    # ADR-0057 denormalized reason columns.
     Column("status_reason_code", Text),
     Column("status_reason_summary", Text),
     Column("status_evidence_refs", JSON),
@@ -149,6 +150,11 @@ sessions = Table(
     "sessions",
     metadata,
     Column("id", Text, primary_key=True),
+    Column("cc_session_id", Text),
+    # The CLI run this session belongs to, recorded at creation. Without it a
+    # run_id cannot reach the lifecycle row, so nothing that writes only the
+    # row (a kill, for one) is visible to a reader holding a run_id.
+    Column("run_id", Text),
     Column("created_at", Float, nullable=False),
     Column("node_metadata", JSON),
     Column("name", Text),
@@ -175,12 +181,12 @@ sessions = Table(
         "source_kind",
         Text,
         CheckConstraint(
-            "source_kind IS NULL OR source_kind IN ('live','imported_fs')",
+            "source_kind IS NULL OR source_kind IN ('live','imported_fs','imported_codex')",
             name="ck_sessions_source_kind",
         ),
         server_default="live",
     ),
-    # Lifecycle — no CHECK (ADR-0025: Python is source of truth).
+    # Lifecycle — no CHECK (ADR-0057: Python is source of truth).
     Column("status", Text),
     Column("started_at", Float),
     Column("ended_at", Float),
@@ -198,11 +204,11 @@ sessions = Table(
     # Project detection.
     Column("project", Text),
     Column("project_source", Text),
-    # ADR-0028 denormalized reason columns.
+    # ADR-0057 denormalized reason columns.
     Column("status_reason_code", Text),
     Column("status_reason_summary", Text),
     Column("status_evidence_refs", JSON),
-    # ADR-0029 artifact contract.
+    # ADR-0064 artifact contract.
     Column("artifact_contract_json", JSON),
     Column("artifact_verification_json", JSON),
     # Run usage.
@@ -213,6 +219,11 @@ sessions = Table(
     Column("duration_ms", Float),
 )
 
+# first_msg_id / last_msg_id are child keys of messages(id): these serve the
+# search sqlite runs when a message row is deleted, not any query.
+Index("idx_sessions_first_msg_id", sessions.c.first_msg_id)
+Index("idx_sessions_last_msg_id", sessions.c.last_msg_id)
+Index("idx_sessions_progression_id", sessions.c.progression_id)
 Index("idx_sessions_updated", sessions.c.updated_at)
 Index("idx_sessions_status_updated", sessions.c.status, sessions.c.updated_at)
 Index(
@@ -233,6 +244,12 @@ Index(
     sessions.c.project,
     sqlite_where=text("project IS NOT NULL"),
     postgresql_where=text("project IS NOT NULL"),
+)
+Index(
+    "idx_sessions_cc_session",
+    sessions.c.cc_session_id,
+    sqlite_where=text("cc_session_id IS NOT NULL"),
+    postgresql_where=text("cc_session_id IS NOT NULL"),
 )
 
 # ── branches ──────────────────────────────────────────────────────────────────
@@ -263,6 +280,8 @@ branches = Table(
 )
 
 Index("idx_branches_session", branches.c.session_id)
+Index("idx_branches_system_msg_id", branches.c.system_msg_id)
+Index("idx_branches_progression_id", branches.c.progression_id)
 
 # ── definitions ───────────────────────────────────────────────────────────────
 
@@ -314,7 +333,7 @@ shows = Table(
     Column("status_source", Text, nullable=False, server_default="unknown"),
     Column("created_at", Float, nullable=False),
     Column("updated_at", Float, nullable=False),
-    # ADR-0028 denormalized reason columns.
+    # ADR-0057 denormalized reason columns.
     Column("status_reason_code", Text),
     Column("status_reason_summary", Text),
     Column("status_evidence_refs", JSON),
@@ -365,7 +384,7 @@ plays = Table(
     Column("sort_order", Integer, nullable=False, server_default="0"),
     Column("created_at", Float, nullable=False),
     Column("updated_at", Float, nullable=False),
-    # ADR-0028 denormalized reason columns.
+    # ADR-0057 denormalized reason columns.
     Column("status_reason_code", Text),
     Column("status_reason_summary", Text),
     Column("status_evidence_refs", JSON),
@@ -395,7 +414,7 @@ teams = Table(
         nullable=False,
         server_default="active",
     ),
-    # ADR-0028 denormalized reason columns.
+    # ADR-0057 denormalized reason columns.
     Column("status_reason_code", Text),
     Column("status_reason_summary", Text),
     Column("status_evidence_refs", JSON),
@@ -454,7 +473,7 @@ schedules = Table(
         "trigger_type",
         Text,
         CheckConstraint(
-            "trigger_type IN ('cron','interval','github_poll')",
+            "trigger_type IN ('cron','interval','github_poll','at')",
             name="ck_schedules_trigger_type",
         ),
         nullable=False,
@@ -469,7 +488,7 @@ schedules = Table(
         "action_kind",
         Text,
         CheckConstraint(
-            "action_kind IN ('agent','flow','fanout','play','flow_yaml')",
+            "action_kind IN ('agent','flow','fanout','play','flow_yaml','command')",
             name="ck_schedules_action_kind",
         ),
         nullable=False,
@@ -480,7 +499,14 @@ schedules = Table(
     Column("action_playbook", Text),
     Column("action_flow_yaml", Text),
     Column("action_project", Text),
+    # ADR-0070 delta 1: persisted per-schedule execution root, captured once
+    # at creation (see schema.sql for the fuller comment).
+    Column("action_cwd", Text),
     Column("action_extra_args", JSON, server_default="[]"),
+    # Allow-listed executable + templated argv for the
+    # 'command' action kind (see schema.sql for the fuller comment).
+    Column("action_command", Text),
+    Column("action_command_args", JSON, server_default="[]"),
     Column("on_success", JSON),
     Column("on_fail", JSON),
     Column("last_fired_at", Float),
@@ -505,7 +531,51 @@ schedules = Table(
         nullable=False,
         server_default="skip",
     ),
+    # One-shot / bounded-run semantics: NULL means unlimited (see
+    # schema.sql for the fuller comment on how the engine counts runs).
+    Column("max_runs", Integer),
+    # Cumulative spend budget: NULL means unlimited (see schema.sql).
+    Column("budget_usd", Float),
+    Column("budget_tokens", Integer),
+    # Rolling-window fire cap: NULL means unlimited (see schema.sql).
+    Column("rate_limit", JSON),
     Column("project", Text),
+    # Metric threshold alerts config + last breach fire; see schema.sql.
+    Column("threshold_config", JSON),
+    Column("last_alert_at", Float),
+    # Observer self-health (github_poll poller); see schema.sql.
+    Column("last_healthy_poll_at", Float),
+    Column("poller_consecutive_401", Integer, nullable=False, server_default="0"),
+    # Bounded retry for a pre-dispatch refusal; see schema.sql.
+    Column("predispatch_refusal_event", Text),
+    Column("predispatch_refusal_count", Integer, nullable=False, server_default="0"),
+    # Declarative ScheduleSet layer: versioned document identity, resolved
+    # target/trigger snapshot + digest, and set ownership. NULL on every row
+    # created before this layer (legacy) or by an unmanaged quick-create.
+    Column("spec_version", Text),
+    Column(
+        "managed_by",
+        Text,
+        CheckConstraint(
+            "managed_by IS NULL OR managed_by IN ('cli','declaration')",
+            name="ck_schedules_managed_by",
+        ),
+    ),
+    Column("owner_key", Text),
+    Column("authored_spec", JSON),
+    Column("resolved_target", JSON),
+    Column("resolved_digest", Text),
+    Column("resolved_timezone", Text),
+    # The zone this schedule's cron was last resolved in, and its provenance
+    # (declared / configured default / UTC fallback). Recorded by the
+    # scheduler at resolve time; never read back when resolving.
+    Column("effective_timezone", Text),
+    Column("effective_timezone_source", Text),
+    # Terminal notification: registers the existing run terminal-callback
+    # machinery on the spawned invocation, filtered to notify_on. NULL means
+    # no callback.
+    Column("notify_on", JSON),
+    Column("notify_command", Text),
     Column("created_at", Float, nullable=False),
     Column("updated_at", Float, nullable=False),
 )
@@ -524,8 +594,15 @@ Index(
     sqlite_where=text("project IS NOT NULL"),
     postgresql_where=text("project IS NOT NULL"),
 )
+Index(
+    "idx_schedules_owner_key",
+    schedules.c.owner_key,
+    sqlite_where=text("owner_key IS NOT NULL"),
+    postgresql_where=text("owner_key IS NOT NULL"),
+)
 
 # ── schedule_runs ─────────────────────────────────────────────────────────────
+# ADR-0071 D2: generalized task-application entity, schedule_id nullable.
 
 schedule_runs = Table(
     "schedule_runs",
@@ -535,7 +612,6 @@ schedule_runs = Table(
         "schedule_id",
         Text,
         ForeignKey("schedules.id", ondelete="CASCADE"),
-        nullable=False,
     ),
     Column("invocation_id", Text, ForeignKey("invocations.id")),
     Column("trigger_context", JSON, nullable=False),
@@ -545,7 +621,8 @@ schedule_runs = Table(
         "status",
         Text,
         CheckConstraint(
-            "status IN ('running','completed','failed','skipped','cancelled')",
+            "status IN ('queued','waiting_dependency','running','retry_wait',"
+            "'completed','failed','timed_out','skipped','cancelled')",
             name="ck_schedule_runs_status",
         ),
         nullable=False,
@@ -558,11 +635,29 @@ schedule_runs = Table(
     Column("ended_at", Float),
     Column("error_detail", Text),
     Column("created_at", Float, nullable=False),
-    # ADR-0028.
+    # ADR-0057.
     Column("updated_at", Float),
     Column("status_reason_code", Text),
     Column("status_reason_summary", Text),
     Column("status_evidence_refs", JSON),
+    # ADR-0071 D2 / ADR-0071: durable queue columns.
+    Column("queued_at", Float),
+    Column("leased_by", Text),
+    Column("lease_expires_at", Float),
+    Column("concurrency_key", Text),
+    # ADR-0071 D4: bounds the lease-expiry recovery loop (worker.py's reaper).
+    Column("lease_attempts", Integer, nullable=False, server_default="0"),
+    # ADR-0071 D2: task-application provenance (seam into ADR-0073).
+    Column("required_capabilities", JSON),
+    Column("execution_target", Text),
+    Column("library_ref", Text),
+    Column("library_content_hash", Text),
+    # Delivery-contract marker; see schema.sql.
+    Column("dispatched_at", Float),
+    # Nullable sidecar metadata blob for resuming a run, shaped like an
+    # Element.to_dict(mode="db") payload. NULL means no resume state has
+    # been captured for this run.
+    Column("resume_packet", JSON),
 )
 
 Index("idx_sched_runs_schedule", schedule_runs.c.schedule_id, schedule_runs.c.fired_at)
@@ -578,6 +673,35 @@ Index(
     sqlite_where=text("invocation_id IS NOT NULL"),
     postgresql_where=text("invocation_id IS NOT NULL"),
 )
+Index(
+    "idx_schedule_runs_queue",
+    schedule_runs.c.status,
+    schedule_runs.c.queued_at,
+    sqlite_where=text("status IN ('queued', 'retry_wait')"),
+    postgresql_where=text("status IN ('queued', 'retry_wait')"),
+)
+Index(
+    "idx_schedule_runs_concurrency",
+    schedule_runs.c.concurrency_key,
+    schedule_runs.c.status,
+    sqlite_where=text("status IN ('queued', 'running', 'retry_wait')"),
+    postgresql_where=text("status IN ('queued', 'running', 'retry_wait')"),
+)
+
+# ── workers ─────────────────────────────────────────────────────────────────
+# ADR-0071 D5: capability-matching worker registry.
+
+workers = Table(
+    "workers",
+    metadata,
+    Column("worker_id", Text, primary_key=True),
+    Column("advertised_capabilities", JSON, nullable=False, server_default="[]"),
+    Column("execution_targets", JSON, nullable=False, server_default="[]"),
+    Column("last_heartbeat_at", Float, nullable=False),
+    Column("leased_run_id", Text, ForeignKey("schedule_runs.id")),
+)
+
+Index("idx_workers_heartbeat", workers.c.last_heartbeat_at)
 
 # ── admin_events ──────────────────────────────────────────────────────────────
 
@@ -610,9 +734,8 @@ artifacts = Table(
     Column("invocation_id", Text, ForeignKey("invocations.id", ondelete="CASCADE")),
     Column("session_id", Text, ForeignKey("sessions.id")),
     Column("created_at", Float, nullable=False),
-    # updated_at has a SQLite server_default in schema.sql but the MIGRATION_COLUMNS
-    # comment notes it must be nullable in ALTER TABLE because expressions are not
-    # valid column defaults there; the insert path always sets it explicitly.
+    # Nullable here (unlike schema.sql's server_default) because ALTER TABLE
+    # rejects expression defaults; the insert path always sets it explicitly.
     Column("updated_at", Float, nullable=False),
     Column("kind", Text, nullable=False),
     Column("name", Text, nullable=False),
@@ -718,6 +841,24 @@ Index(
 )
 Index("idx_status_transitions_created", status_transitions.c.created_at)
 
+# ── terminal_deliveries ─────────────────────────────────────────────────────────
+# Reconciliation-consumer acknowledgment ledger; see
+# lionagi/state/lifecycle/deliveries.py and docs/internals/runtime.md.
+
+terminal_deliveries = Table(
+    "terminal_deliveries",
+    metadata,
+    Column("transition_id", Text, ForeignKey("status_transitions.id"), primary_key=True),
+    Column("consumer", Text, primary_key=True),
+    Column("acked_at", Float, nullable=False),
+)
+
+Index(
+    "idx_terminal_deliveries_consumer",
+    terminal_deliveries.c.consumer,
+    terminal_deliveries.c.acked_at,
+)
+
 # ── session_signals ───────────────────────────────────────────────────────────
 
 session_signals = Table(
@@ -798,16 +939,28 @@ Index("idx_engine_defs_name", engine_defs.c.name)
 Index("idx_engine_defs_kind", engine_defs.c.kind)
 Index("idx_engine_defs_updated", engine_defs.c.updated_at)
 
-# ── session_controls (ADR-0085 part 1: run control plane transport) ────────────
-# One row per operator control verb queued against a live session. A poller task
-# in `cli/orchestrate/flow.py`'s `_execute_dag` (the same lifecycle as the
-# heartbeat loop) reads unapplied rows and applies them against the running
-# executor. Apply/stamp ordering is verb-classed: pause/resume/stop are
-# idempotent (apply, then stamp — safe to re-apply on a poller crash); message
-# is not (stamp 'applying', then apply, then finalize — a crash surfaces as an
-# unapplied 'applying' row rather than risking a double injection). 'stop' is
-# schema-reserved for a later slice (the checkpoint writer); no CLI verb emits
-# it yet.
+# ── workflow_defs ─────────────────────────────────────────────────────────────
+# Named workflow definitions from the Studio Designer; spec_json is the
+# versioned node/edge graph, validated in the studio service layer.
+
+workflow_defs = Table(
+    "workflow_defs",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("name", Text, nullable=False, unique=True),
+    Column("description", Text),
+    Column("spec_json", JSON),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+
+Index("idx_workflow_defs_name", workflow_defs.c.name)
+Index("idx_workflow_defs_updated", workflow_defs.c.updated_at)
+
+# ── session_controls (ADR-0069 D1–D3: live-control transport) ─────────────────
+# One row per operator control verb queued against a live session, polled by
+# `cli/orchestrate/flow.py`'s `_execute_dag`; see docs/internals/runtime.md
+# for the verb-classed apply/stamp ordering.
 
 session_controls = Table(
     "session_controls",
@@ -843,3 +996,152 @@ Index(
     sqlite_where=text("applied_at IS NULL"),
     postgresql_where=text("applied_at IS NULL"),
 )
+
+# ── dispatch_outbox (ADR-0059: durable dispatch outbox) ─────────────────────
+# Producer-driven at-least-once delivery; the scheduler tick re-attempts
+# until success, backoff exhaustion, or max_attempts.
+
+dispatch_outbox = Table(
+    "dispatch_outbox",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("deliver_to", Text, nullable=False),
+    Column("payload", JSON, nullable=False),
+    Column("dedup_key", Text),
+    Column(
+        "status",
+        Text,
+        CheckConstraint(
+            "status IN ('pending','delivering','delivered','acked','dead_letter','expired')",
+            name="ck_dispatch_outbox_status",
+        ),
+        nullable=False,
+        server_default="pending",
+    ),
+    Column("attempt", Integer, nullable=False, server_default="0"),
+    Column("max_attempts", Integer, nullable=False, server_default="8"),
+    Column("next_attempt_at", Float, nullable=False),
+    Column("ack_required", Integer, nullable=False, server_default="0"),
+    Column("ack_token", Text),
+    Column("session_id", Text, ForeignKey("sessions.id")),
+    Column("schedule_run_id", Text, ForeignKey("schedule_runs.id")),
+    Column("last_error", Text),
+    Column("created_at", Float, nullable=False),
+    Column("expires_at", Float),
+    Column("updated_at", Float),
+)
+
+Index(
+    "idx_dispatch_outbox_dedup",
+    dispatch_outbox.c.dedup_key,
+    unique=True,
+    sqlite_where=text("dedup_key IS NOT NULL"),
+    postgresql_where=text("dedup_key IS NOT NULL"),
+)
+Index(
+    "idx_dispatch_outbox_due",
+    dispatch_outbox.c.status,
+    dispatch_outbox.c.next_attempt_at,
+    sqlite_where=text("status IN ('pending', 'delivering')"),
+    postgresql_where=text("status IN ('pending', 'delivering')"),
+)
+
+# ── run_tags ──────────────────────────────────────────────────────────────────
+# Free-form review labels on a run (session); kept in canonical metadata (not
+# only schema.sql) so create_all builds it consistently on every backend.
+
+run_tags = Table(
+    "run_tags",
+    metadata,
+    Column(
+        "session_id",
+        Text,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("tag", Text, primary_key=True),
+    Column("created_at", Float, nullable=False),
+)
+
+# ── approvals (studio operator permission ledger) ──────────────────────────
+# Server-side confirm-flow: proposed, granted/denied, consumed exactly once.
+
+approvals = Table(
+    "approvals",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("action_kind", Text, nullable=False),
+    Column("params_hash", Text, nullable=False),
+    Column("session_id", Text, ForeignKey("sessions.id")),
+    Column(
+        "status",
+        Text,
+        CheckConstraint(
+            "status IN ('pending','granted','consumed','expired','denied')",
+            name="ck_approvals_status",
+        ),
+        nullable=False,
+        server_default="pending",
+    ),
+    Column("proposed_at", Float, nullable=False),
+    Column("granted_at", Float),
+    Column("consumed_at", Float),
+    Column("expires_at", Float, nullable=False),
+)
+
+Index(
+    "idx_approvals_status",
+    approvals.c.status,
+    sqlite_where=text("status IN ('pending', 'granted')"),
+    postgresql_where=text("status IN ('pending', 'granted')"),
+)
+Index(
+    "idx_approvals_session",
+    approvals.c.session_id,
+    sqlite_where=text("session_id IS NOT NULL"),
+    postgresql_where=text("session_id IS NOT NULL"),
+)
+
+# ── approval_evidence (hash-chained audit trail on the approval ledger) ────
+# Append-only, same transaction as the approvals status change; see schema.sql.
+
+approval_evidence = Table(
+    "approval_evidence",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("sequence", Integer, nullable=False),
+    Column(
+        "event_type",
+        Text,
+        CheckConstraint(
+            "event_type IN ('proposed','granted','denied','consumed','expired')",
+            name="ck_approval_evidence_event_type",
+        ),
+        nullable=False,
+    ),
+    Column("approval_id", Text, ForeignKey("approvals.id"), nullable=False),
+    Column("action_kind", Text, nullable=False),
+    Column("status_from", Text),
+    Column("status_to", Text, nullable=False),
+    Column("params_hash", Text, nullable=False),
+    Column("justification_class", Text),
+    Column("justification_reason", Text),
+    Column("created_at", Float, nullable=False),
+    Column("content_hash", Text, nullable=False),
+    Column("previous_hash", Text, nullable=False),
+    Column("chain_hash", Text, nullable=False),
+    Column("hmac_sig", Text),
+)
+
+Index(
+    "idx_approval_evidence_sequence",
+    approval_evidence.c.sequence,
+    unique=True,
+)
+Index(
+    "idx_approval_evidence_approval",
+    approval_evidence.c.approval_id,
+)
+
+Index("idx_run_tags_tag", run_tags.c.tag)

@@ -14,7 +14,7 @@ from fastapi import HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError as SAIntegrityError
 
-from lionagi.state.db import DEFAULT_DB_PATH, StateDB
+from lionagi.state.db import StateDB, state_db_known_absent
 
 from ..registry import studio_route
 
@@ -73,6 +73,16 @@ def _validate_kind_options(kind: str, options: dict[str, Any] | None) -> None:
         )
 
 
+def _validate_budget(field: str, val: Any) -> None:
+    """A max_depth/max_agents override must be an int in [1, 100] (or absent)."""
+    if val is None:
+        return
+    if not isinstance(val, int) or isinstance(val, bool):
+        raise ValueError(f"{field} must be an integer")
+    if not (1 <= val <= 100):
+        raise ValueError(f"{field} must be in [1, 100], got {val}")
+
+
 def _svc_validate_action_model(model: str | None) -> None:
     if not model:
         return
@@ -95,21 +105,21 @@ async def list_engine_defs(
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return []
     async with StateDB() as db:
         return await db.list_engine_defs(kind=kind, limit=limit, offset=offset)
 
 
 async def get_engine_def(def_id: str) -> dict[str, Any] | None:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return None
     async with StateDB() as db:
         return await db.get_engine_def(def_id)
 
 
 async def get_engine_def_by_name(name: str) -> dict[str, Any] | None:
-    if not DEFAULT_DB_PATH.exists():
+    if state_db_known_absent():
         return None
     async with StateDB() as db:
         return await db.get_engine_def_by_name(name)
@@ -127,12 +137,7 @@ async def create_engine_def(data: dict[str, Any]) -> dict[str, Any]:
     _svc_validate_action_model(data.get("model"))
 
     for field in ("max_depth", "max_agents"):
-        val = data.get(field)
-        if val is not None:
-            if not isinstance(val, int) or isinstance(val, bool):
-                raise ValueError(f"{field} must be an integer")
-            if not (1 <= val <= 100):
-                raise ValueError(f"{field} must be in [1, 100], got {val}")
+        _validate_budget(field, data.get(field))
 
     _validate_options(data.get("options"))
     _validate_kind_options(kind, data.get("options"))
@@ -175,18 +180,12 @@ async def update_engine_def(def_id: str, fields: dict[str, Any]) -> dict[str, An
             _svc_validate_action_model(fields["model"])
         for field in ("max_depth", "max_agents"):
             if field in fields:
-                val = fields[field]
-                if val is not None:
-                    if not isinstance(val, int) or isinstance(val, bool):
-                        raise ValueError(f"{field} must be an integer")
-                    if not (1 <= val <= 100):
-                        raise ValueError(f"{field} must be in [1, 100], got {val}")
+                _validate_budget(field, fields[field])
         if "options" in fields:
             _validate_options(fields["options"])
 
-        # Validate the EFFECTIVE merged definition, not just the patch: a kind
-        # change to 'coding' or an options patch dropping test_cmd would
-        # otherwise store a definition the engine CLI always rejects.
+        # Validate the EFFECTIVE merged definition, not just the patch — a kind
+        # change to 'coding' or dropping test_cmd would otherwise store a def the CLI rejects.
         effective_kind = fields.get("kind", existing.get("kind"))
         effective_options = fields["options"] if "options" in fields else existing.get("options")
         _validate_kind_options(effective_kind, effective_options)

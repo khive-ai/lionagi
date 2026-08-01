@@ -66,9 +66,18 @@ class TestLoadAgentProfileValidation:
         with pytest.raises(ValueError, match="bare identifier"):
             load_agent_profile("../agents/orchestrator")
 
-    def test_rejects_separator_name(self):
-        with pytest.raises(ValueError, match="bare identifier"):
+    def test_single_separator_name_is_a_plugin_token_not_rejected(self):
+        """A single '/' is now a `<plugin>/<name>` token (each side still validated as a
+        bare identifier) — it proceeds past validation to plugin/file lookup, raising
+        FileNotFoundError (no matching plugin here), not the bare-identifier ValueError."""
+        with pytest.raises(FileNotFoundError):
             load_agent_profile("a/b")
+
+    def test_rejects_separator_name_with_invalid_component(self):
+        """Each side of a `<plugin>/<name>` token is still validated — a component that
+        fails the bare-identifier check (here, a second separator) still fails closed."""
+        with pytest.raises(ValueError, match="bare identifier"):
+            load_agent_profile("a/b/c")
 
     def test_rejects_hidden_name(self):
         with pytest.raises(ValueError, match="bare identifier"):
@@ -81,3 +90,21 @@ class TestLoadAgentProfileValidation:
             load_agent_profile("valid-name")
         # Must NOT be the validation error.
         assert not isinstance(exc_info.value, ValueError)
+
+    def test_broken_profile_symlink_reports_unreadable_target(self, monkeypatch, tmp_path):
+        import lionagi.cli._providers as providers
+
+        lionagi_dir = tmp_path / ".lionagi"
+        agents_dir = lionagi_dir / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "broken.md").symlink_to("missing-profile.md")
+
+        monkeypatch.setattr(providers, "_find_lionagi_dirs", lambda: [lionagi_dir])
+        monkeypatch.setattr(providers, "_plugin_agent_profiles", lambda: {})
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            providers.load_agent_profile("broken")
+
+        message = str(exc_info.value)
+        assert "exists but its symlink target is unreadable: missing-profile.md" in message
+        assert "broken" not in providers.list_agents()

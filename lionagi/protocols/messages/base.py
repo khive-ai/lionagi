@@ -5,7 +5,8 @@ from enum import Enum
 from typing import Any, TypeAlias
 from uuid import UUID
 
-from ..generic.element import ID, Element, Observable
+from .._concepts import Observable
+from ..generic.element import ID, Element
 
 __all__ = (
     "MessageRole",
@@ -62,9 +63,8 @@ def validate_sender_recipient(value: Any, /) -> SenderRecipient:
     if value in ["system", "user", "unset", "assistant", "action"]:
         return MessageRole(value)
 
-    # Accept plain strings (user names, identifiers, etc)
+    # Plain strings (user names, identifiers, etc): try to parse as ID, else keep as-is.
     if isinstance(value, str):
-        # Try to parse as ID first, but allow plain strings as fallback
         try:
             return ID.get_id(value)
         except Exception:

@@ -50,7 +50,7 @@ Override: `branch.operate(instruction=..., middle=my_callable)`. Force stream: `
 
 ### Service Layer (`service/`)
 
-**iModel** wraps any provider via `match_endpoint.py`. Providers in `connections/providers/`: OpenAI, Anthropic, Gemini, Ollama, NVIDIA NIM, Perplexity, Groq/OpenRouter.
+**iModel** wraps any provider via `service/connections/match_endpoint.py`. Providers live in `lionagi/providers/`, one package each: chat/model — `openai`, `anthropic`, `google`, `deepseek`, `groq`, `openrouter`, `ollama`, `nvidia_nim`, `perplexity`; search/retrieval — `exa`, `tavily`, `firecrawl`; framework and CLI integrations — `ag2`, `pi`.
 
 ### Operations (`operations/`)
 
@@ -103,7 +103,7 @@ Every run: `~/.lionagi/runs/{run_id}/` (`YYYYMMDDTHHMMSS-{uuid6}`).
 - **Lazy imports**: `__init__.py` uses `__getattr__` — import time O(1).
 - **Manager facade**: Branch thin; logic in MessageManager, ActionManager, iModelManager, DataLogger.
 - **Pile + Progression**: Storage (dict) and ordering (deque) are independent. Multiple orderings over same Pile.
-- **Observable** (`protocols/contracts.py`): Structural typing — Element auto-satisfies without explicit inheritance.
+- **Observable** (`protocols/_concepts.py`): runtime-checkable **Protocol** — admission is **structural**. Any object exposing an `id` satisfies `isinstance(item, Observable)` and is admissible to a `Pile`; inheritance is not required and `Element` does *not* inherit it (a Protocol cannot be a pydantic base — Element conforms via its `id` field). Id resolution (`ID.get_id`, `validate_order`) and `item_type` validation are structural to match, so a duck-typed item can be admitted, found, and removed by identity. **This is intentional, not a defect** — a 2026-07 change briefly made admission nominal (inheritance-only) and that was a regression. Do not "harden" it back to inheritance; the contract is guarded by `tests/protocols/test_observable_protocol.py`. (Serializing a Pile still requires items to be Element-shaped, since dumping calls `to_dict()`.)
 - **Serialization**: `element.to_dict(mode="python"|"json"|"db")`.
 
 ## Code Conventions

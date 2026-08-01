@@ -10,12 +10,15 @@ asyncio_mode = "auto" in pyproject.toml — no @pytest.mark.asyncio needed.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 import uuid
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import text
 
-from lionagi.state.db import StateDB
+from lionagi.state.db import SCHEMA_VERSION, StateDB
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -75,6 +78,35 @@ async def _make_show(db: StateDB, *, status: str = "active") -> dict:
     return show
 
 
+async def _make_live_persist_fixture(db: StateDB) -> tuple[str, str, str, str]:
+    session_id = "live-persist-session"
+    session_prog_id = "live-persist-session-progression"
+    branch_id = "live-persist-branch"
+    branch_prog_id = "live-persist-branch-progression"
+    await db.create_progression(session_prog_id)
+    await db.create_progression(branch_prog_id)
+    await db.create_session(
+        {
+            "id": session_id,
+            "created_at": 100.0,
+            "progression_id": session_prog_id,
+            "status": "running",
+            "started_at": 100.0,
+            "last_message_at": 100.0,
+            "updated_at": 100.0,
+        }
+    )
+    await db.create_branch(
+        {
+            "id": branch_id,
+            "created_at": 100.0,
+            "session_id": session_id,
+            "progression_id": branch_prog_id,
+        }
+    )
+    return session_id, session_prog_id, branch_id, branch_prog_id
+
+
 # ── Connection lifecycle ───────────────────────────────────────────────────────
 
 
@@ -98,7 +130,7 @@ async def test_open_close():
 
     # Schema is available after open
     version = await state.schema_version()
-    assert version == "1"
+    assert version == SCHEMA_VERSION
 
     await state.close()
     assert state._engine is None
@@ -108,13 +140,196 @@ async def test_context_manager():
     """async with opens and closes cleanly."""
     async with StateDB(":memory:") as state:
         version = await state.schema_version()
-        assert version == "1"
+        assert version == SCHEMA_VERSION
     assert state._engine is None
+
+
+async def test_managed_entity_creations_write_initial_lifecycle_history(db: StateDB):
+    progression_id = uid()
+    await db.create_progression(progression_id)
+    session_id = uid()
+    await db.create_session(
+        {"id": session_id, "progression_id": progression_id, "status": "running"}
+    )
+
+    invocation_id = uid()
+    await db.create_invocation({"id": invocation_id, "skill": "test", "started_at": time.time()})
+
+    show_id = uid()
+    await db.create_show({"id": show_id, "topic": "creation-history", "show_dir": "shows/history"})
+    play_id = uid()
+    await db.create_play({"id": play_id, "show_id": show_id, "name": "first"})
+
+    schedule_id = uid()
+    await db.create_schedule(
+        {
+            "id": schedule_id,
+            "name": "creation-history",
+            "trigger_type": "interval",
+            "interval_sec": 60,
+            "action_kind": "agent",
+        }
+    )
+    schedule_run_id = uid()
+    await db.create_schedule_run(
+        {
+            "id": schedule_run_id,
+            "schedule_id": schedule_id,
+            "trigger_context": {},
+            "action_kind": "agent",
+            "action_args": [],
+            "status": "running",
+            "fired_at": time.time(),
+        }
+    )
+    advanced_run_id = uid()
+    advanced_run = {
+        "id": advanced_run_id,
+        "schedule_id": schedule_id,
+        "trigger_context": {},
+        "action_kind": "agent",
+        "action_args": [],
+        "status": "running",
+        "fired_at": time.time(),
+    }
+    await db.create_schedule_run_and_advance(
+        advanced_run,
+        schedule_id=schedule_id,
+        schedule_fields={"last_fired_at": time.time()},
+    )
+    replacement_run_id = uid()
+    replacement_run = {**advanced_run, "id": replacement_run_id}
+    assert await db.tombstone_and_replace_schedule_run(
+        schedule_run_id,
+        replacement_run,
+    )
+
+    # Idempotent creation retries do not append another creation event.
+    await db.create_session(
+        {"id": session_id, "progression_id": progression_id, "status": "running"}
+    )
+
+    expected = {
+        session_id: ("session", "running"),
+        invocation_id: ("invocation", "running"),
+        show_id: ("show", "active"),
+        play_id: ("play", "pending"),
+        schedule_run_id: ("schedule_run", "running"),
+        advanced_run_id: ("schedule_run", "running"),
+        replacement_run_id: ("schedule_run", "running"),
+    }
+    placeholders = ", ".join(f":id{i}" for i in range(len(expected)))
+    params = {f"id{i}": entity_id for i, entity_id in enumerate(expected)}
+    async with db._read() as conn:
+        rows = (
+            (
+                await conn.execute(
+                    text(
+                        "SELECT entity_type, entity_id, previous_status, status "
+                        f"FROM status_transitions WHERE entity_id IN ({placeholders})"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert len(rows) == len(expected)
+    for row in rows:
+        assert row["previous_status"] is None
+        assert (row["entity_type"], row["status"]) == expected[row["entity_id"]]
+
+
+async def test_creation_history_failure_rolls_back_managed_entity(
+    db: StateDB, monkeypatch: pytest.MonkeyPatch
+):
+    from lionagi.state.lifecycle.service import SQLAlchemyLifecycleService
+
+    async def _fail_initial_history(self, connection, command):
+        raise RuntimeError("forced history failure")
+
+    monkeypatch.setattr(
+        SQLAlchemyLifecycleService,
+        "initialize_in_transaction",
+        _fail_initial_history,
+    )
+    invocation_id = uid()
+    with pytest.raises(RuntimeError, match="forced history failure"):
+        await db.create_invocation(
+            {"id": invocation_id, "skill": "test", "started_at": time.time()}
+        )
+
+    assert await db.get_invocation(invocation_id) is None
 
 
 async def test_engine_is_none_when_closed():
     """_engine is None before open() is called."""
     state = StateDB(":memory:")
+    assert state._engine is None
+
+
+async def test_context_open_failure_disposes_partial_engine(monkeypatch):
+    """A context-entry error must not leave the driver's worker alive."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import lionagi.state.db as db_mod
+
+    engine = MagicMock()
+    engine.dispose = AsyncMock()
+    monkeypatch.setattr(db_mod, "make_engine", lambda *_args, **_kwargs: engine)
+    monkeypatch.setattr(db_mod, "_install_begin_immediate", lambda *_args: None)
+
+    state = StateDB(":memory:")
+
+    async def fail_schema() -> None:
+        raise RuntimeError("schema is locked")
+
+    monkeypatch.setattr(state, "_apply_schema", fail_schema)
+
+    with pytest.raises(RuntimeError, match="schema is locked"):
+        async with state:
+            raise AssertionError("context body must not run")
+
+    engine.dispose.assert_awaited_once()
+    assert state._engine is None
+
+
+async def test_context_cancelled_open_shields_partial_engine_disposal(monkeypatch):
+    """Cancellation during context entry must not interrupt engine disposal."""
+    import anyio
+
+    import lionagi.state.db as db_mod
+
+    dispose_started = anyio.Event()
+    dispose_finished = anyio.Event()
+
+    class FakeEngine:
+        sync_engine = object()
+
+        async def dispose(self) -> None:
+            dispose_started.set()
+            await anyio.lowlevel.checkpoint()
+            dispose_finished.set()
+
+    engine = FakeEngine()
+    monkeypatch.setattr(db_mod, "make_engine", lambda *_args, **_kwargs: engine)
+    monkeypatch.setattr(db_mod, "_install_begin_immediate", lambda *_args: None)
+
+    state = StateDB(":memory:")
+
+    async def hang_schema() -> None:
+        await anyio.sleep_forever()
+
+    monkeypatch.setattr(state, "_apply_schema", hang_schema)
+
+    with pytest.raises(TimeoutError):
+        with anyio.fail_after(0.01):
+            async with state:
+                raise AssertionError("context body must not run")
+
+    assert dispose_started.is_set()
+    assert dispose_finished.is_set()
     assert state._engine is None
 
 
@@ -145,12 +360,197 @@ async def test_schema_creates_all_tables(db: StateDB):
 
 
 async def test_schema_version(db: StateDB):
-    """schema_version() returns '1'."""
-    assert await db.schema_version() == "1"
+    """schema_version() returns the version this code applies."""
+    assert await db.schema_version() == SCHEMA_VERSION
+
+
+def _stamp_version(path, value: str) -> None:
+    """Write schema_meta.version directly, the way another release would have."""
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO schema_meta (key, value) VALUES ('version', ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (value,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _read_version(path) -> str | None:
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        row = conn.execute("SELECT value FROM schema_meta WHERE key = 'version'").fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
+
+
+async def test_open_upgrades_an_older_recorded_schema_version(tmp_path):
+    """A database stamped below SCHEMA_VERSION is migrated and re-stamped.
+
+    The stamp records the shape the database has after the migrations that
+    ``_apply_schema`` runs, so an older recording must move up to it.
+    """
+    path = tmp_path / "older.db"
+    async with StateDB(path=path):
+        pass
+    _stamp_version(path, "1")
+    assert _read_version(path) == "1"
+
+    async with StateDB(path=path) as state:
+        assert await state.schema_version() == SCHEMA_VERSION
+    assert _read_version(path) == SCHEMA_VERSION
+
+
+async def test_open_refuses_a_newer_recorded_schema_version(tmp_path):
+    """A database stamped above SCHEMA_VERSION is refused, not downgraded.
+
+    A later release wrote that stamp, and this code cannot establish that its
+    schema has the shape the migrations in ``_apply_schema`` assume. Opening
+    for writing would run those migrations anyway and then record the lower
+    version, leaving a database that reads as one this code understands.
+    """
+    from lionagi.state.db import SchemaTooNewError
+
+    path = tmp_path / "newer.db"
+    async with StateDB(path=path):
+        pass
+    newer = str(int(SCHEMA_VERSION) + 1)
+    _stamp_version(path, newer)
+
+    with pytest.raises(SchemaTooNewError) as excinfo:
+        async with StateDB(path=path):
+            pass
+
+    # The refusal names both versions, so the caller can act on it.
+    assert newer in str(excinfo.value)
+    assert SCHEMA_VERSION in str(excinfo.value)
+    # And the stamp it refused to write is still the one on disk.
+    assert _read_version(path) == newer
+
+
+async def test_schema_version_is_rechecked_after_migration_lock(tmp_path, monkeypatch):
+    """A concurrent upgrade before the migration lock is refused before ALTER TABLE."""
+    from lionagi.state.db import SchemaTooNewError
+
+    path = tmp_path / "raced_newer.db"
+    async with StateDB(path=path):
+        pass
+
+    state = StateDB(path=path)
+    state._MIGRATION_COLUMNS = {"sessions": [("raced_column", "TEXT")]}
+    reconcile = state._reconcile_columns
+    newer = str(int(SCHEMA_VERSION) + 1)
+
+    async def upgrade_then_reconcile():
+        _stamp_version(path, newer)
+        await reconcile()
+
+    monkeypatch.setattr(state, "_reconcile_columns", upgrade_then_reconcile)
+
+    with pytest.raises(SchemaTooNewError):
+        async with state:
+            pass
+
+    assert _read_version(path) == newer
+    conn = sqlite3.connect(path)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+    finally:
+        conn.close()
+    assert "raced_column" not in columns
+
+
+async def test_postgres_schema_lock_rechecks_when_version_table_appears(monkeypatch):
+    """A newer migrator may create and stamp schema_meta while this opener waits."""
+    import lionagi.state.db as db_mod
+    from lionagi.state.db import SchemaTooNewError
+
+    state = StateDB(url="postgresql+asyncpg://user:pw@localhost/state")
+    newer = str(int(SCHEMA_VERSION) + 1)
+    race = {"table_exists": False}
+    events: list[str] = []
+
+    class FakeInspector:
+        def has_table(self, name):
+            assert name == "schema_meta"
+            events.append("inspect")
+            return race["table_exists"]
+
+    class FakeResult:
+        def __init__(self, row=None):
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+    class FakeConnection:
+        async def execute(self, statement, params=None):
+            sql = str(statement)
+            if "pg_advisory_xact_lock" in sql:
+                events.append("lock")
+                # The competing newer release commits before this transaction
+                # obtains the lock, so the table absent at entry now exists.
+                race["table_exists"] = True
+                return FakeResult()
+            if "SELECT value FROM schema_meta" in sql:
+                events.append("version")
+                return FakeResult({"value": newer})
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+        async def run_sync(self, callback):
+            return callback(object())
+
+    monkeypatch.setattr(db_mod, "inspect", lambda _conn: FakeInspector())
+
+    with pytest.raises(SchemaTooNewError):
+        await state._refuse_newer_schema(FakeConnection())
+
+    assert events == ["lock", "inspect", "version"]
+
+
+async def test_readonly_open_reads_a_newer_recorded_schema_version(tmp_path):
+    """Read-only opens apply no schema, so a newer database stays readable.
+
+    This is the way out of the refusal above: inspecting a database written by
+    a later release never rewrites it, so there is nothing to refuse.
+    """
+    path = tmp_path / "newer_readonly.db"
+    async with StateDB(path=path):
+        pass
+    newer = str(int(SCHEMA_VERSION) + 1)
+    _stamp_version(path, newer)
+
+    async with StateDB(path=path, readonly=True) as state:
+        assert await state.schema_version() == newer
+
+
+async def test_open_stamps_over_an_unparsable_recorded_version(tmp_path):
+    """A version this code cannot order against its own is replaced.
+
+    Nothing can be said about whether such a value is newer, so there is no
+    downgrade to prevent; the open records the shape it applied.
+    """
+    path = tmp_path / "garbage.db"
+    async with StateDB(path=path):
+        pass
+    _stamp_version(path, "not-a-version")
+
+    async with StateDB(path=path) as state:
+        assert await state.schema_version() == SCHEMA_VERSION
 
 
 async def test_apply_schema_adds_missing_columns_on_old_db(tmp_path):
-    """Regression: an older state.db that pre-dates ADR-0012 / ADR-0017
+    """Regression: an older state.db missing later-added
     columns must have them ADD COLUMN'd in by ``_reconcile_columns``.
 
     Without this migration, ``CREATE TABLE IF NOT EXISTS`` is a no-op
@@ -166,9 +566,8 @@ async def test_apply_schema_adds_missing_columns_on_old_db(tmp_path):
 
     path = tmp_path / "old.db"
 
-    # Simulate a real pre-PR-980 DB: ADR-0009 core columns are present
-    # (since they shipped first), but the provenance/lifecycle columns
-    # added later are missing.
+    # Simulate an older DB: core columns are present, but the
+    # provenance/lifecycle columns added later are missing.
     bootstrap = create_async_engine(f"sqlite+aiosqlite:///{path}")
     async with bootstrap.begin() as conn:
         await conn.execute(
@@ -207,7 +606,7 @@ async def test_apply_schema_adds_missing_columns_on_old_db(tmp_path):
             "artifacts_path",
             "source_kind",
             "updated_at",
-            # ADR-0029: new artifact columns must be reconciled on old DBs.
+            # ADR-0064: new artifact columns must be reconciled on old DBs.
             "artifact_contract_json",
             "artifact_verification_json",
             # live flow phase column for `li monitor`.
@@ -294,6 +693,92 @@ async def test_insert_message_idempotent(db: StateDB):
             .first()
         )
     assert row["n"] == 1
+
+
+async def test_persist_live_message_uses_one_transaction_and_preserves_rows(db: StateDB):
+    """The live message bundle matches the prior writes in one SQLite transaction."""
+    baseline = StateDB(":memory:")
+    await baseline.open()
+    try:
+        session_id, session_prog_id, branch_id, branch_prog_id = await _make_live_persist_fixture(
+            db
+        )
+        await _make_live_persist_fixture(baseline)
+        msg = make_message(role="assistant")
+        msg["id"] = "live-persist-message"
+        msg["created_at"] = 200.0
+
+        await baseline.insert_message(msg)
+        await baseline.append_to_progression(branch_prog_id, msg["id"])
+        await baseline.append_to_progression(session_prog_id, msg["id"])
+        await baseline.touch_session_activity(session_id, at=msg["created_at"])
+
+        statements: list[str] = []
+        async with db._read() as conn:
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.set_trace_callback(statements.append)
+        try:
+            await db._persist_live_message(
+                msg,
+                session_id=session_id,
+                branch_progression_id=branch_prog_id,
+                session_progression_id=session_prog_id,
+                activity_at=msg["created_at"],
+            )
+        finally:
+            async with db._read() as conn:
+                raw_conn = await conn.get_raw_connection()
+                await raw_conn.driver_connection.set_trace_callback(None)
+
+        tx_statements = [statement.strip().upper() for statement in statements]
+        assert tx_statements.count("BEGIN IMMEDIATE") == 1
+        assert tx_statements.count("COMMIT") == 1
+        assert await db.get_message(msg["id"]) == await baseline.get_message(msg["id"])
+        assert await db.get_progression(branch_prog_id) == await baseline.get_progression(
+            branch_prog_id
+        )
+        assert await db.get_progression(session_prog_id) == await baseline.get_progression(
+            session_prog_id
+        )
+        assert await db.get_session(session_id) == await baseline.get_session(session_id)
+        assert await db.get_branch(branch_id) == await baseline.get_branch(branch_id)
+    finally:
+        await baseline.close()
+
+
+async def test_persist_live_message_rolls_back_when_last_statement_fails(db: StateDB):
+    """A failure on activity touch leaves no message or progression orphan."""
+    from sqlalchemy import event
+
+    session_id, session_prog_id, _branch_id, branch_prog_id = await _make_live_persist_fixture(db)
+    msg = make_message(role="assistant")
+    msg["id"] = "live-persist-rollback-message"
+    msg["created_at"] = 200.0
+
+    def fail_activity_touch(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("UPDATE sessions SET last_message_at"):
+            raise RuntimeError("simulated final live-persist statement failure")
+
+    event.listen(db._engine.sync_engine, "before_cursor_execute", fail_activity_touch)
+    try:
+        with pytest.raises(RuntimeError, match="final live-persist statement"):
+            await db._persist_live_message(
+                msg,
+                session_id=session_id,
+                branch_progression_id=branch_prog_id,
+                session_progression_id=session_prog_id,
+                activity_at=msg["created_at"],
+            )
+    finally:
+        event.remove(db._engine.sync_engine, "before_cursor_execute", fail_activity_touch)
+
+    assert await db.get_message(msg["id"]) is None
+    assert await db.get_progression(branch_prog_id) == []
+    assert await db.get_progression(session_prog_id) == []
+    session = await db.get_session(session_id)
+    assert session is not None
+    assert session["last_message_at"] == 100.0
+    assert session["updated_at"] == 100.0
 
 
 async def test_resolve_lion_class_known(db: StateDB):
@@ -622,6 +1107,183 @@ async def test_get_branch_messages(db: StateDB):
     assert [r["id"] for r in result] == [m["id"] for m in msgs]
 
 
+# ── finalize_branch (BRANCH_END guarded terminal write) ─────────────────────
+
+
+async def _make_branch(db: StateDB, *, status: str | None = None) -> dict:
+    s = await _make_session(db)
+    prog_id = uid()
+    await db.create_progression(prog_id)
+    branch = {
+        "id": uid(),
+        "session_id": s["id"],
+        "progression_id": prog_id,
+        "name": "leg",
+    }
+    await db.create_branch(branch)
+    if status is not None:
+        await db.update_branch(branch["id"], status=status)
+    return branch
+
+
+async def test_finalize_branch_stamps_status_and_ended_at_when_null(db: StateDB):
+    """A branch row that never had a status written (the single-branch agent
+    path's gap) is finalized on the first BRANCH_END-equivalent call."""
+    branch = await _make_branch(db)
+    assert (await db.get_branch(branch["id"]))["status"] is None
+
+    updated = await db.finalize_branch(branch["id"], status="completed", ended_at=123.0)
+
+    assert updated is True
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == "completed"
+    assert row["ended_at"] == 123.0
+
+
+async def test_finalize_branch_stamps_failed_status(db: StateDB):
+    """A raising operation must not leave the branch row 'running' forever."""
+    branch = await _make_branch(db, status="running")
+
+    updated = await db.finalize_branch(branch["id"], status="failed", ended_at=456.0)
+
+    assert updated is True
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == "failed"
+    assert row["ended_at"] == 456.0
+
+
+async def test_finalize_branch_skips_already_completed(db: StateDB):
+    """A per-op writer's 'completed' must not be clobbered by a coarser run-level finalize."""
+    branch = await _make_branch(db, status="completed")
+    await db.update_branch(branch["id"], ended_at=100.0)
+
+    updated = await db.finalize_branch(branch["id"], status="failed", ended_at=999.0)
+
+    assert updated is False
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == "completed"
+    assert row["ended_at"] == 100.0
+
+
+async def test_finalize_branch_skips_already_failed(db: StateDB):
+    """Same guard, the other terminal value: 'failed' is never overwritten either."""
+    branch = await _make_branch(db, status="failed")
+    await db.update_branch(branch["id"], ended_at=200.0)
+
+    updated = await db.finalize_branch(branch["id"], status="completed", ended_at=999.0)
+
+    assert updated is False
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == "failed"
+    assert row["ended_at"] == 200.0
+
+
+async def test_finalize_branch_missing_row_is_noop(db: StateDB):
+    """A branch id with no row (e.g. a DAG leg that never emitted a first
+    message, so create_branch() never ran) matches zero rows — harmless."""
+    updated = await db.finalize_branch(uid(), status="completed")
+    assert updated is False
+
+
+async def test_finalize_branch_defaults_ended_at_to_now(
+    db: StateDB, monkeypatch: pytest.MonkeyPatch
+):
+    import lionagi.state.db as state_db_mod
+
+    fixed_now = 1_000_000.0
+    monkeypatch.setattr(state_db_mod, "time", SimpleNamespace(time=lambda: fixed_now))
+    branch = await _make_branch(db)
+
+    await db.finalize_branch(branch["id"], status="completed")
+
+    row = await db.get_branch(branch["id"])
+    assert row["ended_at"] == fixed_now
+
+
+@pytest.mark.parametrize(
+    "existing_status",
+    ["completed", "completed_empty", "failed", "timed_out", "aborted", "cancelled"],
+)
+async def test_finalize_branch_skips_every_terminal_status(db: StateDB, existing_status: str):
+    """Every value in the session terminal-status vocabulary is immutable on a
+    branch row, not just 'completed'/'failed' — a branch already at
+    'cancelled', 'timed_out', 'aborted', or 'completed_empty' must survive a
+    later run-level finalize carrying a different terminal status exactly
+    like 'completed'/'failed' already did."""
+    branch = await _make_branch(db, status=existing_status)
+    await db.update_branch(branch["id"], ended_at=555.0)
+
+    updated = await db.finalize_branch(branch["id"], status="completed", ended_at=999.0)
+
+    assert updated is False
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == existing_status
+    assert row["ended_at"] == 555.0
+
+
+@pytest.mark.parametrize(
+    "terminal_status",
+    ["completed", "completed_empty", "failed", "timed_out", "aborted", "cancelled"],
+)
+async def test_finalize_branch_stamps_every_terminal_status_from_null(
+    db: StateDB, terminal_status: str
+):
+    """The full session terminal-status vocabulary (not just completed/failed)
+    is a legitimate finalize target from a fresh (NULL-status) row."""
+    branch = await _make_branch(db)
+
+    updated = await db.finalize_branch(branch["id"], status=terminal_status, ended_at=42.0)
+
+    assert updated is True
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == terminal_status
+    assert row["ended_at"] == 42.0
+
+
+async def test_finalize_branch_rejects_running_payload(db: StateDB):
+    """'running' is not a terminal outcome -- BRANCH_END must never be able to
+    stamp a branch 'ended' with a non-terminal status, even against a fresh
+    (NULL-status) row that would otherwise pass the existing-row guard."""
+    branch = await _make_branch(db)
+
+    updated = await db.finalize_branch(branch["id"], status="running", ended_at=42.0)
+
+    assert updated is False
+    row = await db.get_branch(branch["id"])
+    assert row["status"] is None
+    assert row["ended_at"] is None
+
+
+async def test_finalize_branch_rejects_running_payload_against_running_row(db: StateDB):
+    """Same rejection when the existing row is itself 'running' (the state a
+    running payload would otherwise cleanly match against)."""
+    branch = await _make_branch(db, status="running")
+
+    updated = await db.finalize_branch(branch["id"], status="running", ended_at=42.0)
+
+    assert updated is False
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == "running"
+    assert row["ended_at"] is None
+
+
+async def test_finalize_branch_repeated_call_does_not_flap_terminal_status(db: StateDB):
+    """A repeated (or concurrent-race-losing) finalization attempt carrying a
+    DIFFERENT terminal status than the one that already landed must not flap
+    either status or ended_at — the first genuine terminal write wins."""
+    branch = await _make_branch(db)
+
+    first = await db.finalize_branch(branch["id"], status="cancelled", ended_at=100.0)
+    assert first is True
+
+    second = await db.finalize_branch(branch["id"], status="completed", ended_at=200.0)
+    assert second is False
+
+    row = await db.get_branch(branch["id"])
+    assert row["status"] == "cancelled"
+    assert row["ended_at"] == 100.0
+
+
 # ── Shows ─────────────────────────────────────────────────────────────────────
 
 
@@ -774,10 +1436,10 @@ async def test_update_play(db: StateDB):
     await db.create_play(play)
 
     end_time = time.time()
-    # ADR-0011 vocab: plays use ``running_complete`` (not ``completed``)
+    # ADR-0057 vocab: plays use ``running_complete`` (not ``completed``)
     # for the "finished running" terminal — ``completed`` belongs to the
-    # sessions vocabulary (ADR-0017), not plays.
-    # ADR-0028 Phase 2: `running_complete` has no canonical default
+    # sessions vocabulary (ADR-0057), not plays.
+    # ADR-0057 Phase 2: `running_complete` has no canonical default
     # reason_code (the gate hasn't run yet at that point — the caller
     # has the context to choose between PENDING_READY / GATE_FAILED_
     # VERDICT / etc.), so we must pass reason_code explicitly.
@@ -879,7 +1541,7 @@ async def test_list_definition_versions(db: StateDB):
 
 
 async def test_save_definition_rejects_non_editable_kind(db: StateDB):
-    """ADR-0016: skills + arbitrary kinds are read-only and must be rejected."""
+    """ADR-0077: skills + arbitrary kinds are read-only and must be rejected."""
     import pytest
 
     for bad_kind in ("skill", "plugin", "something_else"):
@@ -1051,7 +1713,7 @@ async def test_message_content_dict_roundtrips_as_dict(db: StateDB):
 
 
 async def test_create_session_rejects_invalid_invocation_kind(db: StateDB):
-    """R4-B MED-2: ADR-0012 closed vocabulary, was unenforced before."""
+    """invocation_kind is a closed vocabulary; invalid kinds are rejected at creation."""
     prog_id = uid()
     await db.create_progression(prog_id)
     with pytest.raises(ValueError, match="invocation_kind"):
@@ -1066,7 +1728,7 @@ async def test_create_session_rejects_invalid_invocation_kind(db: StateDB):
 
 
 async def test_create_session_rejects_invalid_source_kind(db: StateDB):
-    """ADR-0012: source_kind ∈ {live, imported_fs}."""
+    """source_kind ∈ {live, imported_fs}."""
     prog_id = uid()
     await db.create_progression(prog_id)
     with pytest.raises(ValueError, match="source_kind"):
@@ -1102,7 +1764,7 @@ async def test_update_session_rejects_invalid_enums(db: StateDB):
 
 
 async def test_create_play_rejects_invalid_status(db: StateDB):
-    """ADR-0011: play status ∈ 11-vocabulary."""
+    """ADR-0057: play status ∈ 11-vocabulary."""
     show = await _make_show(db)
     with pytest.raises(ValueError, match="play status"):
         await db.create_play(
@@ -1116,7 +1778,7 @@ async def test_create_play_rejects_invalid_status(db: StateDB):
 
 
 async def test_create_show_rejects_invalid_status(db: StateDB):
-    """ADR-0011: show status ∈ {active, completed, aborted, imported}."""
+    """ADR-0057: show status ∈ {active, completed, aborted, imported}."""
     with pytest.raises(ValueError, match="show status"):
         await db.create_show(
             {
@@ -1160,7 +1822,7 @@ async def test_session_delete_cascades_branches(db: StateDB):
     assert await db.get_branch(bid) is None
 
 
-# ── ADR-0029: Artifact contract storage ───────────────────────────────────────
+# ── ADR-0064: Artifact contract storage ───────────────────────────────────────
 
 
 async def test_create_session_with_artifact_contract(db: StateDB):
@@ -1242,3 +1904,153 @@ async def test_new_db_has_artifact_columns(db: StateDB):
     cols = {r["name"] for r in rows}
     assert "artifact_contract_json" in cols
     assert "artifact_verification_json" in cols
+
+
+# ── readonly=True: no schema application, no create-on-open ──────────────────
+
+
+async def test_readonly_open_rejects_missing_file(tmp_path):
+    """readonly=True against a path with no existing file raises loudly and
+    never creates one — a read-only consumer must not have a database-creation
+    side effect."""
+    db_path = tmp_path / "does_not_exist.db"
+    state = StateDB(db_path, readonly=True)
+    with pytest.raises(FileNotFoundError):
+        await state.open()
+    assert not db_path.exists()
+
+
+async def test_readonly_open_never_calls_apply_schema(tmp_path, monkeypatch):
+    """readonly=True skips _apply_schema() entirely — the read-only open path
+    must never reconcile columns, run metadata.create_all, or seed rows."""
+    db_path = tmp_path / "seeded.db"
+    # Seed a real file via a normal (writable) open first.
+    seed = StateDB(db_path)
+    await seed.open()
+    prog_id = uid()
+    await seed.create_progression(prog_id)
+    await seed.create_session({"id": uid(), "progression_id": prog_id, "status": "completed"})
+    await seed.close()
+
+    async def _boom(self):
+        raise AssertionError("_apply_schema() must not be called in readonly mode")
+
+    monkeypatch.setattr(StateDB, "_apply_schema", _boom)
+
+    ro = StateDB(db_path, readonly=True)
+    async with ro as db:
+        rows = await db.fetch_all("SELECT COUNT(*) AS n FROM sessions")
+    assert rows[0]["n"] == 1
+
+
+async def test_readonly_open_skips_write_lock_event(tmp_path):
+    """readonly=True must not install the BEGIN IMMEDIATE connect-event —
+    that event only exists to reserve a write lock, which a read-only
+    accessor has no business taking."""
+    db_path = tmp_path / "no_write_lock.db"
+    seed = StateDB(db_path)
+    await seed.open()
+    await seed.close()
+
+    ro = StateDB(db_path, readonly=True)
+    await ro.open()
+    try:
+        async with ro._read() as conn:
+            from sqlalchemy import text
+
+            row = (await conn.execute(text("PRAGMA query_only"))).first()
+            assert row[0] == 1
+    finally:
+        await ro.close()
+
+
+async def test_readonly_rejects_write_attempt(tmp_path):
+    """Defense in depth: even if a future code path tried to write through a
+    readonly=True StateDB, SQLite itself refuses (mode=ro + query_only=1)."""
+    db_path = tmp_path / "reject_write.db"
+    seed = StateDB(db_path)
+    await seed.open()
+    await seed.close()
+
+    ro = StateDB(db_path, readonly=True)
+    await ro.open()
+    try:
+        with pytest.raises(Exception, match="readonly|read-only"):
+            await ro.execute("INSERT INTO schema_meta (key, value) VALUES ('x', 'y')")
+    finally:
+        await ro.close()
+
+
+# ── update_status extra_fields: schedule_run ────────────────────────────────
+
+
+async def _make_running_schedule_run(db) -> str:
+    schedule_id = uid()
+    await db.create_schedule(
+        {
+            "id": schedule_id,
+            "name": "extras",
+            "trigger_type": "interval",
+            "interval_sec": 60,
+            "action_kind": "agent",
+        }
+    )
+    run_id = uid()
+    await db.create_schedule_run(
+        {
+            "id": run_id,
+            "schedule_id": schedule_id,
+            "trigger_context": {},
+            "action_kind": "agent",
+            "action_args": [],
+            "status": "running",
+            "fired_at": time.time(),
+        }
+    )
+    return run_id
+
+
+async def test_schedule_run_status_write_carries_ended_at_and_error_detail(db):
+    """A schedule_run's terminal write may set ended_at and error_detail in the
+    same guarded transaction as the status, so the two can never disagree."""
+    run_id = await _make_running_schedule_run(db)
+    ended = time.time()
+
+    assert await db.update_status(
+        "schedule_run",
+        run_id,
+        new_status="failed",
+        reason_code="run.failed.exception",
+        reason_summary="RuntimeError: boom",
+        source="executor",
+        actor="test",
+        expected_statuses={"running"},
+        extra_fields={"ended_at": ended, "error_detail": "RuntimeError: boom"},
+    )
+
+    row = await db.get_schedule_run(run_id)
+    assert row["status"] == "failed"
+    assert row["error_detail"] == "RuntimeError: boom"
+    assert row["ended_at"] == pytest.approx(ended)
+
+
+async def test_schedule_run_status_write_rejects_an_unlisted_extra_field(db):
+    """Only the columns declared for schedule_run ride a status write; anything
+    else is refused rather than written."""
+    run_id = await _make_running_schedule_run(db)
+
+    with pytest.raises(ValueError, match="extra_fields"):
+        await db.update_status(
+            "schedule_run",
+            run_id,
+            new_status="failed",
+            reason_code="run.failed.exception",
+            reason_summary="RuntimeError: boom",
+            source="executor",
+            actor="test",
+            expected_statuses={"running"},
+            extra_fields={"stderr_tail": "nope"},
+        )
+
+    row = await db.get_schedule_run(run_id)
+    assert row["status"] == "running"

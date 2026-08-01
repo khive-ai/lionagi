@@ -1,26 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Signal types and per-node lifecycle projection for the reactive bus (ADR-0083).
-
-Payload contract (schema_version=1):
-  RunStart        — no payload fields
-  RunEnd          — input_tokens, output_tokens, total_cost_usd, num_turns, duration_ms
-  RunFailed       — data: exception
-  NodeSpawned     — op_id, parent_id, independent, assignee, instruction
-  NodeQueued      — op_id, name, elapsed, parent_id, depends_on
-  NodeStarted     — op_id, name, elapsed, parent_id, depends_on
-  NodeCompleted   — op_id, name, elapsed, parent_id, depends_on
-  NodeFailed      — op_id, name, elapsed, parent_id, depends_on
-  NodeAwaitingApproval — op_id, name, reason
-  NodeEscalated   — op_id, name, reason, route, escalation_request
-  NodePaused      — op_id, name
-  GateDenied      — data: any
-  MessageAdded    — data: RoledMessage (stored as message_ref in payload)
-
-Version policy: schema_version is bumped on any breaking field removal or rename.
-Adding nullable fields is non-breaking and does not bump the version.
-"""
+"""Signal types and per-node lifecycle projection for the reactive bus (ADR-0033); see per-class docstrings for payload contract. schema_version bumps only on breaking field removal/rename."""
 
 from __future__ import annotations
 
@@ -47,6 +28,7 @@ __all__ = (
     "NodePaused",
     "GateDenied",
     "MessageAdded",
+    "DispatchSignal",
     "NodeLifecycleState",
     "lane_for",
     "build_run_end",
@@ -75,11 +57,11 @@ class RunStart(Signal):
 
 
 class RunEnd(Signal):
-    """Run lifecycle: completed. Usage fields are populated when available."""
+    """Run lifecycle: completed. total_cost_usd is None (unknown) unless a provider actually reports a dollar cost — never coerced to 0.0 (free)."""
 
     input_tokens: int = 0
     output_tokens: int = 0
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = None
     num_turns: int = 0
     duration_ms: float = 0.0
 
@@ -136,12 +118,19 @@ class MessageAdded(Signal):
     """A message was added to a branch. data is the RoledMessage."""
 
 
-# -- Extended node lifecycle (ADR-0083) ---------------------------------------
-# Three signals completing the canonical per-node lifecycle:
-#   queued → running → awaiting_approval → succeeded | failed | escalated
-#
-# NodeStarted / NodeCompleted / NodeFailed (above) cover running/succeeded/
-# failed already; these three cover the remaining states.
+class DispatchSignal(Signal):
+    """Outbound dispatch payload contract (ADR-0059); one stable envelope shared by every dispatch kind so the transport template never churns per-kind."""
+
+    dispatch_id: str = ""
+    kind: str = ""  # e.g. "revival_ping" | "terminal_notify"
+    deliver_to: str = ""
+    attempt: int = 0
+    ack_token: str | None = None
+    body: dict = {}
+
+
+# -- Extended node lifecycle (ADR-0033): queued → running → awaiting_approval →
+# succeeded|failed|escalated. NodeStarted/Completed/Failed (above) cover running/succeeded/failed; these three cover the rest.
 
 
 class NodeQueued(Signal):
@@ -163,12 +152,12 @@ class NodeAwaitingApproval(Signal):
 
 
 class NodeEscalated(Signal):
-    """A DAG node escalated; route is "higher_tier" or "give_up" (see docs/reference/testing-state-session.md)."""
+    """A DAG node escalated or sent a help signal. route: "higher_tier" (retry), "give_up" (terminal), or "notify" (soft, non-terminal)."""
 
     op_id: str = ""
     name: str = ""
     reason: str = ""
-    route: str = ""  # "higher_tier" | "give_up"
+    route: str = ""  # "higher_tier" | "give_up" | "notify"
     escalation_request: Any = None
 
 
@@ -179,7 +168,7 @@ class NodePaused(Signal):
     name: str = ""
 
 
-# -- Lifecycle projection (ADR-0083) ------------------------------------------
+# -- Lifecycle projection (ADR-0033) ------------------------------------------
 
 #: The seven canonical per-node lifecycle states.
 NodeLifecycleState = Literal[
@@ -204,12 +193,18 @@ def _signal_to_state(sig: Any) -> NodeLifecycleState | None:
     if isinstance(sig, NodeFailed | RunFailed):
         return "failed"
     if isinstance(sig, NodeEscalated):
+        req = sig.escalation_request
+        # Soft ("fyi") urgency is informational only, not terminal; only
+        # "blocked" urgency (default) or no request pins to "escalated".
+        if getattr(req, "urgency", "blocked") == "fyi":
+            return None
         return "escalated"
-    # StructuredOutput carrying an EscalationRequest also projects to escalated.
+    # StructuredOutput carrying an EscalationRequest also projects to escalated,
+    # unless it is a soft ("fyi") help signal.
     if isinstance(sig, StructuredOutput):
         from lionagi.casts.emission import EscalationRequest  # noqa: PLC0415
 
-        if isinstance(sig.data, EscalationRequest):
+        if isinstance(sig.data, EscalationRequest) and sig.data.urgency != "fyi":
             return "escalated"
     return None
 
@@ -231,20 +226,16 @@ def lane_for(signals: Iterable[Signal | Any]) -> NodeLifecycleState:
 
 
 def _collect_branch_usage(branch: Any) -> dict[str, Any]:
-    """Sum provider-reported usage across all AssistantResponse messages on branch.
-
-    Returns dict with keys: input_tokens, output_tokens, total_cost_usd, num_turns.
-    All zero when no provider data is available (subscription runs, tests).
-    """
+    """Sum provider-reported usage across all AssistantResponse messages on branch. total_cost_usd stays None (unknown) until a message actually reports a cost — never coerced to 0.0 (free)."""
     input_tokens = 0
     output_tokens = 0
-    total_cost_usd = 0.0
+    total_cost_usd: float | None = None
     num_turns = 0
 
     try:
         messages = list(branch.msgs.messages)
     except Exception:  # noqa: BLE001
-        return {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0, "num_turns": 0}
+        return {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": None, "num_turns": 0}
 
     for msg in messages:
         mr = (
@@ -255,9 +246,16 @@ def _collect_branch_usage(branch: Any) -> dict[str, Any]:
         usage = mr.get("usage") if isinstance(mr.get("usage"), dict) else mr
         input_tokens += int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
         output_tokens += int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
-        cost = mr.get("total_cost_usd") or mr.get("cost")
+        # Presence, not truthiness: an explicit total_cost_usd=0.0 (real free
+        # call) must not fall through `x or y` to the cost/None fallback.
+        if "total_cost_usd" in mr and mr["total_cost_usd"] is not None:
+            cost = mr["total_cost_usd"]
+        elif "cost" in mr and mr["cost"] is not None:
+            cost = mr["cost"]
+        else:
+            cost = None
         if isinstance(cost, (int, float)):
-            total_cost_usd += float(cost)
+            total_cost_usd = (total_cost_usd or 0.0) + float(cost)
         num_turns += int(mr.get("num_turns", 0) or 0)
 
     return {
@@ -269,24 +267,18 @@ def _collect_branch_usage(branch: Any) -> dict[str, Any]:
 
 
 def _collect_multi_branch_usage(branches: Iterable[Any]) -> dict[str, Any]:
-    """Sum provider-reported usage across multiple branches (multi-leg DAG runs).
-
-    Applies _collect_branch_usage to each branch and adds the per-branch totals
-    together. Same key shape as _collect_branch_usage: input_tokens,
-    output_tokens, total_cost_usd, num_turns. duration_ms is deliberately not
-    included here — wall-clock across parallel legs isn't simply summable, so
-    the CLI teardown path leaves it unset for orchestration sessions too.
-    """
+    """Sum _collect_branch_usage across multiple branches (multi-leg DAG runs). duration_ms is excluded — wall-clock across parallel legs isn't simply summable."""
     input_tokens = 0
     output_tokens = 0
-    total_cost_usd = 0.0
+    total_cost_usd: float | None = None
     num_turns = 0
 
     for branch in branches:
         usage = _collect_branch_usage(branch)
         input_tokens += usage["input_tokens"]
         output_tokens += usage["output_tokens"]
-        total_cost_usd += usage["total_cost_usd"]
+        if usage["total_cost_usd"] is not None:
+            total_cost_usd = (total_cost_usd or 0.0) + usage["total_cost_usd"]
         num_turns += usage["num_turns"]
 
     return {

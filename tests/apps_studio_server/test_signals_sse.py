@@ -242,7 +242,7 @@ def patched_app(tmp_path, monkeypatch):
     from lionagi.studio.app import app
 
     transport = httpx.ASGITransport(app=app)
-    client = httpx.AsyncClient(transport=transport, base_url="http://test")
+    client = httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765")
     return app, db_path, client
 
 
@@ -726,7 +726,7 @@ def test_signals_endpoint_requires_bearer_auth(tmp_path, monkeypatch):
 
     from lionagi.studio.app import app
 
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:8765")
 
     # No Authorization header → 401.
     resp = client.get("/api/sessions/any-session-id/signals")
@@ -822,9 +822,9 @@ async def test_signals_generator_cancellation_on_disconnect(tmp_path, monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# MAJOR-1 (Round 2): _write_lock must be connection-wide — concurrent signal
-# emits must not race with update_status, update_session, or insert_message
-# on the same bound StateDB connection.
+# Invariant: _write_lock must be connection-wide — concurrent signal emits
+# must not race with update_status, update_session, or insert_message on
+# the same bound StateDB connection.
 # ---------------------------------------------------------------------------
 
 
@@ -1054,9 +1054,9 @@ async def test_concurrent_emit_and_artifact_verification_no_failures(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# MAJOR-2 (Round 2): Byte cap must hold on the FINAL serialized form,
-# including JSON escaping overhead.  Codex repro: quote/backslash-heavy
-# payloads stored 32 KB instead of the claimed 16 KB cap.
+# Invariant: byte cap must hold on the FINAL serialized form, including JSON
+# escaping overhead. Regression: quote/backslash-heavy payloads stored 32 KB
+# instead of the claimed 16 KB cap.
 # ---------------------------------------------------------------------------
 
 

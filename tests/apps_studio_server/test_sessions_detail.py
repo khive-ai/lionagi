@@ -12,7 +12,8 @@ import pytest
 
 aiosqlite = pytest.importorskip("aiosqlite", reason="aiosqlite not installed")
 
-from lionagi.state.db import StateDB  # noqa: E402
+from lionagi.state.claude_mirror import session_db_id  # noqa: E402
+from lionagi.state.db import SESSION_TERMINAL_STATUSES, StateDB  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Shared test data
@@ -55,6 +56,9 @@ async def seed_session(
     status: str = "running",
     started_at=None,
     ended_at=None,
+    artifacts_path: str | None = None,
+    artifact_contract_json: dict | None = None,
+    artifact_verification_json: dict | None = None,
 ) -> str:
     prog_id = f"{session_id}-prog"
     async with StateDB(db_path) as db:
@@ -69,6 +73,9 @@ async def seed_session(
                 "status": status,
                 "started_at": started_at,
                 "ended_at": ended_at,
+                "artifacts_path": artifacts_path,
+                "artifact_contract_json": artifact_contract_json,
+                "artifact_verification_json": artifact_verification_json,
                 "node_metadata": node_metadata,
                 "invocation_kind": "flow",
                 "source_kind": "live",
@@ -288,6 +295,151 @@ async def test_get_session_returns_none_graph_for_null_node_metadata(patched_ses
 
 
 # ---------------------------------------------------------------------------
+# Artifact verification display state
+# ---------------------------------------------------------------------------
+
+
+ARTIFACT_CONTRACT = {"expected": [{"id": "report", "path": "REPORT.md", "required": True}]}
+
+
+async def test_get_session_returns_live_provisional_artifact_progress(
+    patched_sessions_db, tmp_path
+):
+    svc, db_path = patched_sessions_db
+    (tmp_path / "REPORT.md").write_text("ready")
+    await seed_session(
+        db_path,
+        session_id="sess-live-artifacts",
+        status="running",
+        artifacts_path=str(tmp_path),
+        artifact_contract_json=ARTIFACT_CONTRACT,
+    )
+
+    result = await svc.get_session("sess-live-artifacts")
+
+    assert result is not None
+    verification = result["artifact_verification_json"]
+    assert verification["provisional"] is True
+    assert [item["id"] for item in verification["produced"]] == ["report"]
+
+
+@pytest.mark.parametrize("status", sorted(SESSION_TERMINAL_STATUSES))
+async def test_get_session_reports_terminal_verdict_was_not_recorded_without_artifact_path(
+    patched_sessions_db, status
+):
+    svc, db_path = patched_sessions_db
+    await seed_session(
+        db_path,
+        session_id=f"sess-{status}",
+        status=status,
+        artifacts_path=None,
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=None,
+    )
+
+    result = await svc.get_session(f"sess-{status}")
+
+    assert result is not None
+    assert result["artifact_verification_json"] == {"status": "not_recorded"}
+
+
+async def test_get_session_does_not_synthesize_a_terminal_verdict_from_disk(
+    patched_sessions_db, tmp_path
+):
+    svc, db_path = patched_sessions_db
+    (tmp_path / "REPORT.md").write_text("ready")
+    await seed_session(
+        db_path,
+        session_id="sess-terminal-artifacts",
+        status="completed",
+        artifacts_path=str(tmp_path),
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=None,
+    )
+
+    result = await svc.get_session("sess-terminal-artifacts")
+
+    assert result is not None
+    assert result["artifact_verification_json"] == {"status": "not_recorded"}
+
+
+async def test_get_session_keeps_live_null_verification_pending_without_artifact_path(
+    patched_sessions_db,
+):
+    svc, db_path = patched_sessions_db
+    await seed_session(
+        db_path,
+        session_id="sess-live-no-root",
+        status="running",
+        artifacts_path=None,
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=None,
+    )
+
+    result = await svc.get_session("sess-live-no-root")
+
+    assert result is not None
+    assert result["artifact_verification_json"] is None
+
+
+async def test_get_session_preserves_a_stored_terminal_verdict(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    verdict = {
+        "status": "passed",
+        "checked_at": 42.0,
+        "missing_required": [],
+        "missing_optional": [],
+        "produced": [{"id": "report", "path": "REPORT.md", "size": 5, "present": True}],
+    }
+    await seed_session(
+        db_path,
+        session_id="sess-recorded-verdict",
+        status="completed",
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=verdict,
+    )
+
+    result = await svc.get_session("sess-recorded-verdict")
+
+    assert result is not None
+    assert result["artifact_verification_json"] == verdict
+
+
+async def test_get_session_keeps_verification_null_when_no_contract_exists(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_session(
+        db_path,
+        session_id="sess-no-contract",
+        status="completed",
+        artifact_contract_json=None,
+        artifact_verification_json=None,
+    )
+
+    result = await svc.get_session("sess-no-contract")
+
+    assert result is not None
+    assert result["artifact_verification_json"] is None
+
+
+# ---------------------------------------------------------------------------
+# Test 1.8a — get_session_by_cc_id: legacy rows fall back to deterministic id
+# ---------------------------------------------------------------------------
+
+
+async def test_get_session_by_cc_id_falls_back_for_legacy_row(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    cc_uid = "11111111-2222-3333-4444-555555555555"
+    legacy_session_id = session_db_id(cc_uid)
+    await seed_session(db_path, session_id=legacy_session_id)
+
+    result = await svc.get_session_by_cc_id(cc_uid)
+
+    assert result is not None
+    assert result["id"] == legacy_session_id
+    assert result["name"] == "Test Session"
+
+
+# ---------------------------------------------------------------------------
 # Test 1.9 — get_session: corrupt raw metadata → graph is None, no exception
 # ---------------------------------------------------------------------------
 
@@ -459,6 +611,110 @@ async def test_list_sessions_single_session_correct_fields(patched_sessions_db):
     assert row["invocation_kind"] == "flow"
 
 
+async def test_list_sessions_surfaces_status_reason(patched_sessions_db):
+    """ADR-0057: list_sessions must carry the reason fields the detail path does."""
+    svc, db_path = patched_sessions_db
+    await seed_session(db_path, session_id="sess-failed", status="running")
+    from lionagi.state.db import StateDB
+    from lionagi.state.reasons import RunReasons
+
+    async with StateDB(db_path) as db:
+        await db.update_status(
+            "session",
+            "sess-failed",
+            new_status="failed",
+            reason_code=RunReasons.FAILED_EXIT_NONZERO,
+            reason_summary="worker exited with code 1",
+        )
+
+    rows = await svc.list_sessions()
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["status"] == "failed"
+    assert row["status_reason_code"] == RunReasons.FAILED_EXIT_NONZERO
+    assert row["status_reason_summary"] == "worker exited with code 1"
+
+
+async def test_list_sessions_agrees_with_the_detail_route_on_terminal_absence(
+    patched_sessions_db,
+):
+    """The same session must not report absence one way and null the other."""
+    svc, db_path = patched_sessions_db
+    await seed_session(
+        db_path,
+        session_id="sess-terminal-absent",
+        status="completed",
+        artifacts_path=None,
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=None,
+    )
+
+    rows = await svc.list_sessions()
+    detail = await svc.get_session("sess-terminal-absent")
+
+    assert len(rows) == 1
+    assert rows[0]["artifact_verification_json"] == {"status": "not_recorded"}
+    # Asserted as equality between the two routes rather than against the literal
+    # twice: the defect being closed is a disagreement, so the test fails if
+    # either side moves, not only if the list side does.
+    assert detail is not None
+    assert rows[0]["artifact_verification_json"] == detail["artifact_verification_json"]
+
+
+async def test_list_sessions_preserves_a_stored_verdict(patched_sessions_db):
+    """A recorded verdict is returned as recorded, never re-derived."""
+    svc, db_path = patched_sessions_db
+    stored = {"status": "verified", "produced": [{"id": "report"}]}
+    await seed_session(
+        db_path,
+        session_id="sess-stored",
+        status="completed",
+        artifacts_path=None,
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=stored,
+    )
+
+    rows = await svc.list_sessions()
+
+    assert rows[0]["artifact_verification_json"] == stored
+
+
+async def test_list_sessions_does_not_read_the_artifacts_directory(patched_sessions_db, tmp_path):
+    """The list route declines the live-progress read, and that is deliberate.
+
+    The session is running, holds a contract, names a real artifacts directory,
+    and that directory contains the file the contract requires -- everything the
+    provisional arm needs to report progress. The list route still returns None,
+    because computing it means a filesystem walk per row on a paginated read.
+    Progress belongs to the single-session view, which this same fixture shape is
+    covered for elsewhere.
+
+    This is the test that fails if someone closes the remaining difference by
+    handing the list route its artifacts_path, so the decision has to be made
+    again rather than drifted into.
+    """
+    svc, db_path = patched_sessions_db
+    (tmp_path / "REPORT.md").write_text("ready")
+    await seed_session(
+        db_path,
+        session_id="sess-running-on-disk",
+        status="running",
+        artifacts_path=str(tmp_path),
+        artifact_contract_json=ARTIFACT_CONTRACT,
+        artifact_verification_json=None,
+    )
+
+    rows = await svc.list_sessions()
+
+    assert rows[0]["artifact_verification_json"] is None
+    # The detail route, given the same row, does report the progress -- which is
+    # what makes the None above a scoping decision rather than a lost capability.
+    detail = await svc.get_session("sess-running-on-disk")
+    assert detail is not None
+    assert detail["artifact_verification_json"]["provisional"] is True
+
+
 async def test_list_sessions_orders_by_updated_at_desc(patched_sessions_db):
     svc, db_path = patched_sessions_db
     await seed_session(db_path, session_id="sess-a")
@@ -554,7 +810,10 @@ async def test_get_session_messages_after_filters_by_timestamp(patched_sessions_
     assert result[0]["branch_id"] == "br-ts"
 
 
-async def test_get_session_messages_after_preserves_progression_order(patched_sessions_db):
+async def test_get_session_messages_after_orders_by_created_at(patched_sessions_db):
+    """get_session_messages_after is a cursor-driven SSE tail read — it orders by
+    created_at (not raw progression order) so after_ts can advance monotonically
+    even when a branch's progression collection is not itself chronological."""
     svc, db_path = patched_sessions_db
     await seed_session(db_path, session_id="sess-order")
     # progression lists m-second before m-first (reverse of creation timestamp)
@@ -588,8 +847,8 @@ async def test_get_session_messages_after_preserves_progression_order(patched_se
     result = await svc.get_session_messages_after("sess-order", 0.0)
 
     assert len(result) == 2
-    assert result[0]["id"] == "m-second"
-    assert result[1]["id"] == "m-first"
+    assert result[0]["id"] == "m-first"
+    assert result[1]["id"] == "m-second"
 
 
 async def test_get_session_messages_after_aggregates_across_branches(patched_sessions_db):
@@ -645,6 +904,103 @@ async def test_get_session_messages_after_empty_progression_is_skipped(patched_s
     assert result == []
 
 
+async def test_get_session_messages_after_handles_branch_over_sqlite_variable_limit(
+    patched_sessions_db,
+):
+    """Regression: a branch whose progression collection holds more message ids than
+    SQLite's bound-variable limit used to blow up get_session_messages_after with
+    sqlite3.OperationalError("too many SQL variables") on every 0.5s SSE poll, killing
+    the stream for any long-lived session (the classic SQLite default is 999; this
+    build's default, per PRAGMA compile_options MAX_VARIABLE_NUMBER, is 32766 — 33000
+    exceeds both so the test reproduces the failure regardless of build). The
+    json_each-joined query has no per-message bind variable, so it must return every
+    id without error. Only the progression collection needs to be this large — the
+    corresponding message rows are irrelevant to the bind-limit failure itself, so
+    this seeds ids without materializing 33000 message rows (keeps the test fast)."""
+    svc, db_path = patched_sessions_db
+    await seed_session(db_path, session_id="sess-huge")
+    count = 33000
+    msg_ids = [f"huge-{i}" for i in range(count)]
+    await seed_branch(db_path, branch_id="br-huge", session_id="sess-huge", msg_ids=msg_ids)
+    # A handful of real message rows (including one outside the msg_ids progression,
+    # and one before after_ts) prove the join+filter still behave correctly at scale.
+    async with StateDB(db_path) as db:
+        await db.insert_message(
+            {
+                "id": "huge-0",
+                "created_at": 50.0,
+                "content": {"text": "too old"},
+                "sender": "worker",
+                "recipient": "user",
+                "role": "assistant",
+                "node_metadata": {},
+            }
+        )
+        await db.insert_message(
+            {
+                "id": "huge-1",
+                "created_at": 150.0,
+                "content": {"text": "in range"},
+                "sender": "worker",
+                "recipient": "user",
+                "role": "assistant",
+                "node_metadata": {},
+            }
+        )
+
+    result = await svc.get_session_messages_after("sess-huge", 100.0)
+
+    assert result == [
+        {
+            "id": "huge-1",
+            "role": "assistant",
+            "content": {"text": "in range"},
+            "sender": "worker",
+            "timestamp": 150.0,
+            "lion_class": "__unknown__",
+            "branch_id": "br-huge",
+        }
+    ]
+
+
+async def test_get_session_messages_after_message_shape_matches_expected_fields(
+    patched_sessions_db,
+):
+    """Message shape parity: id/created_at/content/sender/role/lion_class/branch_id
+    must be present and match the pre-fix _format_message() output exactly."""
+    svc, db_path = patched_sessions_db
+    await seed_session(db_path, session_id="sess-shape")
+    await seed_branch(db_path, branch_id="br-shape", session_id="sess-shape", msg_ids=["shape-1"])
+    async with StateDB(db_path) as db:
+        await db.insert_message(
+            {
+                "id": "shape-1",
+                "created_at": 111.0,
+                "content": {"text": "hello shape"},
+                "sender": "worker",
+                "recipient": "user",
+                "role": "assistant",
+                "node_metadata": {
+                    "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse"
+                },
+            }
+        )
+
+    result = await svc.get_session_messages_after("sess-shape", 0.0)
+
+    assert result == [
+        {
+            "id": "shape-1",
+            "role": "assistant",
+            "content": {"text": "hello shape"},
+            "sender": "worker",
+            "timestamp": 111.0,
+            "lion_class": "lionagi.protocols.messages.assistant_response.AssistantResponse",
+            "branch_id": "br-shape",
+        }
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Tests 5.1–5.3 — session_exists
 # ---------------------------------------------------------------------------
@@ -669,3 +1025,355 @@ async def test_session_exists_returns_false_when_db_file_absent(patched_sessions
     # Do not create the DB file
 
     assert await svc.session_exists("any-id") is False
+
+
+# ---------------------------------------------------------------------------
+# Message pagination — detail responses window from the progression tail
+# ---------------------------------------------------------------------------
+
+
+async def seed_paginated_session(db_path: Path, *, count: int = 10) -> list[str]:
+    """Session with one branch holding `count` messages; returns message ids in order."""
+    await seed_session(db_path, session_id="sess-paged")
+    msg_ids = [f"pmsg-{i}" for i in range(count)]
+    await seed_branch(db_path, branch_id="br-paged", session_id="sess-paged", msg_ids=msg_ids)
+    async with StateDB(db_path) as db:
+        for i, mid in enumerate(msg_ids):
+            await db.insert_message(
+                {
+                    "id": mid,
+                    "created_at": 100.0 + i,
+                    "content": {"text": f"m{i}"},
+                    "sender": "worker",
+                    "recipient": "user",
+                    "role": "assistant",
+                    "node_metadata": {},
+                }
+            )
+    return msg_ids
+
+
+async def test_get_session_windows_newest_messages_by_default(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+
+    result = await svc.get_session("sess-paged", message_limit=3)
+
+    branch = result["branches"][0]
+    assert [m["id"] for m in branch["messages"]] == ["pmsg-7", "pmsg-8", "pmsg-9"]
+    assert branch["message_total"] == 10
+    assert branch["message_offset"] == 0
+
+
+async def test_get_session_branch_bounds_cover_full_progression_when_messages_are_windowed(
+    patched_sessions_db,
+):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+
+    result = await svc.get_session("sess-paged", message_limit=3)
+
+    branch = result["branches"][0]
+    assert [m["timestamp"] for m in branch["messages"]] == [107.0, 108.0, 109.0]
+    assert branch["first_message_at"] == 100.0
+    assert branch["last_message_at"] == 109.0
+
+
+async def test_get_session_offset_pages_older_history(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+
+    result = await svc.get_session("sess-paged", message_limit=3, message_offset=3)
+
+    branch = result["branches"][0]
+    assert [m["id"] for m in branch["messages"]] == ["pmsg-4", "pmsg-5", "pmsg-6"]
+    assert branch["message_offset"] == 3
+
+
+async def test_get_session_offset_clamps_at_oldest_message(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+
+    result = await svc.get_session("sess-paged", message_limit=3, message_offset=9)
+
+    branch = result["branches"][0]
+    assert [m["id"] for m in branch["messages"]] == ["pmsg-0"]
+
+
+async def test_get_session_offset_past_total_returns_empty_page(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+
+    result = await svc.get_session("sess-paged", message_limit=3, message_offset=50)
+
+    branch = result["branches"][0]
+    assert branch["messages"] == []
+    assert branch["message_total"] == 10
+
+
+async def test_get_session_limit_clamped_to_max(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=5)
+
+    result = await svc.get_session("sess-paged", message_limit=10_000)
+
+    branch = result["branches"][0]
+    assert len(branch["messages"]) == 5
+    assert branch["message_total"] == 5
+
+
+# ---------------------------------------------------------------------------
+# message_cursor — stable pagination under concurrent progression appends
+# ---------------------------------------------------------------------------
+
+
+async def test_get_session_cursor_pages_are_stable_under_concurrent_appends(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    msg_ids = await seed_paginated_session(db_path, count=10)
+
+    page1 = await svc.get_session("sess-paged", message_limit=3)
+    branch1 = page1["branches"][0]
+    assert [m["id"] for m in branch1["messages"]] == ["pmsg-7", "pmsg-8", "pmsg-9"]
+    assert branch1["messages_truncated"] is True
+    cursor = page1["message_next_cursor"]
+    assert cursor
+
+    # Concurrent writer appends two more messages to the live tail while the
+    # cursor from page 1 is still in flight.
+    new_ids = ["pmsg-10", "pmsg-11"]
+    async with StateDB(db_path) as db:
+        for i, mid in enumerate(new_ids, start=len(msg_ids)):
+            await db.insert_message(
+                {
+                    "id": mid,
+                    "created_at": 100.0 + i,
+                    "content": {"text": f"m{i}"},
+                    "sender": "worker",
+                    "recipient": "user",
+                    "role": "assistant",
+                    "node_metadata": {},
+                }
+            )
+            await db.append_to_progression("br-paged-prog", mid)
+
+    page2 = await svc.get_session("sess-paged", message_limit=3, message_cursor=cursor)
+    branch2 = page2["branches"][0]
+    assert [m["id"] for m in branch2["messages"]] == ["pmsg-4", "pmsg-5", "pmsg-6"]
+
+    ids1 = {m["id"] for m in branch1["messages"]}
+    ids2 = {m["id"] for m in branch2["messages"]}
+    assert ids1.isdisjoint(ids2), "cursor page must not duplicate rows from the tail page"
+    combined = ids1 | ids2
+    assert combined == {f"pmsg-{i}" for i in range(4, 10)}, (
+        "combined two-page slice must not skip any expected id"
+    )
+
+
+async def test_get_session_rejects_invalid_message_cursor(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+
+    with pytest.raises(svc.MessageCursorError):
+        await svc.get_session("sess-paged", message_limit=3, message_cursor="not-a-valid-cursor")
+
+
+async def test_get_session_full_aggregates_do_not_hydrate_every_message_row(
+    patched_sessions_db, monkeypatch
+):
+    """Regression: computing full-session aggregates must not force-hydrate the entire
+    progression on every detail read — only the display window is fetched in full."""
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=50)
+
+    calls: list[list[str]] = []
+    original = svc._fetch_messages_by_ids
+
+    async def spy(db, ids):
+        calls.append(list(ids))
+        return await original(db, ids)
+
+    monkeypatch.setattr(svc, "_fetch_messages_by_ids", spy)
+
+    result = await svc.get_session("sess-paged", message_limit=3)
+
+    assert len(calls) == 1
+    assert calls[0] == ["pmsg-47", "pmsg-48", "pmsg-49"]
+    assert result["message_stats"]["message_count"] == 50
+
+
+async def test_get_session_rejects_cursor_from_a_different_session(patched_sessions_db):
+    svc, db_path = patched_sessions_db
+    await seed_paginated_session(db_path, count=10)
+    await seed_session(db_path, session_id="sess-other")
+    await seed_branch(
+        db_path, branch_id="br-other", session_id="sess-other", msg_ids=["om-0", "om-1"]
+    )
+    async with StateDB(db_path) as db:
+        for i, mid in enumerate(["om-0", "om-1"]):
+            await db.insert_message(
+                {
+                    "id": mid,
+                    "created_at": 50.0 + i,
+                    "content": {"text": f"m{i}"},
+                    "sender": "worker",
+                    "recipient": "user",
+                    "role": "user",
+                    "node_metadata": {},
+                }
+            )
+
+    other_page = await svc.get_session("sess-other", message_limit=1)
+    foreign_cursor = other_page["message_next_cursor"]
+    assert foreign_cursor
+
+    with pytest.raises(svc.MessageCursorError):
+        await svc.get_session("sess-paged", message_limit=1, message_cursor=foreign_cursor)
+
+
+# ---------------------------------------------------------------------------
+# Action-stat aggregation must match the canonical persisted lion_class values
+# ---------------------------------------------------------------------------
+
+
+async def test_get_session_action_stats_match_canonical_fully_qualified_lion_class(
+    patched_sessions_db,
+):
+    """The runtime persists lion_class as the fully-qualified dotted path (see the
+    message_types seed rows in state/schema.sql), not the bare class name. Tool/error/
+    file aggregation must recognize that shape, not just a legacy short name."""
+    svc, db_path = patched_sessions_db
+    await seed_session(db_path, session_id="sess-canonical", status="completed")
+    msg_ids = ["req-0", "resp-0"]
+    await seed_branch(
+        db_path, branch_id="br-canonical", session_id="sess-canonical", msg_ids=msg_ids
+    )
+    async with StateDB(db_path) as db:
+        await db.insert_message(
+            {
+                "id": "req-0",
+                "created_at": 100.0,
+                "content": {
+                    "function": "Write",
+                    "arguments": {"file_path": "/tmp/canonical.txt"},
+                    "action_response_id": "resp-0",
+                },
+                "sender": "worker",
+                "recipient": "user",
+                "role": "action",
+                "node_metadata": {
+                    "lion_class": "lionagi.protocols.messages.action_request.ActionRequest"
+                },
+            }
+        )
+        await db.insert_message(
+            {
+                "id": "resp-0",
+                "created_at": 101.0,
+                "content": {"function": "Write", "output": "process exited with code 1."},
+                "sender": "worker",
+                "recipient": "user",
+                "role": "action",
+                "node_metadata": {
+                    "lion_class": "lionagi.protocols.messages.action_response.ActionResponse"
+                },
+            }
+        )
+
+    result = await svc.get_session("sess-canonical")
+
+    stats = result["message_stats"]
+    assert stats["tool_call_count"] == 1
+    assert stats["error_count"] == 1
+    assert "/tmp/canonical.txt" in stats["files"]
+
+
+def test_branch_file_stats_only_accept_structured_file_tool_paths():
+    from lionagi.studio.services.sessions import _branch_message_stats
+
+    action_messages = [
+        {
+            "id": "read",
+            "lion_class": "ActionRequest",
+            "content": {"function": "Read", "arguments": {"file_path": "/repo/src/main.py"}},
+        },
+        {
+            "id": "edit",
+            "lion_class": "ActionRequest",
+            "content": {"function": "Edit", "arguments": {"path": "/repo/Makefile"}},
+        },
+        {
+            "id": "glob",
+            "lion_class": "ActionRequest",
+            "content": {"function": "Glob", "arguments": {"path": "/repo/src"}},
+        },
+        {
+            "id": "bash",
+            "lion_class": "ActionRequest",
+            "content": {"function": "Bash", "arguments": {"path": "//"}},
+        },
+    ]
+
+    stats = _branch_message_stats(4, {"action": 4}, action_messages)
+
+    assert stats["files"] == ["/repo/Makefile", "/repo/src/main.py"]
+
+
+def test_branch_file_stats_capture_empty_or_missing_function_name():
+    from lionagi.studio.services.sessions import _branch_message_stats
+
+    action_messages = [
+        {
+            "id": "empty-fn",
+            "lion_class": "ActionRequest",
+            "content": {"function": "", "arguments": {"file_path": "/repo/src/empty.py"}},
+        },
+        {
+            "id": "missing-fn",
+            "lion_class": "ActionRequest",
+            "content": {"arguments": {"path": "/repo/src/missing.py"}},
+        },
+        {
+            "id": "bash",
+            "lion_class": "ActionRequest",
+            "content": {"function": "Bash", "arguments": {"path": "//"}},
+        },
+    ]
+
+    stats = _branch_message_stats(3, {"action": 3}, action_messages)
+
+    assert stats["files"] == ["/repo/src/empty.py", "/repo/src/missing.py"]
+
+
+async def test_get_session_message_count_is_db_aggregate_not_progression_length(
+    patched_sessions_db,
+):
+    """A progression can reference an id whose message row was never persisted (or was
+    pruned). message_count must reflect the DB role aggregate, not len(progression)."""
+    svc, db_path = patched_sessions_db
+    await seed_session(db_path, session_id="sess-stale-prog", status="completed")
+    # Two ids in the progression, only one has a persisted message row.
+    await seed_branch(
+        db_path,
+        branch_id="br-stale-prog",
+        session_id="sess-stale-prog",
+        msg_ids=["m0", "m1-never-persisted"],
+    )
+    async with StateDB(db_path) as db:
+        await db.insert_message(
+            {
+                "id": "m0",
+                "created_at": 100.0,
+                "content": {"text": "hello"},
+                "sender": "worker",
+                "recipient": "user",
+                "role": "assistant",
+                "node_metadata": {},
+            }
+        )
+
+    result = await svc.get_session("sess-stale-prog")
+
+    branch = result["branches"][0]
+    assert branch["message_total"] == 2  # progression length, kept as a separate field
+    assert result["message_stats"]["message_count"] == 1  # DB aggregate, not progression length
+    assert branch["message_stats"]["message_count"] == 1

@@ -43,7 +43,15 @@ def _wire_agent_stubs(monkeypatch, tmp_path: Path, operate_return=None):
     async def fake_setup(*a, **kw):
         return None
 
-    async def fake_teardown(ctx, *, status="completed", exception=None):
+    async def fake_teardown(
+        ctx,
+        *,
+        status="completed",
+        exception=None,
+        cwd=None,
+        engine_session_uid=None,
+        defer_terminal=False,
+    ):
         return status
 
     monkeypatch.setattr(agent_mod, "setup_agent_persist", fake_setup)
@@ -79,6 +87,24 @@ def _make_branch_json(tmp_path: Path) -> tuple[str, Path]:
     p = tmp_path / f"{branch_id}.json"
     p.write_text(json.dumps(b.to_dict()))
     return branch_id, p
+
+
+def _make_cli_branch_json(tmp_path: Path, provider: str, model: str) -> tuple[str, Path]:
+    """Persist a minimal CLI-backed Branch for resume effort tests."""
+    from lionagi import Branch, iModel
+
+    branch = Branch(
+        chat_model=iModel(
+            provider=provider,
+            endpoint="query_cli",
+            model=model,
+            api_key="dummy",
+        )
+    )
+    branch_id = str(branch.id)
+    path = tmp_path / f"{branch_id}.json"
+    path.write_text(json.dumps(branch.to_dict()))
+    return branch_id, path
 
 
 def _reset_channel(name: str) -> logging.Logger:
@@ -298,3 +324,43 @@ async def test_exact_resume_id_does_not_emit_prefix_hint(monkeypatch, tmp_path, 
     assert terminal_status == "completed"
     prefix_hints = [rec.message for rec in caplog.records if "prefix-matched" in rec.message]
     assert not prefix_hints, f"Unexpected prefix-match hint for an exact id: {prefix_hints}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "model", "requested", "effort_kwarg", "expected"),
+    [
+        ("codex", "gpt-5.4", "max", "reasoning_effort", "xhigh"),
+        ("claude_code", "sonnet", "xhigh", "effort", "high"),
+    ],
+)
+async def test_resume_effort_uses_provider_model_clamp(
+    monkeypatch, tmp_path, provider, model, requested, effort_kwarg, expected
+):
+    branch_id, branch_path = _make_cli_branch_json(tmp_path, provider, model)
+
+    import lionagi.cli.agent as agent_mod
+    from lionagi import Branch
+
+    monkeypatch.setattr(agent_mod, "find_branch", lambda bid: ("run-x", branch_path))
+    _wire_agent_stubs(monkeypatch, tmp_path, operate_return="ok")
+
+    captured: list[str | None] = []
+
+    async def capture_operate(self, instruction=None, **kw):
+        captured.append(self.chat_model.endpoint.config.kwargs.get(effort_kwarg))
+        return "ok"
+
+    monkeypatch.setattr(Branch, "operate", capture_operate)
+
+    from lionagi.cli.agent import _run_agent
+
+    _result, _provider, _bid, terminal_status, _sid = await _run_agent(
+        None,
+        "continue",
+        resume=branch_id,
+        effort=requested,
+    )
+
+    assert terminal_status == "completed"
+    assert captured == [expected]

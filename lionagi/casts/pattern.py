@@ -23,9 +23,7 @@ __all__ = (
     "list_modes",
 )
 
-# Roles/modes are a CLOSED built-in set — one inline module per pattern, each
-# exposing a single ``ROLE`` / ``MODE``. Not user-definable; users extend via
-# packs (casts/pack.py), not by adding roles.
+# CLOSED built-in set, one module per pattern — not user-definable; extend via packs (casts/pack.py).
 _ROLES_PKG = "lionagi.casts.roles"
 _MODES_PKG = "lionagi.casts.roles.modes"
 
@@ -99,7 +97,7 @@ class Mode(Pattern):
         """Load a built-in mode by canonical name."""
         obj = _load_builtin(_MODES_PKG, name, "MODE")
         if obj is None:
-            raise ValueError(f"Unknown mode: {name!r}")
+            raise ValueError(f"Unknown mode: {name!r}. Available: {_available_names(list_modes)}")
         return obj
 
 
@@ -109,10 +107,8 @@ class Role(Pattern):
 
     body: str = ""
     emits: tuple = ()
-    # ADR-0029 shape ({"expected": [{"id", "path", "required", ...}]}) — a gate
-    # role's own declared output contract, merged per-leg into the flow's
-    # artifact_contract at DAG-build time (see flow.py _build_dag). None means
-    # this role makes no artifact claim.
+    # ADR-0064: gate role's declared output contract, merged per-leg into the flow's
+    # artifact_contract at DAG-build time (flow.py _build_dag). None = no artifact claim.
     artifact_defaults: dict | None = None
 
     @property
@@ -120,9 +116,7 @@ class Role(Pattern):
         return PatternKind.ROLE
 
     def to_dict(self, exclude: set[str] = None) -> dict[str, Any]:
-        # serialize ``emits`` (model classes) by name so the dict stays
-        # hashable/JSON-friendly. Params.to_dict (not super()) — zero-arg super
-        # is unreliable under @dataclass(slots=True).
+        # Params.to_dict (not super()) — zero-arg super is unreliable under @dataclass(slots=True).
         d = Params.to_dict(self, exclude=exclude)
         if "emits" in d:
             d["emits"] = [m.__name__ for m in d["emits"]]
@@ -143,8 +137,16 @@ class Role(Pattern):
         """Load a built-in role by canonical name."""
         obj = _load_builtin(_ROLES_PKG, name, "ROLE")
         if obj is None:
-            raise ValueError(f"Unknown role: {name!r}")
+            raise ValueError(f"Unknown role: {name!r}. Available: {_available_names(list_roles)}")
         return obj
+
+
+def _available_names(lister) -> str:
+    """Best-effort catalog for an error hint; a broken built-in never masks the original ValueError."""
+    try:
+        return ", ".join(lister())
+    except Exception:
+        return "<unavailable>"
 
 
 def list_roles() -> list[str]:

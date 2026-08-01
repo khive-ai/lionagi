@@ -63,7 +63,12 @@ class Progression(Element, Ordering[T], Generic[T]):
     def __contains__(self, item: Any) -> bool:
         try:
             refs = validate_order(item)
-            return all(ref in self._members for ref in refs)
+            # Recomputed from `order` rather than the `_members` cache: `order`
+            # is a public mutable deque, so direct external mutation (e.g.
+            # `progression.order.append(x)`) can desync a cached set without
+            # this method ever knowing.
+            members = set(self.order)
+            return all(ref in members for ref in refs)
         except (ValueError, TypeError):
             return False
 
@@ -113,11 +118,9 @@ class Progression(Element, Ordering[T], Generic[T]):
     def __iter__(self):
         return iter(self.order)
 
-    def __next__(self) -> UUID:
-        try:
-            return next(iter(self.order))
-        except StopIteration:
-            raise StopIteration("No more items in the progression") from None
+    # Iterable, but deliberately not an iterator: the cursor belongs to the
+    # object ``iter(self)`` hands back, so two traversals never share position.
+    # ``next(progression)`` raises TypeError; use ``next(iter(progression))``.
 
     def __list__(self) -> list[UUID]:
         return list(self.order)

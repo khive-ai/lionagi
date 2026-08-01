@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for lionagi.operations.lndl_middle — the ADR-0087 §1-2 LNDL seam
+"""Tests for lionagi.operations.lndl_middle — the ADR-0024 §1-2 LNDL seam
 Middle: round-outcome classification, the ActionCall -> ActionRequest bridge,
 prompt injection, and repair semantics."""
 
@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import BaseModel
 
+import lionagi.lndl as lndl
 from lionagi.hooks.bus import HookBus, HookPoint
 from lionagi.lndl import Continue, LNDLError, Retry, Success, get_lndl_system_prompt
 from lionagi.operations.lndl_middle import (
@@ -35,6 +36,14 @@ from lionagi.testing import TestBranch
 
 class AnswerModel(BaseModel):
     answer: str
+
+
+class _FalsyModel(SimpleNamespace):
+    """A model stand-in that is False in a boolean context, as an adapter or a
+    wrapping subclass may legitimately be."""
+
+    def __bool__(self) -> bool:
+        return False
 
 
 class TwoFieldModel(BaseModel):
@@ -134,6 +143,29 @@ class TestClassifyRound:
         assert isinstance(outcome, Success)
         assert assembled == {"answer": "from an earlier round"}
 
+    def test_prompt_action_rule_matches_both_round_shapes(self):
+        rule = (
+            "Per-round action rule: if OUT{} is present, only its referenced lacts "
+            "execute; if OUT{} is absent, every declared lact executes."
+        )
+        assert get_lndl_system_prompt().count(rule) == 3
+
+        with_out = (
+            "```lndl\n"
+            '<lact a>lookup(query="broad")</lact>\n'
+            '<lact b>lookup(query="narrow")</lact>\n'
+            "OUT{answer: [b]}\n"
+            "```"
+        )
+        outcome, pending, _assembled = _classify_round(with_out, AnswerModel, {})
+        assert isinstance(outcome, Success)
+        assert [call.name for call in pending] == ["b"]
+
+        without_out = with_out.replace("OUT{answer: [b]}\n", "")
+        outcome, pending, _assembled = _classify_round(without_out, AnswerModel, {})
+        assert isinstance(outcome, Continue)
+        assert [call.name for call in pending] == ["a", "b"]
+
 
 # ---------------------------------------------------------------------------
 # _render_target_spec — the target schema summary injected into round-1
@@ -205,6 +237,50 @@ class TestRunRoundChatDispatch:
         fake = AsyncMock(return_value="api text")
         with patch("lionagi.operations.communicate.communicate.communicate", new=fake):
             result = await _run_round_chat(branch, "hi", ChatParam())
+        assert result == "api text"
+        fake.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_per_call_api_model_overrides_a_cli_branch(self):
+        """A model supplied on the chat param overrides the branch default for
+        this call, so an API model must take the non-streaming path even when
+        the branch's own chat_model is CLI-backed."""
+        branch = SimpleNamespace(chat_model=SimpleNamespace(is_cli=True))
+        fake = AsyncMock(return_value="api text")
+        with patch("lionagi.operations.communicate.communicate.communicate", new=fake):
+            result = await _run_round_chat(
+                branch, "hi", ChatParam(imodel=SimpleNamespace(is_cli=False))
+            )
+        assert result == "api text"
+        fake.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_per_call_cli_model_overrides_an_api_branch(self):
+        """The inverse override: a CLI model on the chat param takes the
+        streaming path even though the branch's chat_model is an API model."""
+        branch = SimpleNamespace(chat_model=SimpleNamespace(is_cli=False))
+        fake = AsyncMock(return_value="cli text")
+        with patch("lionagi.operations.run.run.run_and_collect", new=fake):
+            result = await _run_round_chat(
+                branch, "hi", ChatParam(imodel=SimpleNamespace(is_cli=True))
+            )
+        assert result == "cli text"
+        fake.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_supplied_model_that_is_falsy_still_overrides_the_branch(self):
+        """Whether a model was supplied is decided by sentinel status, not by
+        truthiness. The parameter bag stores whatever the caller passes, so a
+        model object defining ``__bool__`` as False — an adapter or a subclass
+        wrapping another model — is still a supplied model and must select the
+        transport, rather than being discarded for the branch default."""
+        branch = SimpleNamespace(chat_model=SimpleNamespace(is_cli=True))
+        supplied = _FalsyModel(is_cli=False)
+        assert not bool(supplied)
+
+        fake = AsyncMock(return_value="api text")
+        with patch("lionagi.operations.communicate.communicate.communicate", new=fake):
+            result = await _run_round_chat(branch, "hi", ChatParam(imodel=supplied))
         assert result == "api text"
         fake.assert_awaited_once()
 
@@ -313,11 +389,37 @@ class TestRetryAndRepair:
         result = await lndl_middle(branch, "answer", chat_param)
         assert result.answer == "fixed"
 
+    @pytest.mark.asyncio
+    async def test_repair_round_fires_user_prompt_submit_once(self):
+        """A one-repair-round LNDL run is still one user turn: only round 1
+        may fire USER_PROMPT_SUBMIT. A later round reusing the caller's
+        unset turn_origin would mint (and fire) a fresh token every round."""
+        branch = TestBranch.from_text(
+            [
+                "```lndl\nOUT{answer: [missing]}\n```",
+                "```lndl\n<lvar a>fixed</lvar>\nOUT{answer: [a]}\n```",
+            ]
+        )
+        bus = HookBus()
+        submits: list[dict] = []
 
-class TestExhausted:
-    """Exhaustion is a terminal RoundOutcome with no value to return — the
-    Middle raises LNDLError rather than leaking a raw last_error str (or
-    None, for an all-Continue run) through operate()'s return type."""
+        async def on_submit(**kw):
+            submits.append(kw)
+
+        bus.on(HookPoint.USER_PROMPT_SUBMIT, on_submit)
+        branch._hooks = bus
+
+        chat_param = ChatParam(response_format=AnswerModel)
+        result = await lndl_middle(branch, "answer", chat_param)
+
+        assert result.answer == "fixed"
+        assert len(TestBranch.calls(branch)) == 2
+        assert len(submits) == 1
+
+
+class TestRoundBudgetExhaustion:
+    """The Middle raises LNDLError rather than leaking a raw last_error str
+    (or None, for an all-Continue run) through operate()'s return type."""
 
     @pytest.mark.asyncio
     async def test_exhausted_raises_with_last_error(self):
@@ -348,6 +450,8 @@ class TestExhausted:
     async def test_operate_integration_exhaustion_raises(self):
         """branch.operate(..., response_format=...) must not silently hand a
         structured caller a bare string or None on exhaustion."""
+        assert not hasattr(lndl, "Exhausted")
+        assert not hasattr(lndl, "Failed")
         custom_middle = build_lndl_middle(round_budget=1)
         branch = TestBranch.from_text("```lndl\nOUT{answer: [missing]}\n```")
         with pytest.raises(LNDLError):
@@ -489,7 +593,7 @@ class TestRoundBudget:
 
 
 class TestPackageImportSurface:
-    """The documented public path (CHANGELOG.md, ADR-0087 §1) is the package
+    """The documented public path (CHANGELOG.md, ADR-0024 §1) is the package
     itself, not the private nested module — a caller writes
     `from lionagi.operations.lndl_middle import lndl_middle`, not
     `...lndl_middle.lndl_middle import lndl_middle`."""

@@ -1,14 +1,16 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
-"""FAIL-before / PASS-after race-condition tests for update_status CAS guard
-and orphan-cleanup in prune_old_data.
+"""Race-condition tests for update_status CAS guard and orphan-cleanup in
+prune_old_data.
 
-Each race test has two sub-phases:
-  1. _unguarded_*: calls update_status WITHOUT expected_statuses (simulates
-     the old code path) — asserts the terminal-state overwrite DOES happen
-     (demonstrates the bug was real).
-  2. _guarded_*: calls update_status WITH expected_statuses (the fix) — asserts
-     the overwrite is BLOCKED and the winner status is preserved.
+Two independent protections cover the terminal-overwrite race:
+  1. _unguarded_*: calls update_status WITHOUT expected_statuses. The write path
+     protects terminal states unconditionally — an attempt to move an entity out
+     of a terminal status without an explicit override is rejected loudly
+     (TransitionRejectedError) and the terminal status is preserved.
+  2. _guarded_*: calls update_status WITH expected_statuses. A compare-and-set
+     miss (current status not in the expected set) is a benign skip — it returns
+     False and preserves the winner status, without raising.
 """
 
 from __future__ import annotations
@@ -22,7 +24,8 @@ from sqlalchemy import text
 
 pytest.importorskip("fastapi", reason="studio extra not installed")
 
-from lionagi.state.db import StateDB  # noqa: E402
+import lionagi.state.db as state_db_mod
+from lionagi.state.db import StateDB, TransitionRejectedError  # noqa: E402
 
 from ._helpers import run_async  # noqa: E402
 
@@ -30,11 +33,10 @@ from ._helpers import run_async  # noqa: E402
 
 
 def _patch_db(monkeypatch, db_path: Path) -> None:
-    import lionagi.state.db as state_db_mod
     import lionagi.studio.services.lifecycle as lifecycle_mod
 
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(lifecycle_mod, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
 
 async def _make_session(db_path: Path, *, status: str | None = "running") -> str:
@@ -96,13 +98,8 @@ async def _flip_status(db_path: Path, entity_type: str, entity_id: str, new_stat
 # ── FAIL-before: phantom session race ─────────────────────────────────────────
 
 
-def test_session_race_unguarded_overwrites_terminal(tmp_path, monkeypatch):
-    """WITHOUT the CAS guard, update_status blindly overwrites 'completed'→'failed'.
-
-    This is the FAIL-before demonstration: the bug existed because there was no
-    expected_statuses check.  The unguarded call (no expected_statuses) succeeds
-    even when the session has already reached a terminal state.
-    """
+def test_session_race_unguarded_write_rejected_by_floor(tmp_path, monkeypatch):
+    """An unguarded write out of a terminal session status is rejected loudly: the write path itself refuses to move a session out of a terminal status without an explicit override (independent of the caller passing expected_statuses), so the reaper race cannot corrupt a 'completed' session into 'failed'."""
     from lionagi.state.reasons import SessionReasons
 
     db_path = tmp_path / "state.db"
@@ -115,8 +112,6 @@ def test_session_race_unguarded_overwrites_terminal(tmp_path, monkeypatch):
     run_async(_flip_status(db_path, "session", sid, "completed"))
     assert run_async(_get_status(db_path, "session", sid)) == "completed"
 
-    # Unguarded call — no expected_statuses — should succeed (return True) and
-    # overwrite the terminal status.  This is the BUG being demonstrated.
     async def _unguarded(db_path: Path, sid: str) -> bool:
         async with StateDB(db_path) as db:
             return await db.update_status(
@@ -127,25 +122,20 @@ def test_session_race_unguarded_overwrites_terminal(tmp_path, monkeypatch):
                 reason_summary="phantom_reaped",
                 source="system",
                 actor="test_unguarded",
-                # No expected_statuses — old code path
+                # No expected_statuses and no override — the floor rejects this.
             )
 
-    result = run_async(_unguarded(db_path, sid))
-    # The unguarded path always returns True and writes regardless of current status.
-    assert result is True
-    # Confirms the overwrite happened (this is the BUG — completed→failed).
-    assert run_async(_get_status(db_path, "session", sid)) == "failed"
+    with pytest.raises(TransitionRejectedError):
+        run_async(_unguarded(db_path, sid))
+    # Terminal status preserved; the overwrite never landed.
+    assert run_async(_get_status(db_path, "session", sid)) == "completed"
 
 
 # ── PASS-after: phantom session race ──────────────────────────────────────────
 
 
 def test_session_race_guarded_preserves_terminal(tmp_path, monkeypatch):
-    """WITH the CAS guard (expected_statuses={"running"}), 'completed' is preserved.
-
-    This is the PASS-after demonstration: the fix blocks the overwrite because
-    'completed' is not in expected_statuses={"running"}.
-    """
+    """PASS-after: WITH the CAS guard (expected_statuses={'running'}), 'completed' is preserved because 'completed' is not in the expected set."""
     from lionagi.state.reasons import SessionReasons
 
     db_path = tmp_path / "state.db"
@@ -180,11 +170,8 @@ def test_session_race_guarded_preserves_terminal(tmp_path, monkeypatch):
 # ── FAIL-before: invocation race ──────────────────────────────────────────────
 
 
-def test_invocation_race_unguarded_overwrites_terminal(tmp_path, monkeypatch):
-    """WITHOUT the CAS guard, update_status blindly overwrites 'completed'→'timed_out'.
-
-    FAIL-before for the invocation deadline reaper race.
-    """
+def test_invocation_race_unguarded_write_rejected_by_floor(tmp_path, monkeypatch):
+    """An unguarded write out of a terminal invocation status is rejected loudly: the write path refuses to leave a terminal status without an explicit override, independent of expected_statuses, so the deadline reaper cannot corrupt a 'completed' invocation into 'timed_out'."""
     from lionagi.state.reasons import RunReasons
 
     db_path = tmp_path / "state.db"
@@ -206,23 +193,20 @@ def test_invocation_race_unguarded_overwrites_terminal(tmp_path, monkeypatch):
                 reason_summary="invocation_deadline_exceeded",
                 source="system",
                 actor="test_unguarded",
-                # No expected_statuses — old code path
+                # No expected_statuses and no override — the floor rejects this.
             )
 
-    result = run_async(_unguarded(db_path, iid))
-    assert result is True  # Unguarded: always writes
-    # BUG: completed overwritten with timed_out.
-    assert run_async(_get_status(db_path, "invocation", iid)) == "timed_out"
+    with pytest.raises(TransitionRejectedError):
+        run_async(_unguarded(db_path, iid))
+    # Terminal status preserved.
+    assert run_async(_get_status(db_path, "invocation", iid)) == "completed"
 
 
 # ── PASS-after: invocation race ───────────────────────────────────────────────
 
 
 def test_invocation_race_guarded_preserves_terminal(tmp_path, monkeypatch):
-    """WITH the CAS guard (expected_statuses={"running"}), 'completed' is preserved.
-
-    PASS-after for the invocation deadline reaper race.
-    """
+    """PASS-after for the invocation deadline reaper race: WITH the CAS guard (expected_statuses={'running'}), 'completed' is preserved."""
     from lionagi.state.reasons import RunReasons
 
     db_path = tmp_path / "state.db"
@@ -257,12 +241,7 @@ def test_invocation_race_guarded_preserves_terminal(tmp_path, monkeypatch):
 
 
 def test_null_status_reaper_cas_blocks_nonnull(tmp_path, monkeypatch):
-    """Null-status reaper must not touch a session that already has a status.
-
-    The candidate query selects status IS NULL; by the time update_status runs,
-    the session may have received a status.  The CAS guard with expected_statuses={None}
-    must block the overwrite.
-    """
+    """Null-status reaper must not touch a session that already has a status: the candidate query selects status IS NULL, but by the time update_status runs the session may have received one -- the CAS guard with expected_statuses={None} must block the overwrite."""
     from lionagi.state.reasons import RunReasons
 
     db_path = tmp_path / "state.db"
@@ -326,29 +305,19 @@ def test_null_status_reaper_cas_allows_null(tmp_path, monkeypatch):
 
 
 def test_prune_cleans_orphaned_messages_and_progressions(tmp_path, monkeypatch):
-    """prune_old_data() leaves zero orphaned progressions and messages.
-
-    Scenario: one old terminal session (will be pruned), one recent session
-    (must be preserved).  Each session has a progression with two messages.
-    After pruning, only the recent session's progression and messages remain.
-    """
+    """prune_old_data() leaves zero orphaned progressions/messages: one old terminal session is pruned, one recent session (each with a progression of two messages) is preserved."""
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
 
-    import lionagi.state.db as state_db_mod
-
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     old_ts = time.time() - 40 * 86400
     recent_ts = time.time() - 1 * 86400
 
     async def _seed() -> tuple[str, str, list[str], list[str]]:
-        """Create two sessions, each with a progression and two messages.
-
-        Returns (old_sid, recent_sid, old_msg_ids, recent_msg_ids).
-        """
+        """Create two sessions, each with a progression and two messages; returns (old_sid, recent_sid, old_msg_ids, recent_msg_ids)."""
         async with StateDB(db_path) as db:
             # ── old session (will be pruned) ──────────────────────────────
             old_pid = str(uuid.uuid4())
@@ -361,6 +330,7 @@ def test_prune_cleans_orphaned_messages_and_progressions(tmp_path, monkeypatch):
                     "name": "old-session",
                     "status": "completed",
                     "started_at": old_ts,
+                    "updated_at": old_ts,
                 }
             )
             # Create two messages and record them in the progression's collection.
@@ -391,6 +361,7 @@ def test_prune_cleans_orphaned_messages_and_progressions(tmp_path, monkeypatch):
                     "name": "recent-session",
                     "status": "completed",
                     "started_at": recent_ts,
+                    "updated_at": recent_ts,
                 }
             )
             recent_msg1 = str(uuid.uuid4())
@@ -454,11 +425,7 @@ def test_prune_cleans_orphaned_messages_and_progressions(tmp_path, monkeypatch):
 
 
 def _seed_unguarded_global_delete(db_path: Path) -> tuple[str, str]:
-    """Simulate the old global-delete code path for FAIL-before demonstration.
-
-    Returns (orphan_prog_id, orphan_msg_id) — both committed without a
-    referencing session, simulating _persist.py mid-startup state.
-    """
+    """Simulate the old global-delete code path for FAIL-before: returns (orphan_prog_id, orphan_msg_id), both committed without a referencing session, simulating _persist.py mid-startup state."""
 
     async def _seed() -> tuple[str, str]:
         orphan_prog_id = str(uuid.uuid4())
@@ -509,14 +476,7 @@ async def _run_global_delete(db_path: Path) -> None:
 
 
 def test_newborn_orphan_global_delete_destroys_progression(tmp_path, monkeypatch):
-    """FAIL-before: the old global-delete deletes a newborn progression with no session yet.
-
-    This reproduces the race: _persist.py commits progression before session.
-    The old NOT IN (SELECT ... FROM sessions UNION ...) query returns nothing for
-    sessions/branches table (session row doesn't exist yet), so the progression
-    is spuriously deleted.
-    """
-    import lionagi.state.db as state_db_mod
+    """FAIL-before: the old global-delete spuriously deletes a newborn progression with no session yet -- reproducing the race where _persist.py commits the progression before the session, so the old NOT-IN-sessions/branches query sees no session row and deletes it."""
 
     db_path = tmp_path / "state.db"
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
@@ -536,6 +496,7 @@ def test_newborn_orphan_global_delete_destroys_progression(tmp_path, monkeypatch
                     "name": "old-prunable",
                     "status": "completed",
                     "started_at": old_ts,
+                    "updated_at": old_ts,
                 }
             )
 
@@ -571,18 +532,12 @@ def test_newborn_orphan_global_delete_destroys_progression(tmp_path, monkeypatch
 
 
 def test_newborn_orphan_scoped_delete_preserves_progression(tmp_path, monkeypatch):
-    """PASS-after: the scoped delete (fix) never touches a newborn progression.
-
-    prune_old_data() only deletes progressions/messages that were captured
-    from the pruned sessions' lineage before the DELETE.  A newborn progression
-    with no referencing session is not in that candidate set — it survives.
-    """
-    import lionagi.state.db as state_db_mod
+    """PASS-after: the scoped delete only targets progressions/messages captured from the pruned sessions' lineage before the DELETE, so a newborn progression with no referencing session (not in that candidate set) survives."""
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     old_ts = time.time() - 40 * 86400
 
@@ -598,6 +553,7 @@ def test_newborn_orphan_scoped_delete_preserves_progression(tmp_path, monkeypatc
                     "name": "old-prunable-2",
                     "status": "completed",
                     "started_at": old_ts,
+                    "updated_at": old_ts,
                 }
             )
 
@@ -633,28 +589,19 @@ def test_newborn_orphan_scoped_delete_preserves_progression(tmp_path, monkeypatc
 
 
 def test_null_in_collection_does_not_stall_message_cleanup(tmp_path, monkeypatch):
-    """A progression collection containing JSON null doesn't block message cleanup.
-
-    The NOT IN (SELECT value FROM progressions, json_each(collection) WHERE value IS NOT NULL)
-    guard ensures that a null entry in the collection array doesn't propagate
-    a NULL into the NOT IN set and silently suppress all message deletions.
-    """
+    """A progression collection containing a JSON null entry must not stall message cleanup: the NOT-IN guard filters out NULL collection values so a null entry can't propagate into the NOT IN set and suppress all message deletions."""
     import json
 
-    import lionagi.state.db as state_db_mod
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     old_ts = time.time() - 40 * 86400
 
     async def _seed() -> tuple[str, str, str]:
-        """Create an old session whose progression collection has a JSON null entry.
-
-        Returns (session_id, prog_id, real_msg_id).
-        """
+        """Create an old session whose progression collection has a JSON null entry; returns (session_id, prog_id, real_msg_id)."""
         async with StateDB(db_path) as db:
             pid = str(uuid.uuid4())
             sid = str(uuid.uuid4())
@@ -668,6 +615,7 @@ def test_null_in_collection_does_not_stall_message_cleanup(tmp_path, monkeypatch
                     "name": "null-trap-session",
                     "status": "completed",
                     "started_at": old_ts,
+                    "updated_at": old_ts,
                 }
             )
             # Insert a real message.
@@ -717,24 +665,7 @@ def test_null_in_collection_does_not_stall_message_cleanup(tmp_path, monkeypatch
 
 
 async def _seed_shared_message_scenario(db_path: Path) -> tuple[str, str, str, str]:
-    """Seed the shared-message scenario.
-
-    Creates:
-    - pruned_session (old, terminal) whose progression contains shared_msg and unshared_msg
-    - surviving_branch (recent) whose system_msg_id = shared_msg
-
-    The surviving branch belongs to a surviving session that is NOT being pruned.
-    shared_msg is in the pruned progression's collection AND referenced by
-    surviving_branch.system_msg_id.  unshared_msg is only in the pruned progression.
-
-    Note: first_msg_id / last_msg_id on sessions have a real FK REFERENCES messages(id),
-    so SQLite with foreign_keys=ON prevents deletion while the FK is live.  To demonstrate
-    the bug plainly we use system_msg_id on a branch of a DIFFERENT (surviving) session,
-    which also has the FK — but the FAIL-before test disables foreign_keys first, showing
-    what the old collection-only check would have done without the constraint.
-
-    Returns (pruned_sid, surviving_sid, shared_msg_id, unshared_msg_id).
-    """
+    """Seed the shared-message scenario: pruned_session (old, terminal) has a progression referencing both shared_msg and unshared_msg; surviving_branch (on a different, surviving session) holds shared_msg via system_msg_id, a real FK -- so the FAIL-before test disables foreign_keys first to expose what the old collection-only check would do without it. Returns (pruned_sid, surviving_sid, shared_msg_id, unshared_msg_id)."""
     import json
 
     old_ts = time.time() - 40 * 86400
@@ -768,6 +699,7 @@ async def _seed_shared_message_scenario(db_path: Path) -> tuple[str, str, str, s
                 "name": "pruned-session",
                 "status": "completed",
                 "started_at": old_ts,
+                "updated_at": old_ts,
             }
         )
         # Both shared and unshared messages in the pruned progression.
@@ -787,6 +719,7 @@ async def _seed_shared_message_scenario(db_path: Path) -> tuple[str, str, str, s
                 "name": "surviving-session",
                 "status": "running",
                 "started_at": recent_ts,
+                "updated_at": recent_ts,
             }
         )
         branch_pid = str(uuid.uuid4())
@@ -803,20 +736,7 @@ async def _seed_shared_message_scenario(db_path: Path) -> tuple[str, str, str, s
 
 
 def test_shared_message_collection_only_check_deletes_it(tmp_path, monkeypatch):
-    """FAIL-before: collection-only survivor check spuriously deletes shared message.
-
-    Simulates the old code path with foreign_keys=OFF to expose the bug:
-    NOT IN only checks progressions.collection.  After the pruned session's
-    progression is deleted, shared_msg_id no longer appears in any collection
-    — so it is deleted even though surviving_branch.system_msg_id holds it.
-
-    foreign_keys=OFF is used here to bypass the FK constraint that would
-    ordinarily prevent the delete; this is the exact failure mode in any
-    runtime that doesn't enforce FKs (e.g. a migration path, or prior to
-    the PRAGMA being applied) or if the message is held by a table without
-    a FK constraint (hypothetical future table).
-    """
-    import lionagi.state.db as state_db_mod
+    """FAIL-before, foreign_keys=OFF: the old collection-only survivor check (NOT IN progressions.collection) spuriously deletes shared_msg once the pruned progression is gone, even though surviving_branch.system_msg_id still holds it -- the failure mode for any runtime that doesn't enforce FKs."""
 
     db_path = tmp_path / "state.db"
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
@@ -871,20 +791,12 @@ def test_shared_message_collection_only_check_deletes_it(tmp_path, monkeypatch):
 
 
 def test_shared_message_fk_survivor_check_preserves_it(tmp_path, monkeypatch):
-    """PASS-after: full survivor check (collection + FK columns) preserves shared message.
-
-    prune_old_data() UNIONs first_msg_id / last_msg_id (sessions) and
-    system_msg_id (branches) in the NOT IN subquery.  shared_msg_id is held
-    by surviving_branch.system_msg_id, so it survives even though the pruned
-    progression's collection no longer exists.
-    The unshared message (only in the pruned progression) is correctly deleted.
-    """
-    import lionagi.state.db as state_db_mod
+    """PASS-after: the full survivor check (collection + FK columns) UNIONs first_msg_id/last_msg_id/system_msg_id into the NOT IN subquery, so shared_msg_id survives via surviving_branch.system_msg_id while the unshared message is still correctly deleted."""
     from lionagi.studio.services import db_maintenance as maint
 
     db_path = tmp_path / "state.db"
     monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(maint, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(state_db_mod, "DEFAULT_DB_PATH", db_path)
 
     _, _, shared_msg_id, unshared_msg_id = run_async(_seed_shared_message_scenario(db_path))
 
@@ -904,3 +816,82 @@ def test_shared_message_fk_survivor_check_preserves_it(tmp_path, monkeypatch):
     assert not run_async(_exists_msg(unshared_msg_id)), (
         "Unshared message (pruned lineage only) must be deleted"
     )
+
+
+# ── optimistic-lock version guard: expected_updated_at ────────────────────────
+
+
+async def _get_updated_at(db_path: Path, entity_type: str, entity_id: str) -> float | None:
+    table = "sessions" if entity_type == "session" else "invocations"
+    async with StateDB(db_path) as db:
+        row = await db.fetch_one(
+            f"SELECT updated_at FROM {table} WHERE id = ?",  # noqa: S608
+            (entity_id,),
+        )
+    return row["updated_at"] if row else None
+
+
+def test_version_guard_blocks_write_when_updated_at_moved(tmp_path, monkeypatch):
+    """expected_updated_at pins the transition to a row version: a caller acting on a stale snapshot (status still in the expected set, but updated_at bumped by a concurrent writer) must not win -- the guarded write matches zero rows and update_status returns False without moving the status."""
+    from lionagi.state.reasons import RunReasons
+
+    db_path = tmp_path / "state.db"
+    _patch_db(monkeypatch, db_path)
+
+    sid = run_async(_make_session(db_path, status="running"))
+    snapshot = run_async(_get_updated_at(db_path, "session", sid))
+
+    # Concurrent writer re-touches the row (status stays reapable, updated_at bumps).
+    run_async(_flip_status(db_path, "session", sid, "running"))
+    moved = run_async(_get_updated_at(db_path, "session", sid))
+    assert moved != snapshot
+
+    async def _guarded(db_path: Path, sid: str) -> bool:
+        async with StateDB(db_path) as db:
+            return await db.update_status(
+                "session",
+                sid,
+                new_status="failed",
+                reason_code=RunReasons.FAILED_EXCEPTION,
+                reason_summary="stale_snapshot_write",
+                source="system",
+                actor="test_version_guard",
+                expected_statuses={"running"},
+                expected_updated_at=snapshot,  # Stale version — must lose.
+            )
+
+    result = run_async(_guarded(db_path, sid))
+    assert result is False
+    # Status untouched, updated_at is the concurrent writer's value, not ours.
+    assert run_async(_get_status(db_path, "session", sid)) == "running"
+    assert run_async(_get_updated_at(db_path, "session", sid)) == moved
+
+
+def test_version_guard_allows_write_when_updated_at_matches(tmp_path, monkeypatch):
+    """expected_updated_at matching the current row version lets the transition
+    through — the guard only blocks when the row moved."""
+    from lionagi.state.reasons import RunReasons
+
+    db_path = tmp_path / "state.db"
+    _patch_db(monkeypatch, db_path)
+
+    sid = run_async(_make_session(db_path, status="running"))
+    snapshot = run_async(_get_updated_at(db_path, "session", sid))
+
+    async def _guarded(db_path: Path, sid: str) -> bool:
+        async with StateDB(db_path) as db:
+            return await db.update_status(
+                "session",
+                sid,
+                new_status="failed",
+                reason_code=RunReasons.FAILED_EXCEPTION,
+                reason_summary="fresh_snapshot_write",
+                source="system",
+                actor="test_version_guard",
+                expected_statuses={"running"},
+                expected_updated_at=snapshot,  # Current version — must win.
+            )
+
+    result = run_async(_guarded(db_path, sid))
+    assert result is True
+    assert run_async(_get_status(db_path, "session", sid)) == "failed"

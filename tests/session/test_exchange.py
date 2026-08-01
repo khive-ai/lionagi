@@ -363,6 +363,100 @@ class TestExchangeEdgeCases:
         assert result is None
 
     @pytest.mark.anyio
+    async def test_stop_before_first_tick_task_group_exits_promptly(self):
+        """Mirrors fanout.py's task-group shape: exchange.run() is scheduled via
+        start_soon, then the DAG body raises immediately (before run() gets its
+        first turn). stop() in `finally` must make run() return right away
+        instead of clearing the stop signal and looping forever."""
+        from lionagi.ln.concurrency import create_task_group, fail_after
+
+        exchange = Exchange()
+
+        async def _failing_dag():
+            raise RuntimeError("boom")
+
+        # anyio's task group wraps a body-raised exception in an
+        # ExceptionGroup even with a single failure — same as the real
+        # fanout.py call site. fail_after(2) is the regression guard: before
+        # the fix, exchange.run() cleared the stop signal on its first turn
+        # and looped forever, so the task group's __aexit__ never returned
+        # and this would hit the deadline instead of raising promptly.
+        with pytest.raises(BaseException) as exc_info:
+            with fail_after(2):
+                async with create_task_group() as tg:
+                    tg.start_soon(exchange.run, 0.01)
+                    try:
+                        await _failing_dag()
+                    finally:
+                        exchange.stop()
+
+        raised = exc_info.value
+        sub_exceptions = getattr(raised, "exceptions", (raised,))
+        assert any(isinstance(e, RuntimeError) and str(e) == "boom" for e in sub_exceptions)
+        assert exchange._stop is True
+
+    @pytest.mark.anyio
+    async def test_stop_before_first_tick_ensure_future_await_completes(self):
+        """Mirrors flow.py's ensure_future + explicit-await shape: exchange.run()
+        is scheduled as a task, the DAG raises before it ticks, stop() fires in
+        `finally`, and awaiting the runner task must complete promptly (not hang
+        forever) so the original exception still propagates to the caller."""
+        import asyncio
+
+        from lionagi.ln.concurrency import fail_after
+
+        exchange = Exchange()
+        exch_task = asyncio.ensure_future(exchange.run(0.01))
+
+        async def _failing_dag():
+            raise RuntimeError("boom")
+
+        try:
+            with pytest.raises(RuntimeError, match="boom"):
+                await _failing_dag()
+        finally:
+            exchange.stop()
+            with fail_after(2):
+                await exch_task
+
+        assert exch_task.done()
+
+    @pytest.mark.anyio
+    async def test_run_after_stop_raises_instead_of_silent_noop(self):
+        """Regression: calling run() again on an Exchange that has already
+        completed a run/stop cycle must raise loudly instead of silently
+        returning without ever syncing again -- a caller starting a
+        "restart" task would otherwise get no signal that nothing ran."""
+        import asyncio
+
+        from lionagi.ln.concurrency import fail_after
+
+        exchange = Exchange()
+        first_run = asyncio.ensure_future(exchange.run(0.01))
+        await asyncio.sleep(0.05)
+        exchange.stop()
+        with fail_after(2):
+            await first_run
+        assert first_run.done()
+
+        with pytest.raises(RuntimeError, match="already been run"):
+            await exchange.run(0.01)
+
+    @pytest.mark.anyio
+    async def test_stop_before_first_tick_does_not_raise_on_first_call(self):
+        """The stop()-races-ahead-of-run() shape (the fix target of the
+        earlier task-group tests above) is a legitimate first call and must
+        still return promptly without tripping the already-run guard added
+        for the run()-after-stop() regression."""
+        exchange = Exchange()
+        exchange.stop()
+
+        # First-ever call to run(): must return immediately, not raise.
+        await exchange.run(0.01)
+
+        assert exchange._stop is True
+
+    @pytest.mark.anyio
     async def test_collect_empty_outbox(self):
         exchange = Exchange()
         owner_id = uuid4()
@@ -372,3 +466,56 @@ class TestExchangeEdgeCases:
         count = await exchange.collect(owner_id)
 
         assert count == 0
+
+
+class TestExchangeDeliveryFailureRecovery:
+    """A failed inbox delivery must leave the message recoverable, not dropped.
+
+    The outbox and items entries are consumed before delivery, so in-flight is
+    the only recovery surface; a failed delivery must stay there.
+    """
+
+    @staticmethod
+    def _patch_inbox_write_to_fail(monkeypatch):
+        from lionagi.protocols.generic.flow import Flow
+
+        def _boom(self, *args, **kwargs):
+            raise RuntimeError("inbox write failed")
+
+        monkeypatch.setattr(Flow, "add_item", _boom)
+
+    @pytest.mark.anyio
+    async def test_async_collect_retains_message_on_delivery_failure(self, monkeypatch):
+        exchange = Exchange()
+        sender, recipient = uuid4(), uuid4()
+        exchange.register(sender)
+        exchange.register(recipient)
+        exchange.send(sender, recipient, content={"text": "keep me"})
+
+        self._patch_inbox_write_to_fail(monkeypatch)
+        # return_exceptions=True swallows the failure; collect returns normally.
+        await exchange.collect(sender)
+
+        assert exchange.receive(recipient, sender=sender) == []
+        assert exchange._in_flight.get(recipient)  # retained -> recoverable
+
+        monkeypatch.undo()
+        drained = exchange.drain_pending(recipient)
+        assert len(drained) == 1
+
+    def test_sync_collect_retains_message_on_delivery_failure(self, monkeypatch):
+        exchange = Exchange()
+        sender, recipient = uuid4(), uuid4()
+        exchange.register(sender)
+        exchange.register(recipient)
+        exchange.send(sender, recipient, content={"text": "keep me"})
+
+        self._patch_inbox_write_to_fail(monkeypatch)
+        with pytest.raises(RuntimeError):
+            exchange.collect_sync(sender)
+
+        assert exchange._in_flight.get(recipient)  # retained -> recoverable
+
+        monkeypatch.undo()
+        drained = exchange.drain_pending(recipient)
+        assert len(drained) == 1

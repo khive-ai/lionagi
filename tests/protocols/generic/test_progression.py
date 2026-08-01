@@ -115,14 +115,33 @@ def test_iter(sample_progression, sample_elements):
         assert prog_item == element.id
 
 
-def test_next(sample_progression, sample_elements):
-    assert next(sample_progression) == sample_elements[0].id
+def test_progression_is_not_an_iterator(sample_progression):
+    # Iterable, not an iterator: next() on the container itself is a TypeError
+    # rather than a call that keeps returning the first id forever.
+    with pytest.raises(TypeError):
+        next(sample_progression)
+
+
+def test_next_over_iter(sample_progression, sample_elements):
+    assert next(iter(sample_progression)) == sample_elements[0].id
 
 
 def test_next_empty():
     empty_prog = Progression()
     with pytest.raises(StopIteration):
-        next(empty_prog)
+        next(iter(empty_prog))
+
+
+def test_direct_order_mutation_keeps_contains_accurate():
+    prog = Progression()
+    new_id = MockElement(value="x").id
+    prog.order.append(new_id)
+    assert len(prog) == 1
+    assert new_id in prog
+
+    prog.order.clear()
+    assert len(prog) == 0
+    assert new_id not in prog
 
 
 def test_clear(sample_progression):
@@ -345,12 +364,21 @@ def test_progression_remove_with_element():
 def test_progression_memory_efficiency():
     import sys
 
-    p = Progression(order=[Element() for _ in range(1000000)])
+    # 10k elements prove the same property as 1M (Progression stores UUIDs,
+    # not the elements) without a ~750MB transient allocation that pushes CI
+    # workers into the OOM killer when co-scheduled with other heavy files.
+    n = 10_000
+    p = Progression(order=[Element() for _ in range(n)])
+
+    # The load-bearing property: order holds bare UUIDs, not the Elements.
+    # (A shallow sizeof bound alone cannot distinguish them — sizeof of a
+    # pydantic Element is smaller per item than the byte budget.)
+    assert all(isinstance(item, UUID) for item in p.order)
 
     memory_usage = sys.getsizeof(p) + sum(sys.getsizeof(item) for item in p.order)
 
-    # Check if memory usage is reasonable (less than 100MB for 1 million elements)
-    assert memory_usage < 100 * 1024 * 1024  # 100MB in bytes
+    # Same per-element budget as the original bound (100MB per 1M ≈ 105 B/elem).
+    assert memory_usage < n * 105
 
 
 def test_progression_serialization_advanced():

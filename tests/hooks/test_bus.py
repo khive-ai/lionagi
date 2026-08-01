@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026, HaiyangLi <quantocean.li at gmail dot com>
 # SPDX-License-Identifier: Apache-2.0
 
-"""ADR-0023 HookBus tests."""
+"""ADR-0047 HookBus tests."""
 
 from __future__ import annotations
 
@@ -177,12 +177,13 @@ def test_hook_decorator_rejects_unknown_point():
 
 
 def test_hook_point_vocabulary():
-    """Pin the 11-event vocabulary so a removal is visible in this test."""
+    """Pin the 12-event vocabulary so a removal is visible in this test."""
     values = {p.value for p in HookPoint}
     assert values == {
         "session.start",
         "session.end",
         "branch.create",
+        "branch.end",
         "api.pre_call",
         "api.post_call",
         "api.stream_chunk",
@@ -191,6 +192,7 @@ def test_hook_point_vocabulary():
         "tool.error",
         "message.add",
         "artifact.created",
+        "prompt.submit",
     }
 
 
@@ -233,6 +235,56 @@ def test_handlers_for_invalid_string_raises_value_error():
 
     with pytest.raises(ValueError):
         bus.handlers_for("session.starts")
+
+
+# ── Dormant-point registration warns (issue #1965) ───────────────────────────
+
+
+def test_registering_on_dormant_point_warns():
+    """ARTIFACT_CREATED has no production emit site — registering a handler on
+    it must not be silently accepted; the caller learns about it via warning,
+    not a hard error (see lionagi.hooks.DORMANT_POINTS)."""
+    bus = HookBus()
+
+    async def h(**kw):
+        pass
+
+    with pytest.warns(UserWarning, match="ARTIFACT_CREATED"):
+        bus.on(HookPoint.ARTIFACT_CREATED, h)
+
+    # The registration itself still succeeds — it's a warning, not a rejection.
+    assert bus.handlers_for(HookPoint.ARTIFACT_CREATED) == [h]
+
+
+def test_registering_on_dormant_point_by_string_value_warns():
+    bus = HookBus()
+
+    async def h(**kw):
+        pass
+
+    with pytest.warns(UserWarning, match="api.stream_chunk|artifact.created"):
+        bus.on("artifact.created", h)
+
+
+@pytest.mark.parametrize(
+    "point",
+    [
+        HookPoint.API_PRE_CALL,
+        HookPoint.API_POST_CALL,
+        HookPoint.API_STREAM_CHUNK,
+    ],
+)
+def test_registering_on_now_wired_api_points_does_not_warn(recwarn, point):
+    """Regression guard for issue #1965: these three used to be dormant.
+    Now that they have production emit sites (operations/_api_hooks.py),
+    registering a handler on them must NOT trigger the dormant-point warning."""
+    bus = HookBus()
+
+    async def h(**kw):
+        pass
+
+    bus.on(point, h)
+    assert not any(issubclass(w.category, UserWarning) for w in recwarn.list)
 
 
 # ── FIX 2: blocking_emit propagates exceptions for TOOL_PRE ──────────────────
@@ -282,6 +334,51 @@ async def test_blocking_emit_stop_hook_short_circuits_without_error():
 
 
 # ── FIX 3: handlers snapshotted before dispatch ───────────────────────────────
+
+
+# ── USER_PROMPT_SUBMIT is the second blocking point (ADR-0048 D2) ───────────
+
+
+async def test_blocking_emit_propagates_exception_for_user_prompt_submit():
+    bus = HookBus()
+
+    async def guard(**kw):
+        raise PermissionError("blocked prompt")
+
+    bus.on(HookPoint.USER_PROMPT_SUBMIT, guard)
+
+    with pytest.raises(PermissionError, match="blocked prompt"):
+        await bus.blocking_emit(HookPoint.USER_PROMPT_SUBMIT, prompt="hi")
+
+
+async def test_emit_user_prompt_submit_propagates_exception():
+    """emit() on USER_PROMPT_SUBMIT must propagate — it routes through blocking_emit."""
+    bus = HookBus()
+
+    async def guard(**kw):
+        raise PermissionError("blocked via emit")
+
+    bus.on(HookPoint.USER_PROMPT_SUBMIT, guard)
+
+    with pytest.raises(PermissionError, match="blocked via emit"):
+        await bus.emit(HookPoint.USER_PROMPT_SUBMIT, prompt="hi")
+
+
+async def test_user_prompt_submit_stophook_short_circuits_without_error():
+    bus = HookBus()
+    calls: list[str] = []
+
+    async def stopper(**kw):
+        calls.append("stopper")
+        raise StopHook
+
+    async def never(**kw):  # pragma: no cover
+        calls.append("never")
+
+    bus.on(HookPoint.USER_PROMPT_SUBMIT, stopper)
+    bus.on(HookPoint.USER_PROMPT_SUBMIT, never)
+    await bus.emit(HookPoint.USER_PROMPT_SUBMIT, prompt="hi")
+    assert calls == ["stopper"]
 
 
 async def test_emit_handler_registered_during_emit_does_not_fire():

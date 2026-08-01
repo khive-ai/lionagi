@@ -10,6 +10,7 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -27,7 +28,7 @@ def temp_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     name directly, so both bindings need patching)."""
     db_path = tmp_path / "state.db"
     monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr("lionagi.studio.services.schedules.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("lionagi.state.db.DEFAULT_DB_PATH", db_path)
     return db_path
 
 
@@ -116,7 +117,7 @@ async def test_patch_unrelated_field_does_not_log_shift(temp_db_path, caplog):
 
 
 @pytest.mark.asyncio
-async def test_disable_enable_recomputes_stale_next_fire(temp_db_path, caplog):
+async def test_disable_enable_recomputes_stale_next_fire(temp_db_path, caplog, monkeypatch):
     """(c3) disable -> enable recomputes next_fire_at; a stale past value
     never fires immediately on enable unless the fresh computation says so."""
     from lionagi.state.db import StateDB
@@ -146,6 +147,10 @@ async def test_disable_enable_recomputes_stale_next_fire(temp_db_path, caplog):
     async with StateDB() as db:
         await db.update_schedule(sid, next_fire_at=stale_past)
 
+    fixed_now = 1_700_000_000.0
+    import lionagi.studio.scheduler.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "time", SimpleNamespace(time=lambda: fixed_now))
     with caplog.at_level(logging.INFO):
         ok = await enable_schedule(sid)
     assert ok is True
@@ -154,7 +159,7 @@ async def test_disable_enable_recomputes_stale_next_fire(temp_db_path, caplog):
         row = await db.get_schedule(sid)
 
     assert row["next_fire_at"] != stale_past
-    assert row["next_fire_at"] > time.time()  # freshly computed, strictly future
+    assert row["next_fire_at"] > fixed_now
     assert any("next_fire_at shifted" in r.message for r in caplog.records)
 
 
@@ -225,6 +230,10 @@ async def test_patch_recompute_retry_recovers_transient_failure(temp_db_path, ca
     async with StateDB() as db:
         await db.update_schedule(sid, next_fire_at=100.0)
 
+    fixed_now = 1_700_000_000.0
+    import lionagi.studio.scheduler.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "time", SimpleNamespace(time=lambda: fixed_now))
     real_recompute = scheduler.recompute_next_fire
     calls = {"n": 0}
 
@@ -244,7 +253,7 @@ async def test_patch_recompute_retry_recovers_transient_failure(temp_db_path, ca
     async with StateDB() as db:
         row = await db.get_schedule(sid)
     assert row["next_fire_at"] != 100.0
-    assert row["next_fire_at"] > time.time()
+    assert row["next_fire_at"] > fixed_now
 
 
 @pytest.mark.asyncio
@@ -484,7 +493,7 @@ async def test_patch_route_all_null_body_no_longer_404s(temp_db_path):
 
     body = UpdateScheduleRequest(description=None)
     result = await update_schedule_route(sid, body)
-    assert result == {"ok": True}
+    assert result == {"ok": True, "updated": ["description"]}
 
     from lionagi.studio.services.schedules import get_schedule
 
@@ -863,3 +872,70 @@ async def test_enable_dead_interval_schedule_rejected(temp_db_path):
 
     with pytest.raises(ValueError, match="interval_sec is required"):
         await enable_schedule(sid)
+
+
+@pytest.mark.asyncio
+async def test_enable_exhausted_max_runs_schedule_rejected(temp_db_path):
+    """Re-enable semantics: a bounded schedule that already consumed its
+    max_runs budget refuses to re-enable rather than silently resetting the
+    counter (there is no per-enable-cycle counting — max_runs is a lifetime
+    cap on the schedule id)."""
+    from lionagi.state.db import StateDB
+    from lionagi.studio.services.schedules import create_schedule, disable_schedule, enable_schedule
+
+    created = await create_schedule(
+        {
+            "name": "exhausted-once-test",
+            "trigger_type": "interval",
+            "interval_sec": 60,
+            "action_kind": "agent",
+            "action_prompt": "ping",
+            "max_runs": 1,
+        }
+    )
+    sid = created["id"]
+
+    async with StateDB() as db:
+        await db.create_schedule_run(
+            {
+                "id": "old-run",
+                "schedule_id": sid,
+                "trigger_context": {},
+                "action_kind": "agent",
+                "action_args": [],
+                "status": "completed",
+                "chain_depth": 0,
+                "fired_at": time.time(),
+            }
+        )
+    await disable_schedule(sid)
+
+    with pytest.raises(ValueError, match="max_runs"):
+        await enable_schedule(sid)
+
+    async with StateDB() as db:
+        row = await db.get_schedule(sid)
+    assert row["enabled"] == 0
+
+
+@pytest.mark.asyncio
+async def test_enable_bounded_schedule_under_budget_succeeds(temp_db_path):
+    """A bounded schedule that has NOT yet consumed its max_runs budget
+    re-enables normally."""
+    from lionagi.studio.services.schedules import create_schedule, disable_schedule, enable_schedule
+
+    created = await create_schedule(
+        {
+            "name": "under-budget-test",
+            "trigger_type": "interval",
+            "interval_sec": 60,
+            "action_kind": "agent",
+            "action_prompt": "ping",
+            "max_runs": 3,
+        }
+    )
+    sid = created["id"]
+    await disable_schedule(sid)
+
+    ok = await enable_schedule(sid)
+    assert ok is True

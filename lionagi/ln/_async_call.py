@@ -72,7 +72,10 @@ def _normalize_input(
     flatten_tuple_set: bool,
 ) -> list:
     """Convert input to a flat list, treating model instances as single items."""
-    if flatten or dropna:
+    if flatten or dropna or unique:
+        # Route through to_list when unique is requested too, so unique without
+        # flatten raises the documented "unique=True requires flatten=True"
+        # instead of being silently ignored.
         return to_list(
             input_,
             flatten=flatten,
@@ -133,11 +136,8 @@ async def _execute_with_retry(
     default: Any,
     **kwargs,
 ) -> tuple[int, Any]:
-    """Execute function with exponential backoff retry.
-
-    Returns (index, result) tuple to preserve ordering in concurrent execution.
-    Cancellation exceptions are never retried (respects structured concurrency).
-    """
+    """Execute function with exponential backoff retry; returns (index, result) to
+    preserve ordering. Cancellation is never retried (respects structured concurrency)."""
     attempts = 0
     current_delay = initial_delay
 
@@ -314,10 +314,8 @@ class BcallParams(AlcallParams):
 
     async def __call__(self, input_: list[Any], func: Callable[..., T], **kw) -> list[T]:
         kwargs = {**self.default_kw(), **kw}
-        # batch_size is a positional arg to bcall; remove it from kwargs to
-        # avoid "multiple values for argument 'batch_size'" TypeError.
+        # batch_size is positional in bcall; drop it to avoid a duplicate-arg TypeError.
         kwargs.pop("batch_size", None)
-        # bcall is an async generator — collect all batches into one flat list.
         results: list[T] = []
         async for batch in bcall(input_, func, self.batch_size, **kwargs):
             results.extend(batch)

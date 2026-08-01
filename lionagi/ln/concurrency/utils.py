@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import inspect
+import logging
 import signal
 import threading
 from collections.abc import Awaitable, Callable
@@ -25,6 +26,7 @@ __all__ = (
     "sleep",
     "current_time",
     "SigtermInterrupt",
+    "sigterm_received",
 )
 
 
@@ -47,27 +49,34 @@ async def run_sync(func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R
     return await anyio.to_thread.run_sync(func, *args)
 
 
+# Process-wide latch set by run_async's SIGTERM handler; lets persist paths
+# distinguish an external SIGTERM from an internal runtime cancel.
+_SIGTERM_RECEIVED = threading.Event()
+_SIGTERM_RECEIVED_LOCK = threading.Lock()
+
+
+def sigterm_received() -> bool:
+    """True if run_async's SIGTERM handler has fired in this process."""
+    return _SIGTERM_RECEIVED.is_set()
+
+
+def consume_sigterm_received() -> bool:
+    """Read-and-clear the latch so one external SIGTERM labels one run
+    (otherwise it stays set and mislabels every later cancellation)."""
+    with _SIGTERM_RECEIVED_LOCK:
+        received = _SIGTERM_RECEIVED.is_set()
+        if received:
+            _SIGTERM_RECEIVED.clear()
+        return received
+
+
 class SigtermInterrupt(BaseException):
-    """Raised by run_async() when the process received SIGTERM mid-run.
-
-    Not a KeyboardInterrupt subclass: that type is the SIGINT/Ctrl-C
-    convention and callers treat it as user-initiated. SIGTERM is an
-    external termination request (a supervisor, a process-group kill)
-    and needs a distinct signal so callers can log/exit differently.
-    Subclasses BaseException, like KeyboardInterrupt, so a bare
-    ``except Exception:`` elsewhere doesn't silently swallow it.
-    """
+    """Raised by run_async() when SIGTERM arrives mid-run; subclasses
+    BaseException (not KeyboardInterrupt) so ``except Exception:`` can't swallow it."""
 
 
-# Signal-aware run_async: installs temporary SIGINT/SIGTERM handlers from the
-# main thread that cancel the inner asyncio task via call_soon_threadsafe
-# instead of leaving the default disposition in place. SIGINT's default would
-# raise KeyboardInterrupt in join(), orphaning the child thread and leaving
-# session rows stuck in "running" state; SIGTERM's default is immediate
-# process termination with no unwind at all, so without a handler here an
-# external SIGTERM (a timeout supervisor, a process-group kill) is silent.
-
-
+# Installs temporary SIGINT/SIGTERM handlers that cancel the inner task via
+# call_soon_threadsafe instead of leaving the default (silent-kill) disposition.
 def run_async(coro: Awaitable[T]) -> T:
     """Run an awaitable from sync context in an isolated thread+event loop."""
     result_container: list[Any] = []
@@ -86,11 +95,8 @@ def run_async(coro: Awaitable[T]) -> T:
                 task = asyncio.current_task()
                 _loop_and_task_future.set_result((asyncio.get_event_loop(), task))
                 if _cancel_requested.is_set() or _term_requested.is_set():
-                    # A signal was latched before this future existed, so the
-                    # handler's call_soon_threadsafe(task.cancel) had nothing
-                    # to call yet (this is the only path for SIGTERM, whose
-                    # default disposition isn't callable as a fallback).
-                    # Cancel ourselves now instead of running to completion.
+                    # A signal was latched before this future existed (the only
+                    # path for SIGTERM) — cancel ourselves instead of running on.
                     task.cancel()
                 return await coro
 
@@ -110,6 +116,11 @@ def run_async(coro: Awaitable[T]) -> T:
     def _make_handler(requested: threading.Event, old_handler: Any) -> Callable[[int, Any], None]:
         def _handler(signum: int, frame: Any) -> None:
             requested.set()
+            if signum == signal.SIGTERM:
+                # Latch process-wide so teardown code that only sees a plain
+                # CancelledError can still report the cancel as external.
+                with _SIGTERM_RECEIVED_LOCK:
+                    _SIGTERM_RECEIVED.set()
             try:
                 child_loop, task = _loop_and_task_future.result(timeout=0.5)
             except Exception:  # noqa: BLE001
@@ -121,19 +132,43 @@ def run_async(coro: Awaitable[T]) -> T:
 
         return _handler
 
+    # Take over a signal only when the previous handler can be given back.
+    # getsignal() reports None for a handler installed outside Python, and
+    # signal.signal(signum, None) raises, so restoring one is impossible:
+    # taking it over would leave this runner's handler installed for the rest
+    # of the process. Abstaining per signal costs the caller's own cancellation
+    # wiring for that signal and keeps whatever was already there working.
+    installed: list[tuple[int, Any]] = []
     if in_main_thread:
-        old_sigint_handler = signal.getsignal(signal.SIGINT)
-        old_sigterm_handler = signal.getsignal(signal.SIGTERM)
-        signal.signal(signal.SIGINT, _make_handler(_cancel_requested, old_sigint_handler))
-        signal.signal(signal.SIGTERM, _make_handler(_term_requested, old_sigterm_handler))
+        for signum, requested in (
+            (signal.SIGINT, _cancel_requested),
+            (signal.SIGTERM, _term_requested),
+        ):
+            prior = signal.getsignal(signum)
+            if prior is None:
+                continue
+            signal.signal(signum, _make_handler(requested, prior))
+            installed.append((signum, prior))
 
     thread.start()
     try:
         thread.join()
     finally:
-        if in_main_thread:
-            signal.signal(signal.SIGINT, old_sigint_handler)
-            signal.signal(signal.SIGTERM, old_sigterm_handler)
+        # Restore only what was installed above. Each restore stands alone: this
+        # runs in a finally, often while an exception is already propagating, and
+        # a failure on one signal must not strand the others with this runner's
+        # handler still installed. Failures are logged rather than raised, since
+        # raising here would replace whatever the caller was actually failing on.
+        for signum, prior in installed:
+            try:
+                signal.signal(signum, prior)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "could not restore the previous handler for signal %s; it "
+                    "remains overridden for the rest of this process",
+                    signum,
+                    exc_info=True,
+                )
 
     if _cancel_requested.is_set():
         raise KeyboardInterrupt

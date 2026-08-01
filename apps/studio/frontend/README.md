@@ -44,7 +44,7 @@ Talks to the Lion Studio backend at `process.env.NEXT_PUBLIC_STUDIO_API_BASE`
 uv pip install -e '.[studio]'
 
 # Start backend
-li studio start --frontend-mode none --port 8765
+li studio start --no-frontend --port 8765
 
 # In another shell: start frontend (dev mode)
 cd apps/studio/frontend
@@ -56,6 +56,6 @@ Visit http://localhost:3000.
 
 ## See also
 
-- [ADR-0001](../../../docs/adrs/ADR-0001-lion-studio-internal-app.md) — Lion Studio is an internal monorepo app
-- [ADR-0002](../../../docs/adrs/ADR-0002-studio-tech-stack.md) — Lion Studio tech stack selection
-- [ADR-0003](../../../docs/adrs/ADR-0003-claude-code-marketplace.md) — Claude Code marketplace pattern
+- [ADR-0001](../../../docs/_archive/v0/ADR-0001-lion-studio-internal-app.md) — Lion Studio is an internal monorepo app
+- [ADR-0002](../../../docs/_archive/v0/ADR-0002-studio-tech-stack.md) — Lion Studio tech stack selection
+- [ADR-0003](../../../docs/_archive/v0/ADR-0003-claude-code-marketplace.md) — Claude Code marketplace pattern

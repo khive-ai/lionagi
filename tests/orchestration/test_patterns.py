@@ -22,6 +22,7 @@ from lionagi.orchestration import (
     role_node_builder,
     spawn_roles,
 )
+from lionagi.orchestration.patterns import normalize_dep_indices
 from lionagi.session.branch import Branch
 from lionagi.session.session import Session
 
@@ -79,6 +80,75 @@ class TestRoleNodeBuilder:
             None,
         )
         assert node.operation == "ReAct"
+
+    def test_stamps_stable_spawn_id_and_reference_id(self):
+        """Builder-time identity: spawn_id (and reference_id, the executor's
+        display-path key) must be allocated at construction, not left for a
+        completion-order-derived id downstream."""
+        session, roles = _roles("researcher")
+        nb = role_node_builder(roles)
+        node = nb(SpawnRequest(instruction="dig", assignee="researcher"), None)
+        assert node.metadata.get("spawn_id") == "spawn-1"
+        assert node.metadata.get("reference_id") == "spawn-1"
+
+    def test_spawn_id_stamped_even_without_assignee(self):
+        """A spawn_id is allocated regardless of whether the request carries
+        an assignee — only the metadata["assignee"]/branch_id routing is
+        conditional on that."""
+        session, roles = _roles("researcher")
+        nb = role_node_builder(roles)
+        node = nb(SpawnRequest(instruction="x"), None)
+        assert node.metadata.get("spawn_id") == "spawn-1"
+
+    def test_spawn_id_monotonic_across_calls_from_one_closure(self):
+        """Multiple SpawnRequests routed through the SAME role_node_builder
+        closure get distinct, increasing ids — the closure-scoped sequence is
+        the only correct source of the id (completion order is not spawn
+        order)."""
+        session, roles = _roles("researcher")
+        nb = role_node_builder(roles)
+        n1 = nb(SpawnRequest(instruction="a", assignee="researcher"), None)
+        n2 = nb(SpawnRequest(instruction="b", assignee="researcher"), None)
+        n3 = nb(SpawnRequest(instruction="c", assignee="researcher"), None)
+        assert [n.metadata["spawn_id"] for n in (n1, n2, n3)] == [
+            "spawn-1",
+            "spawn-2",
+            "spawn-3",
+        ]
+
+    def test_unknown_assignee_does_not_consume_a_sequence_number(self):
+        """A rejected (unknown-assignee) request must not burn an id — the
+        next successfully built node still gets spawn-1, not spawn-2."""
+        session, roles = _roles("researcher")
+        nb = role_node_builder(roles)
+        with pytest.raises(ValueError, match="not a recognized role"):
+            nb(SpawnRequest(instruction="x", assignee="ghost"), None)
+        node = nb(SpawnRequest(instruction="ok", assignee="researcher"), None)
+        assert node.metadata["spawn_id"] == "spawn-1"
+
+    def test_decorate_instruction_receives_request_and_spawn_id(self):
+        """decorate_instruction is called with (req, spawn_id) and its return
+        value becomes the child operation's instruction — the seam the CLI
+        uses to inject the artifact-directory + REQUIRED text."""
+        session, roles = _roles("researcher")
+        seen: list[tuple[str, str]] = []
+
+        def decorate(req: SpawnRequest, spawn_id: str) -> str:
+            seen.append((req.instruction, spawn_id))
+            return f"{req.instruction}\n\nWrite to {spawn_id}/."
+
+        nb = role_node_builder(roles, decorate_instruction=decorate)
+        node = nb(SpawnRequest(instruction="dig deeper", assignee="researcher"), None)
+        assert seen == [("dig deeper", "spawn-1")]
+        assert node.parameters["instruction"] == "dig deeper\n\nWrite to spawn-1/."
+
+    def test_no_decorate_instruction_keeps_plain_instruction(self):
+        """Library/engine callers that pass nothing keep the bare instruction
+        — no artifact prose leaks into non-CLI callers."""
+        session, roles = _roles("researcher")
+        nb = role_node_builder(roles)
+        node = nb(SpawnRequest(instruction="dig deeper", assignee="researcher"), None)
+        assert node.parameters["instruction"] == "dig deeper"
 
 
 class TestBuildFanoutGraph:
@@ -180,6 +250,24 @@ class TestBuildDagGraph:
         graph, ids = build_dag_graph(session, assignments, roles)
         assert len(graph.internal_edges) == 0  # all dropped, no crash
 
+    def test_forward_dependencies_are_dropped(self):
+        session, roles = _roles("researcher")
+        assignments = [
+            TaskAssignment(task="a", assignee="researcher", depends_on=["2"]),
+            TaskAssignment(task="b", assignee="researcher"),
+        ]
+        graph, _ = build_dag_graph(session, assignments, roles)
+        assert len(graph.internal_edges) == 0
+
+    def test_dependency_cycle_is_rejected_during_construction(self):
+        session, roles = _roles("researcher")
+        assignments = [
+            TaskAssignment(task="a", assignee="researcher", depends_on=["2"]),
+            TaskAssignment(task="b", assignee="researcher", depends_on=["1"]),
+        ]
+        with pytest.raises(ValueError, match="cycle"):
+            build_dag_graph(session, assignments, roles)
+
     def test_unknown_assignee_becomes_none_and_skips_edges(self):
         session, roles = _roles("researcher")
         assignments = [
@@ -244,6 +332,22 @@ class _FakeOrc:
         return SimpleNamespace(assignments=self._assignments)
 
 
+class TestNormalizeDepIndices:
+    def test_self_non_integer_and_out_of_range_refs_are_dropped(self):
+        assignments = [
+            TaskAssignment(task="a", assignee="researcher", depends_on=["1"]),
+            TaskAssignment(task="b", assignee="researcher", depends_on=["x", "9"]),
+        ]
+        assert normalize_dep_indices(assignments) == [[], []]
+
+    def test_valid_earlier_refs_are_retained(self):
+        assignments = [
+            TaskAssignment(task="a", assignee="researcher"),
+            TaskAssignment(task="b", assignee="researcher", depends_on=["1"]),
+        ]
+        assert normalize_dep_indices(assignments) == [[], [0]]
+
+
 class TestPlan:
     @pytest.mark.asyncio
     async def test_returns_valid_assignments(self):
@@ -270,10 +374,32 @@ class TestPlan:
         assert [a.assignee for a in out] == ["researcher"]
 
     @pytest.mark.asyncio
-    async def test_truncates_to_max_tasks(self):
+    async def test_over_limit_plan_raises_instead_of_truncating(self):
+        """A plan that still exceeds max_tasks after the orchestrator was told
+        the cap must fail loudly, not silently drop the overflow (coverage
+        loss must never read as a clean run)."""
         orc = _FakeOrc([TaskAssignment(task=str(i), assignee="researcher") for i in range(5)])
+        with pytest.raises(ValueError, match=r"5 assignments.*max_tasks=2"):
+            await plan(orc, "task", roles={"researcher"}, max_tasks=2)
+
+    @pytest.mark.asyncio
+    async def test_within_limit_plan_passes_through(self):
+        orc = _FakeOrc([TaskAssignment(task=str(i), assignee="researcher") for i in range(2)])
         out = await plan(orc, "task", roles={"researcher"}, max_tasks=2)
         assert len(out) == 2
+
+    @pytest.mark.asyncio
+    async def test_guidance_states_cap_when_max_tasks_set(self):
+        orc = _FakeOrc([])
+        await plan(orc, "task", roles={"researcher"}, max_tasks=8)
+        assert "8" in orc.calls[0]["guidance"]
+        assert "HARD CAP" in orc.calls[0]["guidance"]
+
+    @pytest.mark.asyncio
+    async def test_guidance_omits_cap_when_max_tasks_unset(self):
+        orc = _FakeOrc([])
+        await plan(orc, "task", roles={"researcher"})
+        assert "HARD CAP" not in orc.calls[0]["guidance"]
 
     @pytest.mark.asyncio
     async def test_dag_vs_fanout_instruction(self):
@@ -319,3 +445,40 @@ class TestSpawnRoles:
         assert roles["architect"].capabilities is not None
         arch_caps = [s.name for s in roles["architect"].capabilities.__op_fields__]
         assert "spawn_request" in arch_caps
+
+
+class TestPlanAssigneeSpelling:
+    """'-' and '_' are interchangeable in a role name, so an assignment written
+    with the other separator names a listed role rather than an unknown one."""
+
+    @pytest.mark.asyncio
+    async def test_other_separator_resolves_to_the_listed_role(self):
+        orc = _FakeOrc([TaskAssignment(task="a", assignee="postmortem_lead")])
+        out = await plan(orc, "task", roles=["postmortem-lead"])
+        assert [a.assignee for a in out] == ["postmortem-lead"]
+
+    @pytest.mark.asyncio
+    async def test_resolution_runs_in_both_directions(self):
+        orc = _FakeOrc([TaskAssignment(task="a", assignee="deck-hand")])
+        out = await plan(orc, "task", roles=["deck_hand"])
+        assert [a.assignee for a in out] == ["deck_hand"]
+
+    @pytest.mark.asyncio
+    async def test_exact_match_is_left_alone(self):
+        orc = _FakeOrc([TaskAssignment(task="a", assignee="deck_hand")])
+        out = await plan(orc, "task", roles=["deck-hand", "deck_hand"])
+        assert [a.assignee for a in out] == ["deck_hand"]
+
+    @pytest.mark.asyncio
+    async def test_a_spelling_matching_two_listed_roles_is_dropped(self):
+        """Two listed roles can differ only in where each separator falls. A
+        third spelling matching both is not resolved by picking one."""
+        orc = _FakeOrc([TaskAssignment(task="a", assignee="deck-hand-two")])
+        out = await plan(orc, "task", roles=["deck-hand_two", "deck_hand-two"])
+        assert out == []
+
+    @pytest.mark.asyncio
+    async def test_an_unrelated_name_is_still_dropped(self):
+        orc = _FakeOrc([TaskAssignment(task="a", assignee="ghost_writer")])
+        out = await plan(orc, "task", roles=["deck_hand"])
+        assert out == []

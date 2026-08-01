@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any, Literal
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from pydantic import BaseModel, JsonValue, PrivateAttr, field_serializer
 
@@ -45,6 +46,7 @@ from .prompts import LION_SYSTEM_MESSAGE
 if TYPE_CHECKING:
     from lionagi.operations.operate.operative import Operative
     from lionagi.operations.types import Middle
+    from lionagi.protocols.context_providers import ContextProviderRegistry
     from lionagi.session.control import LoopControl, LoopDirective
 
 
@@ -102,11 +104,20 @@ class Branch(Element, Relational):
     _operation_manager: OperationManager | None = PrivateAttr(None)
     _observer: Any = PrivateAttr(None)
     _hooks: Any = PrivateAttr(None)
+    _pending_hook_bus_entries: list = PrivateAttr(default_factory=list)
+    _hook_bus_synced_to: Any = PrivateAttr(None)
+    _hook_bus_synced_count: int = PrivateAttr(0)
+    _hook_bus_registered: list = PrivateAttr(default_factory=list)
     _memory: MemoryStore | None = PrivateAttr(None)
     _owning_session_id: Any = PrivateAttr(None)
     _capabilities: Any = PrivateAttr(None)
     _loop_control: "LoopControl | None" = PrivateAttr(None)
     _signal_tasks: list = PrivateAttr(default_factory=list)
+    _context_providers: "ContextProviderRegistry | None" = PrivateAttr(None)
+    _last_context_report: ContextVar[Any] = PrivateAttr(
+        default_factory=lambda: ContextVar("last_context_report", default=None)
+    )
+    _last_context_report_fallback: Any = PrivateAttr(None)
 
     def __init__(
         self,
@@ -267,6 +278,34 @@ class Branch(Element, Relational):
         return self._memory
 
     @property
+    def providers(self) -> "ContextProviderRegistry":
+        """This branch's pre-turn ContextProvider registry: lazily created
+        on first access. Optional and zero-cost when unused — a branch that
+        never touches this property never gathers or renders injections."""
+        if self._context_providers is None:
+            from lionagi.protocols.context_providers import ContextProviderRegistry
+
+            self._context_providers = ContextProviderRegistry()
+        return self._context_providers
+
+    @property
+    def last_context_report(self):
+        """ProviderReport from this task's latest provider pass, when present.
+
+        Otherwise returns the branch's most recently completed provider pass
+        for backward compatibility. Concurrent passes use last-writer semantics
+        for that branch-level fallback.
+
+        When the branch has no system message there is no render target, so
+        providers are not invoked and the report lists every registered
+        provider under ``skipped``.
+        """
+        task_report = self._last_context_report.get()
+        if task_report is not None:
+            return task_report
+        return self._last_context_report_fallback
+
+    @property
     def chat_model(self) -> iModel:
         return self._imodel_manager.chat
 
@@ -298,11 +337,8 @@ class Branch(Element, Relational):
         return await self._observer.emit(event)
 
     async def _safe_emit(self, event: Any) -> None:
-        """Emit a lifecycle event, swallowing observer exceptions.
-
-        Policy: lifecycle observer failures must never alter run outcomes.
-        Exceptions are logged but not re-raised.
-        """
+        """Emit a lifecycle event; observer exceptions are logged, never re-raised
+        (lifecycle failures must not alter run outcomes)."""
         import logging as _logging
 
         try:
@@ -318,6 +354,78 @@ class Branch(Element, Relational):
         if self._observer is None:
             return True
         return await self._observer.authorize(action)
+
+    def _origin_filtered_handler(self, handler: Any) -> Any:
+        """Wrap a branch-owned bus handler so a shared session bus only
+        invokes it for events that originate from this branch.
+
+        Emissions that carry a ``branch_id`` kwarg (e.g. ``UserPromptSubmit``)
+        are matched against this branch's id; emissions that don't (e.g.
+        ``SessionStart``/``SessionEnd``, which are genuinely session-wide)
+        pass through unfiltered. Without this, every branch sharing a
+        session's bus would see every other branch's events.
+        """
+        from lionagi.ln.concurrency import maybe_await
+
+        origin_id = str(self.id)
+
+        async def _filtered(**kwargs: Any) -> Any:
+            branch_id = kwargs.get("branch_id")
+            if branch_id is not None and branch_id != origin_id:
+                return None
+            return await maybe_await(handler(**kwargs))
+
+        return _filtered
+
+    def attach_hook_bus(self, bus: Any) -> None:
+        """Set this branch's :class:`HookBus` and (re)register any external
+        handlers queued for bus attachment.
+
+        A standalone branch built via ``create_agent`` has no bus yet, so
+        ``hooks_external`` entries bound to bus-only events (``UserPromptSubmit``,
+        ``SessionStart``/``SessionEnd``/``PostToolUseFailure``) cannot attach
+        at config time; ``lionagi.agent.factory._wire_external_hooks`` queues
+        them onto ``_pending_hook_bus_entries`` instead of dropping them.
+        That list is retained for the branch's lifetime, not cleared after
+        the first flush, so a branch moved between sessions (``Session.
+        remove_branch`` then ``include_branches``/``new_branch`` elsewhere)
+        re-registers the same external handlers on its new session's bus
+        instead of silently losing them. Re-attaching the same bus is a
+        no-op for entries already registered on it -- only the entries
+        appended since the last sync onto the current bus are flushed.
+        Every seam that gives this branch a bus -- ``Session.include_branches``
+        and the lazy ``Session.hooks`` property -- must route the assignment
+        through this method so those queued handlers actually attach, rather
+        than a configured guard silently never firing.
+
+        Each registered handler is wrapped with an origin-branch filter (see
+        ``_origin_filtered_handler``) so a bus shared by multiple branches
+        never cross-fires one branch's hook for another branch's event.
+        Switching to a genuinely different bus -- or detaching entirely via
+        ``attach_hook_bus(None)`` -- first unregisters every wrapper this
+        branch put on the old bus, so a reparented or removed branch leaves
+        no stale handler behind.
+        """
+        old_bus = self._hook_bus_synced_to
+        if old_bus is not None and old_bus is not bus:
+            for point, wrapped in self._hook_bus_registered:
+                old_bus.off(point, wrapped)
+            self._hook_bus_registered = []
+            self._hook_bus_synced_count = 0
+
+        self._hooks = bus
+        if bus is None:
+            self._hook_bus_synced_to = None
+            return
+        if bus is not self._hook_bus_synced_to:
+            self._hook_bus_synced_to = bus
+            self._hook_bus_synced_count = 0
+        unsynced = self._pending_hook_bus_entries[self._hook_bus_synced_count :]
+        for point, handler in unsynced:
+            wrapped = self._origin_filtered_handler(handler)
+            bus.on(point, wrapped)
+            self._hook_bus_registered.append((point, wrapped))
+        self._hook_bus_synced_count = len(self._pending_hook_bus_entries)
 
     async def _persist_via_bus(self, msg: Any) -> None:
         """on_message_added hook: emit MESSAGE_ADD for ordered persistence."""
@@ -360,15 +468,23 @@ class Branch(Element, Relational):
 
             await self._safe_emit(RunStart())
         _t0 = _time.monotonic()
+        # This wrapper owns the lifecycle pair for the operation; suppress the
+        # nested run() generator's own pair so one CLI-backed operate() emits
+        # exactly one RunStart/RunEnd (same task-scoped mechanism ReAct uses).
+        from ._lifecycle_ctx import suppress_lifecycle_var
+
+        _lc_token = suppress_lifecycle_var.set(True)
         try:
             result = await coro
         except BaseException as exc:
+            suppress_lifecycle_var.reset(_lc_token)
             await self.drain_signals()
             if has_observer:
                 from .signal import RunFailed
 
                 await self._safe_emit(RunFailed(data=exc))
             raise
+        suppress_lifecycle_var.reset(_lc_token)
         await self.drain_signals()
         if has_observer:
             from .signal import build_run_end
@@ -458,6 +574,24 @@ class Branch(Element, Relational):
             message.sender = sender or self.id
             message.recipient = branch_clone.id
 
+        current_progression = self.metadata.get("current_progression")
+        if current_progression is not None:
+            # Messages get new IDs on clone (Message.clone), but each carries
+            # metadata["clone_from"] = str(original_id); use that to map the
+            # source's active-context subset onto the clone's messages so
+            # messages evicted from view are not fed back into the clone.
+            id_map = {
+                clone_from: msg.id
+                for msg in branch_clone.msgs.messages
+                if (clone_from := msg.metadata.get("clone_from")) is not None
+            }
+            cloned_progression = Progression(
+                order=[
+                    id_map[str(old_id)] for old_id in current_progression if str(old_id) in id_map
+                ]
+            )
+            branch_clone.metadata["current_progression"] = cloned_progression
+
         return branch_clone
 
     def _register_tool(self, tools: FuncTool | LionTool, update: bool = False):
@@ -545,8 +679,12 @@ class Branch(Element, Relational):
     def _serialize_metadata_if_clone(self, v):
         if "clone_from" not in v:
             return v
-        v = dict(v)
         source = v["clone_from"]
+        # A clone restored via from_dict keeps clone_from as the already-serialized
+        # dict; re-serializing must be idempotent, not dereference source.id on a dict.
+        if isinstance(source, dict):
+            return v
+        v = dict(v)
         v["clone_from"] = {
             "id": str(source.id),
             "user": str(source.user),
@@ -590,6 +728,10 @@ class Branch(Element, Relational):
 
     @classmethod
     def from_dict(cls, data: dict):
+        # Copy first: the pops below would otherwise strip messages, chat_model,
+        # and log_config out of the caller's snapshot, so it could not be reused
+        # for a retry, comparison, or a second restoration.
+        data = dict(data)
         dict_ = {
             "messages": data.pop("messages", Unset),
             "logs": data.pop("logs", Unset),
@@ -627,6 +769,72 @@ class Branch(Element, Relational):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._log_manager.adump(clear=True)
 
+    @overload
+    async def chat(
+        self,
+        instruction: Instruction | JsonValue = None,
+        guidance: JsonValue = None,
+        context: JsonValue = None,
+        sender: ID.Ref = None,
+        recipient: ID.Ref = None,
+        request_fields: list[str] | dict[str, JsonValue] = None,
+        response_format: type[BaseModel] | BaseModel = None,
+        progression: Progression | list[ID[RoledMessage].ID] = None,
+        imodel: iModel = None,
+        tool_schemas: list[dict] = None,
+        images: list = None,
+        image_detail: Literal["low", "high", "auto"] = None,
+        plain_content: str = None,
+        return_ins_res_message: Literal[False] = False,
+        include_token_usage_to_model: bool = False,
+        _turn_origin: Any = None,
+        **kwargs,
+    ) -> str: ...
+
+    @overload
+    async def chat(
+        self,
+        instruction: Instruction | JsonValue = None,
+        guidance: JsonValue = None,
+        context: JsonValue = None,
+        sender: ID.Ref = None,
+        recipient: ID.Ref = None,
+        request_fields: list[str] | dict[str, JsonValue] = None,
+        response_format: type[BaseModel] | BaseModel = None,
+        progression: Progression | list[ID[RoledMessage].ID] = None,
+        imodel: iModel = None,
+        tool_schemas: list[dict] = None,
+        images: list = None,
+        image_detail: Literal["low", "high", "auto"] = None,
+        plain_content: str = None,
+        return_ins_res_message: Literal[True] = ...,
+        include_token_usage_to_model: bool = False,
+        _turn_origin: Any = None,
+        **kwargs,
+    ) -> tuple[Instruction, AssistantResponse]: ...
+
+    @overload
+    async def chat(
+        self,
+        instruction: Instruction | JsonValue = None,
+        guidance: JsonValue = None,
+        context: JsonValue = None,
+        sender: ID.Ref = None,
+        recipient: ID.Ref = None,
+        request_fields: list[str] | dict[str, JsonValue] = None,
+        response_format: type[BaseModel] | BaseModel = None,
+        progression: Progression | list[ID[RoledMessage].ID] = None,
+        imodel: iModel = None,
+        tool_schemas: list[dict] = None,
+        images: list = None,
+        image_detail: Literal["low", "high", "auto"] = None,
+        plain_content: str = None,
+        return_ins_res_message: bool = ...,
+        include_token_usage_to_model: bool = False,
+        _turn_origin: Any = None,
+        **kwargs,
+    ) -> str | tuple[Instruction, AssistantResponse]: ...
+
     async def chat(
         self,
         instruction: Instruction | JsonValue = None,
@@ -644,8 +852,9 @@ class Branch(Element, Relational):
         plain_content: str = None,
         return_ins_res_message: bool = False,
         include_token_usage_to_model: bool = False,
+        _turn_origin: Any = None,
         **kwargs,
-    ) -> tuple[Instruction, AssistantResponse]:
+    ) -> str | tuple[Instruction, AssistantResponse]:
         """Invoke the chat model. Does not auto-add messages to the branch."""
         from lionagi.operations.chat.chat import ChatParam, chat
 
@@ -664,11 +873,32 @@ class Branch(Element, Relational):
                 image_detail=image_detail or "auto",
                 plain_content=plain_content or "",
                 include_token_usage_to_model=include_token_usage_to_model,
-                imodel=imodel or self.chat_model,
+                imodel=self.chat_model if ChatParam._is_sentinel(imodel) else imodel,
                 imodel_kw=kwargs,
+                turn_origin=_turn_origin,
             ),
             return_ins_res_message=return_ins_res_message,
         )
+
+    async def chat_and_record(self, instruction: Instruction | JsonValue = None, **kwargs) -> str:
+        """Like ``chat()``, but adds the turn via the hooked async add-path
+        (mirrors ``communicate()``), so ``on_message_added`` observers (e.g.
+        persistence) see it.
+
+        Mints a turn-origin token (this is a public ingress) and forwards it
+        unchanged into the delegated ``chat()`` call, so that call consumes
+        the same token rather than minting a second one of its own.
+        """
+        from lionagi.operations._turn_origin import TurnOrigin
+
+        kwargs.pop("return_ins_res_message", None)
+        turn_origin = TurnOrigin.unset().mint_if_unset()
+        ins, res = await self.chat(
+            instruction, return_ins_res_message=True, _turn_origin=turn_origin, **kwargs
+        )
+        await self.msgs.a_add_message(instruction=ins)
+        await self.msgs.a_add_message(assistant_response=res)
+        return res.response
 
     async def parse(
         self,
@@ -849,12 +1079,8 @@ class Branch(Element, Relational):
             k: v for k, v in kwargs.items() if k not in {"verbose_analysis", "verbose_action"}
         }
 
-        # Emit lifecycle signals directly rather than through _observed_run so
-        # that exactly ONE RunStart is emitted per ReAct call.  Using
-        # _observed_run would be correct today, but if operate() inside
-        # ReActStream were ever wrapped with its own _observed_run, the outer
-        # wrapper here would produce N+1 RunStart events.  Inlining the
-        # emission removes that coupling.
+        # Emitted directly (not via _observed_run) to guarantee exactly ONE
+        # RunStart per ReAct call, decoupled from operate()'s own emission.
         import time as _time  # noqa: PLC0415
 
         has_observer = self._observer is not None
@@ -862,9 +1088,8 @@ class Branch(Element, Relational):
             from .signal import RunStart
 
             await self._safe_emit(RunStart())
-        # Suppress nested lifecycle emission from run() calls inside ReActStream
-        # using a task-scoped ContextVar so that concurrent runs on the SAME
-        # branch are never affected — each asyncio task carries its own copy.
+        # Task-scoped ContextVar suppresses nested run() emission inside
+        # ReActStream without affecting concurrent runs on the same branch.
         from ._lifecycle_ctx import suppress_lifecycle_var
 
         _t0_react = _time.monotonic()
@@ -996,6 +1221,7 @@ class Branch(Element, Relational):
         image_detail="auto",
         stream_persist: bool = False,
         persist_dir: str | None = None,
+        snapshot_dir: str | None = None,
         response_format=None,
         **kwargs,
     ) -> "AsyncGenerator[RoledMessage, None]":
@@ -1017,6 +1243,8 @@ class Branch(Element, Relational):
             param_kw["imodel"] = chat_model
         if persist_dir is not None:
             param_kw["persist_dir"] = persist_dir
+        if snapshot_dir is not None:
+            param_kw["snapshot_dir"] = snapshot_dir
         if kwargs:
             param_kw["imodel_kw"] = kwargs
 

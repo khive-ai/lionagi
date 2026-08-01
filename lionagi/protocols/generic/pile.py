@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import threading
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Generator, Iterator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 from uuid import UUID
@@ -31,7 +35,61 @@ T = TypeVar("T", bound=E)
 _ADAPTER_REGISTERED = False
 
 
+def _serialize_records(records: list[dict], obj_key: str) -> str:
+    """Serialize row dicts to a JSONL or CSV string using only the standard
+    library, so the common serialization paths carry no pandas dependency.
+
+    - ``json`` → one compact JSON object per line (JSONL), newline-terminated
+      so ``mode="a"`` stays valid JSONL, matching the prior
+      ``DataFrame.to_json(orient="records", lines=True)`` which ended in "\n".
+    - ``csv`` → a header of every key seen (in first-appearance order) followed
+      by one row per record; missing keys render empty, as pandas did.
+
+    Values come from ``to_dict(mode="json")``, i.e. lionagi's canonical orjson
+    encoding (ISO datetimes, shortest round-trippable floats). That is
+    value-equal and round-trippable via ``Element.from_dict``, but its text is
+    not byte-identical to pandas for datetime/high-precision-float fields
+    (pandas rendered epoch-ms datetimes and double_precision floats).
+
+    ``parquet`` is intentionally unsupported here — it stays on the pandas /
+    ``to_df`` path in ``dump``/``adump`` since it needs a columnar engine.
+    """
+    if obj_key == "json":
+        return "".join(
+            json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in records
+        )
+    if obj_key == "csv":
+        fieldnames: list[str] = []
+        seen: set[str] = set()
+        for r in records:
+            for key in r:
+                if key not in seen:
+                    seen.add(key)
+                    fieldnames.append(key)
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(records)
+        return buf.getvalue()
+    raise ValueError(
+        f"Unsupported obj_key: {obj_key}. Supported keys are 'json', 'csv', 'parquet'."
+    )
+
+
 def _validate_item_type(value, /) -> set[type[T]] | None:
+    """Normalize item_type to a set of classes.
+
+    Conformance is deliberately not checked here. Observable is a structural
+    protocol, so whether something is admissible is a property of an instance
+    (does it expose an ``id``?), not of its class -- a class that only assigns
+    ``self.id`` in ``__init__`` declares nothing at class level yet its
+    instances conform perfectly. Any class-level approximation would reject
+    exactly those types while the pile itself accepts their instances.
+
+    Admission stays honest instead: every item is checked against Observable
+    as it is included, so a class that cannot produce conforming instances
+    simply never gets one past that gate.
+    """
     if value is None:
         return None
 
@@ -49,22 +107,16 @@ def _validate_item_type(value, /) -> set[type[T]] | None:
             except Exception as e:
                 raise ValidationError.from_value(
                     i,
-                    expected="A subclass of Observable.",
+                    expected="An importable type.",
                     cause=e,
                 ) from e
         if isinstance(subcls, type):
             if is_union_type(subcls):
-                members = union_members(subcls)
-                for m in members:
-                    if not issubclass(m, Observable):
-                        raise ValidationError.from_value(m, expected="A subclass of Observable.")
-                    out.add(m)
-            elif not issubclass(subcls, Observable):
-                raise ValidationError.from_value(subcls, expected="A subclass of Observable.")
+                out.update(union_members(subcls))
             else:
                 out.add(subcls)
         else:
-            raise ValidationError.from_value(i, expected="A subclass of Observable.")
+            raise ValidationError.from_value(i, expected="A type.")
 
     if len(value) != len(set(value)):
         raise ValidationError("Detected duplicated item types in item_type.")
@@ -137,9 +189,40 @@ def _validate_collections(value: Any, item_type: set | None, strict_type: bool, 
 
 
 class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
-    """Thread-safe, async-compatible, ordered collection of Observable elements."""
+    """Ordered collection of Observable elements with a two-lock concurrency contract.
 
-    collections: dict[UUID, T] = Field(default_factory=dict)
+    Concurrency contract:
+
+    - The sync API (``@synchronized`` methods, subscripting, iteration
+      snapshots) is thread-safe under ``_lock``.
+    - The async API (``a``-prefixed ``@async_synchronized`` methods) is
+      task-safe under ``_async_lock`` AND excludes sync callers in other
+      threads: the async wrapper holds both locks (async lock first, then a
+      non-blocking spin on the threading lock) for the duration of the call.
+    - Iteration (``__iter__`` / ``__aiter__``) captures a point-in-time
+      snapshot of the *order* under the lock; item lookup stays live, so
+      removing a not-yet-visited item raises ``KeyError`` at that step
+      (fail-loud) instead of silently yielding a stale object. ``keys`` /
+      ``values`` / ``items`` return fully materialized snapshots.
+    - A Pile is iterable but is NOT itself an iterator, matching ``list`` and
+      ``dict``. Traversal position lives in the object ``iter(pile)`` returns,
+      so concurrent readers each get their own cursor and a copied Pile never
+      inherits a partially consumed one.
+    - The exclusion boundary is CROSS-THREAD, not cross-task. On the event
+      loop's own thread, a sync call made by a different task while an async
+      operation is mid-await re-enters the RLock (thread-owned) and proceeds.
+      Same-thread callers are cooperative by design; enforcing task-level
+      exclusion for sync calls on the loop thread would deadlock the loop.
+      Async-side critical regions (``async with pile``, ``adump``,
+      ``adapt_to_async``, ``__aiter__``) all use the ordered both-lock
+      protocol, so they exclude sync callers running in other threads.
+    """
+
+    # Value type is Any, not T: _validate_collections is the sole admission gate
+    # (structural -- any id-bearing Observable), so pydantic must not re-reject a
+    # duck-typed item it already accepted. The class stays Generic[T] and every
+    # accessor is still typed T; only the stored-field re-validation is relaxed.
+    collections: dict[UUID, Any] = Field(default_factory=dict)
     item_type: set | None = Field(
         default=None,
         description="Set of allowed types for items in the pile.",
@@ -162,6 +245,11 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         "strict_type",
     }
 
+    # Two locks, one ordered protocol: sync methods hold _lock; async methods
+    # hold _async_lock THEN _lock (via @async_synchronized), so the two API
+    # families mutually exclude. _lock is an RLock because sync methods
+    # reenter each other (update -> include, exclude -> pop) and async bodies
+    # may call @synchronized siblings while the wrapper already holds it.
     _lock: threading.RLock = PrivateAttr(default_factory=threading.RLock)
     _async_lock: ConcurrencyLock = PrivateAttr(default_factory=ConcurrencyLock)
 
@@ -228,6 +316,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     ) -> Pile:
         return cls(**data)
 
+    @synchronized
     def __setitem__(
         self,
         key: ID.Ref | ID.RefSeq | int | slice,
@@ -311,43 +400,56 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     ) -> T | Pile | D:
         return self._get(key, default)
 
+    @synchronized
     def keys(self) -> Sequence[str]:
         return list(self.progression)
 
+    @synchronized
     def values(self) -> Sequence[T]:
         return [self.collections[key] for key in self.progression]
 
+    @synchronized
     def items(self) -> Sequence[tuple[UUID, T]]:
         return [(key, self.collections[key]) for key in self.progression]
 
+    @synchronized
     def is_empty(self) -> bool:
         return len(self.progression) == 0
 
+    @synchronized
     def size(self) -> int:
         return len(self.progression)
 
     def __iter__(self) -> Iterator[T]:
-        current_order = list(self.progression)
+        with self._lock:
+            order = list(self.progression)
 
-        for key in current_order:
+        # Order is a point-in-time snapshot, but item lookup stays live:
+        # removing a not-yet-visited item makes the traversal raise KeyError
+        # (fail-loud) rather than silently yielding a stale object.
+        for key in order:
             yield self.collections[key]
 
-    def __next__(self) -> T:
-        try:
-            return next(iter(self))
-        except StopIteration:
-            raise StopIteration("End of pile") from None
+    # A Pile is iterable but deliberately NOT an iterator: traversal state lives
+    # in the object returned by ``iter(self)``, never on the container. Two
+    # traversals of the same Pile are therefore independent, and a Pile has no
+    # cursor for copying, pickling or concurrent readers to disagree about.
+    # ``next(pile)`` raises TypeError; use ``it = iter(pile)`` and ``next(it)``.
 
+    @synchronized
     def __getitem__(self, key: ID.Ref | ID.RefSeq | int | slice) -> Any | list | T:
         return self._getitem(key)
 
+    @synchronized
     def __contains__(self, item: ID.RefSeq | ID.Ref) -> bool:
         return item in self.progression
 
+    @synchronized
     def __len__(self) -> int:
         return len(self.collections)
 
     @override
+    @synchronized
     def __bool__(self) -> bool:
         return not self.is_empty()
 
@@ -484,7 +586,27 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     @property
     def async_lock(self):
+        # Task-level serialization only: holding this lock alone does NOT
+        # exclude sync callers in other threads. Use `async with pile:` for
+        # the full cross-thread boundary.
         return self._async_lock
+
+    async def _spin_acquire_sync_lock(self) -> None:
+        # Non-blocking spin so the event loop keeps running while a sync
+        # thread holds _lock. Callers must already hold _async_lock.
+        while not self._lock.acquire(blocking=False):
+            await _concurrency_sleep(0.0005)
+
+    @asynccontextmanager
+    async def _both_locks(self) -> AsyncIterator[None]:
+        # Ordered both-lock protocol shared by every async critical region:
+        # _async_lock serializes tasks, then the spin excludes sync threads.
+        async with self._async_lock:
+            await self._spin_acquire_sync_lock()
+            try:
+                yield
+            finally:
+                self._lock.release()
 
     @async_synchronized
     async def asetitem(
@@ -552,18 +674,18 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         return self._get(key, default)
 
     async def __aiter__(self) -> AsyncIterator[T]:
-        async with self.async_lock:
-            current_order = list(self.progression)
+        async with self._both_locks():
+            order = list(self.progression)
 
-        for key in current_order:
+        # Same contract as __iter__: snapshotted order, live item lookup.
+        for key in order:
             yield self.collections[key]
 
-    async def __anext__(self) -> T:
-        try:
-            return await anext(self.AsyncPileIterator(self))
-        except StopAsyncIteration:
-            raise StopAsyncIteration("End of pile") from None
+    # Async mirror of the sync contract: a Pile is async-iterable but not an
+    # async iterator. ``anext(pile)`` raises TypeError; use ``async for`` or
+    # hold ``Pile.AsyncPileIterator(pile)``, which is a real async iterator.
 
+    @synchronized
     def filter(self, predicate: Callable[[T], bool]) -> Pile[T]:
         return self._filter_by_function(predicate)
 
@@ -760,21 +882,32 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     class AsyncPileIterator:
         def __init__(self, pile: Pile):
             self.pile = pile
-            self.index = 0
+            self._agen: AsyncIterator[T] | None = None
 
         def __aiter__(self) -> AsyncIterator[T]:
             return self
 
         async def __anext__(self) -> T:
-            if self.index >= len(self.pile):
-                raise StopAsyncIteration
-            item = self.pile[self.pile.progression[self.index]]
-            self.index += 1
+            # Delegate to Pile.__aiter__ so this legacy iterator shares the
+            # both-lock snapshot contract and never takes the blocking sync
+            # subscript path on the event loop.
+            if self._agen is None:
+                self._agen = self.pile.__aiter__()
+            item = await anext(self._agen)
+            # Cooperative checkpoint between elements so bulk iteration over a
+            # large pile cannot monopolize the event loop.
             await _concurrency_sleep(0)
             return item
 
     async def __aenter__(self) -> Self:
+        # Ordered both-lock acquisition held for the whole `async with pile:`
+        # block, so sync callers in other threads are excluded until exit.
         await self.async_lock.__aenter__()
+        try:
+            await self._spin_acquire_sync_lock()
+        except BaseException:
+            await self.async_lock.__aexit__(None, None, None)
+            raise
         return self
 
     async def __aexit__(
@@ -783,6 +916,7 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         exc_val: BaseException | None,
         exc_tb: Any,
     ) -> None:
+        self._lock.release()
         await self.async_lock.__aexit__(exc_type, exc_val, exc_tb)
 
     def is_homogenous(self) -> bool:
@@ -790,8 +924,11 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     @classmethod
     def list_adapters(cls) -> list[str]:
-        syn_ = cls._adapter_registry._reg.keys()
-        asy_ = cls._async_registry._reg.keys()
+        # Reach the registries through their accessors: the sync registry is a
+        # per-class attribute created on demand, and the async registry is None
+        # until first use, so the bare class attributes do not exist.
+        syn_ = cls._registry()._reg.keys()
+        asy_ = cls._areg()._reg.keys()
         return list(set(syn_) | set(asy_))
 
     def adapt_to(self, obj_key: str, many=False, **kw: Any) -> Any:
@@ -805,7 +942,10 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
 
     async def adapt_to_async(self, obj_key: str, many=False, **kw: Any) -> Any:
         kw["adapt_meth"] = "to_dict"
-        return await super().adapt_to_async(obj_key=obj_key, many=many, **kw)
+        # Serialize under the both-lock protocol so a sync-thread mutation
+        # cannot race the adapter's snapshot of the pile.
+        async with self._both_locks():
+            return await super().adapt_to_async(obj_key=obj_key, many=many, **kw)
 
     @classmethod
     async def adapt_from_async(cls, obj: Any, obj_key: str, many=False, **kw: Any):
@@ -821,10 +961,19 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
                 "Please install it via: pip install pandas  or  uv add pandas"
             ) from e
 
-        df = DataFrameAdapter.to_obj(list(self.collections.values()), adapt_meth="to_dict", **kw)
+        # Serialize in progression (logical) order, not dict insertion order,
+        # so the frame matches iteration and every ordered dump/adump path.
+        ordered = [self.collections[key] for key in self.progression]
+        df = DataFrameAdapter.to_obj(ordered, adapt_meth="to_dict", **kw)
         if columns:
             return df[columns]
         return df
+
+    def _ordered_records(self) -> list[dict]:
+        """Row dicts in progression (logical) order, JSON-mode serialized so
+        every value is a JSON primitive — the shared snapshot behind the
+        pandas-free json/csv dump paths (parquet still goes via ``to_df``)."""
+        return [self.collections[key].to_dict(mode="json") for key in self.progression]
 
     def dump(
         self,
@@ -834,24 +983,38 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
         mode: Literal["w", "a"] = "w",
         clear=False,
         **kw,
-    ) -> None:
-        df = self.to_df()
+    ) -> str | None:
+        out = None
         match obj_key:
             case "parquet":
-                df.to_parquet(fp, engine="pyarrow", index=False, **kw)
-            case "json":
-                out = df.to_json(fp, orient="records", lines=True, mode=mode, **kw)
-                return out if out is not None else None
-            case "csv":
-                out = df.to_csv(fp, index=False, mode=mode, **kw)
-                return out if out is not None else None
+                # Parquet needs a columnar engine; keep it on the pandas path.
+                self.to_df().to_parquet(fp, engine="pyarrow", index=False, **kw)
+            case "json" | "csv":
+                # json/csv use the stdlib serializer, not pandas — reject the
+                # old pandas passthrough kwargs loudly rather than dropping them.
+                if kw:
+                    raise TypeError(
+                        f"dump(obj_key={obj_key!r}) takes no extra keyword arguments "
+                        f"(got {sorted(kw)}); it serializes with the stdlib, not pandas."
+                    )
+                text = _serialize_records(self._ordered_records(), obj_key)
+                if fp is None:
+                    # fp=None returns the serialized string, as the old
+                    # DataFrame.to_json/to_csv(path_or_buf=None) did.
+                    out = text
+                else:
+                    with open(fp, mode, encoding="utf-8", newline="") as f:
+                        f.write(text)
             case _:
                 raise ValueError(
                     f"Unsupported obj_key: {obj_key}. Supported keys are 'json', 'csv', 'parquet'."
                 )
 
+        # Clear only after a successful write, and for every format: the json/csv
+        # branches previously returned early and skipped this.
         if clear:
             self.clear()
+        return out
 
     async def adump(
         self,
@@ -864,28 +1027,34 @@ class Pile(Element, Collective[T], Generic[T], Adaptable, AsyncAdaptable):
     ) -> None:
         from lionagi.ln.concurrency import run_sync
 
-        async with self.async_lock:
+        if obj_key not in ("json", "csv", "parquet"):
+            raise ValueError(
+                f"Unsupported obj_key: {obj_key}. Supported keys are 'json', 'csv', 'parquet'."
+            )
+        if obj_key in ("json", "csv") and kw:
+            raise TypeError(
+                f"adump(obj_key={obj_key!r}) takes no extra keyword arguments "
+                f"(got {sorted(kw)}); it serializes with the stdlib, not pandas."
+            )
+
+        # Snapshot under the lock so a concurrent mutation cannot race the write.
+        async with self._both_locks():
             snapshot_ids = set(self.collections.keys())
-            df = self.to_df()
+            df = self.to_df() if obj_key == "parquet" else None
+            records = None if obj_key == "parquet" else self._ordered_records()
 
         def _write() -> None:
-            match obj_key:
-                case "parquet":
-                    df.to_parquet(fp, engine="pyarrow", index=False, **kw)
-                case "json":
-                    df.to_json(fp, orient="records", lines=True, mode=mode, **kw)
-                case "csv":
-                    df.to_csv(fp, index=False, mode=mode, **kw)
-                case _:
-                    raise ValueError(
-                        f"Unsupported obj_key: {obj_key}. "
-                        "Supported keys are 'json', 'csv', 'parquet'."
-                    )
+            if obj_key == "parquet":
+                df.to_parquet(fp, engine="pyarrow", index=False, **kw)
+            else:
+                text = _serialize_records(records, obj_key)
+                with open(fp, mode, encoding="utf-8", newline="") as f:
+                    f.write(text)
 
         await run_sync(_write)
 
         if clear:
-            async with self.async_lock:
+            async with self._both_locks():
                 self.progression.exclude(list(snapshot_ids))
                 for uid in snapshot_ids:
                     self.collections.pop(uid, None)
@@ -937,7 +1106,7 @@ def to_list_type(value: Any, /) -> list[Any]:
     if isinstance(value, UUID):
         return [value]
     if isinstance(value, str):
-        return ID.get_id(value) if ID.is_id(value) else []
+        return [ID.get_id(value)] if ID.is_id(value) else []
     if isinstance(value, Element):
         return [value]
     if hasattr(value, "values") and callable(value.values):

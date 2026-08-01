@@ -4,25 +4,53 @@
 from __future__ import annotations
 
 import json
+import math
+import shutil
+import sqlite3
+import struct
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import JSON, bindparam, event, inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import JSON, MetaData, bindparam, event, inspect, text
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.schema import CreateTable
 
-from lionagi._paths import LIONAGI_HOME
+from lionagi._paths import LIONAGI_HOME, ensure_lionagi_dir
 from lionagi.config import settings
+from lionagi.libs.path_safety import check_path_safe as _check_path_safe
 from lionagi.ln import json_dumps as _json_dumps
-from lionagi.ln.concurrency import Lock
-from lionagi.state.engine import dialect_of, make_engine, normalize_state_db_url
+from lionagi.ln.concurrency import CancelScope, Lock, get_cancelled_exc_class, shield
+from lionagi.state.engine import (
+    dialect_of,
+    make_engine,
+    make_readonly_engine,
+    normalize_state_db_url,
+)
+from lionagi.state.lifecycle import LifecycleNotFoundError as _LifecycleNotFoundError
+from lionagi.state.lifecycle import adapters as _lifecycle_adapters
+from lionagi.state.lifecycle import policy as _lifecycle_policy
+from lionagi.state.lifecycle.models import (
+    ActorRecord as _ActorRecord,
+)
+from lionagi.state.lifecycle.models import (
+    InitialStateCommand as _InitialStateCommand,
+)
+from lionagi.state.lifecycle.models import (
+    ReasonRecord as _ReasonRecord,
+)
+from lionagi.state.lifecycle.service import SQLAlchemyLifecycleService as _LifecycleService
+from lionagi.state.reasons import LEGACY_IMPORTED as _LEGACY_IMPORTED
 from lionagi.state.reasons import (
     PlayReasons as _PlayReasons,
 )
 from lionagi.state.reasons import (
     RunReasons as _RunReasons,
+)
+from lionagi.state.reasons import (
+    ScheduleReasons as _ScheduleReasons,
 )
 from lionagi.state.reasons import (
     ShowReasons as _ShowReasons,
@@ -37,11 +65,14 @@ from lionagi.state.reasons import (
     validate_reason_code as _validate_reason_code,
 )
 from lionagi.state.schema_meta import metadata
+from lionagi.state.schema_meta import schedules as _schedules_table
 from lionagi.state.schema_migrations import MIGRATION_COLUMNS as _MIGRATION_COLUMNS
+from lionagi.state.schema_migrations import MIGRATION_INDEXES as _MIGRATION_INDEXES
 
 _RUN_DEFAULTS: dict[str, str] = {
     "running": _RunReasons.STARTED_OK,
     "completed": _RunReasons.COMPLETED_OK,
+    "completed_empty": _RunReasons.COMPLETED_EMPTY_NO_EVIDENCE,
     "failed": _RunReasons.FAILED_EXCEPTION,
     "timed_out": _RunReasons.TIMED_OUT_DEADLINE,
     "aborted": _RunReasons.ABORTED_USER,
@@ -59,6 +90,18 @@ _PLAY_DEFAULTS: dict[str, str] = {
     "gate_failed": _PlayReasons.GATE_FAILED_VERDICT,
 }
 
+_INITIAL_REASON_CODES: dict[tuple[str, str], str] = {
+    ("session", "running"): _RunReasons.STARTED_OK,
+    ("invocation", "running"): _RunReasons.STARTED_OK,
+    ("show", "active"): _ShowReasons.ACTIVE_CREATED,
+    ("show", "imported"): _LEGACY_IMPORTED,
+    ("play", "pending"): _PlayReasons.PENDING_CREATED,
+    ("schedule_run", "queued"): _ScheduleReasons.QUEUED_CREATED,
+    ("schedule_run", "running"): _RunReasons.STARTED_OK,
+    ("schedule_run", "failed"): _RunReasons.FAILED_EXCEPTION,
+    ("schedule_run", "skipped"): _ScheduleReasons.SKIPPED_PRECONDITION,
+}
+
 
 def _default_reason_code_for_entity_status(entity_type: str, status: str) -> str | None:
     """Map (entity_type, status) to canonical reason_code, or None."""
@@ -71,18 +114,88 @@ def _default_reason_code_for_entity_status(entity_type: str, status: str) -> str
     return None
 
 
-def _default_reason_code_for_status(status: str) -> str:
-    """Legacy run-only resolver; prefer _default_reason_code_for_entity_status."""
-    return _RUN_DEFAULTS.get(status, _RunReasons.FAILED_EXCEPTION)
-
-
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 DEFAULT_DB_PATH = LIONAGI_HOME / "state.db"
+
+# Shape of the schema this code applies. ``_apply_schema`` stamps it into
+# ``schema_meta.version`` on every open, so the recorded version describes the
+# database as it stands after migrations rather than as it was created. Bump it
+# whenever a migration changes the shape a reader would see -- a new table, a
+# rebuilt CHECK constraint, a column whose meaning changed. Version "1" is the
+# original shape, before the migrations now applied on open existed.
+SCHEMA_VERSION = "2"
+_SCHEMA_MIGRATION_LOCK_KEY = "lionagi.state.schema.migration"
+_DISPATCHED_AT_BACKFILL_KEY = "migration.dispatched_at_backfill"
+
+
+class SchemaTooNewError(RuntimeError):
+    """The database records a schema version this code does not understand.
+
+    Raised by a writable open when ``schema_meta.version`` is higher than
+    ``SCHEMA_VERSION``. A writable open rewrites the database into the shape
+    this code applies and then stamps that shape into the version row; neither
+    step has established anything about a shape written by a later release, so
+    both are refused rather than performed blind. Read-only opens apply no
+    schema and are unaffected.
+    """
+
+
+def state_db_file() -> Path | None:
+    """The local file a default ``StateDB()`` would open, if it opens one at all.
+
+    Resolved the same way ``StateDB.__init__`` resolves it, so the two cannot
+    disagree about which store is in play. Returns None when the configured
+    store is not a local file — a server, or an in-memory database — because
+    then there is no path to report and nothing a filesystem check can say
+    about it.
+    """
+    raw = settings.LIONAGI_STATE_DB_URL
+    if raw is None:
+        raw = DEFAULT_DB_PATH
+    url = normalize_state_db_url(raw)
+    if dialect_of(url) != "sqlite":
+        return None
+    from sqlalchemy.engine import make_url
+
+    database = make_url(url).database
+    if not database or database == ":memory:":
+        return None
+    return Path(database)
+
+
+def state_db_known_absent() -> bool:
+    """Whether the store a default ``StateDB()`` would open is known not to exist.
+
+    Callers use this to tell "there is no store, so there is no record of
+    anything" apart from "the store is there and something went wrong reading
+    it". Those are different answers and a caller acts differently on each, so
+    the check has to be about the store that will actually be opened. Testing
+    ``DEFAULT_DB_PATH`` instead asks about a file that need not be involved:
+    ``LIONAGI_STATE_DB_URL`` moves the store elsewhere, and then the default
+    path is absent while every row being asked about exists.
+
+    Only a positive answer is confident. Where existence is not a filesystem
+    question this reports False and leaves the open attempt to give the real
+    answer.
+    """
+    path = state_db_file()
+    return path is not None and not path.exists()
+
+
+# The single definition of which schedule_run statuses count as "fired and
+# resolved" for budget bookkeeping (max_runs, one-shot auto-disable). The
+# scheduler service layer must observe the same set — both its defaults and
+# this one point here so they cannot drift. 'timed_out' counts: a reaped run
+# fired and consumed real work. 'skipped' (never ran) and 'running' (not yet
+# resolved) do not; admission paths that need in-flight rows opt in
+# explicitly with ("running", *TERMINAL_RUN_STATUSES).
+TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "failed", "cancelled", "timed_out")
 
 _VALID_STATUS_SOURCES: frozenset[str] = frozenset({"executor", "agent", "admin", "system"})
 
 _SESSION_COLUMNS = frozenset(
     {
+        "cc_session_id",
         "name",
         "user",
         "node_metadata",
@@ -113,25 +226,41 @@ _SESSION_COLUMNS = frozenset(
         "total_cost_usd",
         "num_turns",
         "duration_ms",
-        # ADR-0029 documents artifact_contract_json as fixed at session
+        # ADR-0064 documents artifact_contract_json as fixed at session
         # creation for the single-agent case, where the full contract
         # (playbook + agent profile) is already known at create_session time.
         # DAG flows break that assumption: which role runs which leg is only
         # known once planning finishes, which happens after create_session
         # (see _build_dag in cli/orchestrate/flow.py). This column is
-        # allowlisted here so that ONE extension write is possible — folding
-        # resolved per-leg role artifact_defaults into the flow-wide
-        # contract, done once at DAG-build time, strictly before any leg
-        # starts executing. No writer may touch it after that point; the
-        # anti-drift intent of ADR-0029 (no changes once work is underway)
-        # still holds, it is just anchored at "DAG built" instead of
-        # "session created" for this call path.
+        # allowlisted here for two writer classes, both append-only and both
+        # frozen before the work they describe ever runs: (1) _build_dag
+        # folds each planned leg's resolved role artifact_defaults in once,
+        # at DAG-build time, strictly before any leg starts executing; (2)
+        # _execute_dag folds a reactively spawned node's own entries in after
+        # that node completes, but what is expected of it (role defaults +
+        # its builder-stamped spawn_id) was frozen before it was ever
+        # queued, so this is still a "before work starts" declaration in
+        # substance — see the ADR-0064 "Reactive-spawn exception" paragraph.
+        # No other writer may touch this column; the anti-drift intent of
+        # ADR-0064 (no changes once what was expected has been acted on)
+        # still holds.
         "artifact_contract_json",
     }
 )
 
 _INVOCATION_STATUSES = frozenset(
-    {"running", "completed", "failed", "timed_out", "aborted", "cancelled"}
+    {
+        "running",
+        "completed",
+        # Completion-trust gate: flow/scheduler aggregation can settle an
+        # invocation on this status when a child session produced no commits
+        # ahead of base, no artifacts, and no assistant output.
+        "completed_empty",
+        "failed",
+        "timed_out",
+        "aborted",
+        "cancelled",
+    }
 )
 _INVOCATION_COLUMNS = frozenset(
     {
@@ -200,24 +329,96 @@ _BRANCH_COLUMNS = frozenset(
 )
 
 VALID_SESSION_STATUSES = frozenset(
-    {"running", "completed", "failed", "timed_out", "aborted", "cancelled"}
+    {
+        "running",
+        "completed",
+        # Completion-trust gate: loop exited clean but no commits ahead of base
+        # and no artifacts were produced — distinct from "completed" so
+        # operators/monitors can tell "ran and produced nothing" apart from a
+        # verified completion.
+        "completed_empty",
+        "failed",
+        "timed_out",
+        "aborted",
+        "cancelled",
+    }
 )
-SESSION_TERMINAL_STATUSES = frozenset({"completed", "failed", "timed_out", "aborted", "cancelled"})
-# Admin cannot mark completed/timed_out — those are system-determined.
+# Admin cannot mark completed/completed_empty/timed_out — those are system-determined.
 ADMIN_TRANSITION_TARGETS = frozenset({"failed", "aborted", "cancelled"})
 
 _SESSION_STATUSES = VALID_SESSION_STATUSES
 
+# ── ADR-0035 terminal-status vocabulary ────────────────────────────────
+# Terminal-state definitions live here, with the record schema, rather than
+# in any one CLI surface — update_status() enforces them uniformly for
+# every entity_type at the single write path; `li wait` reads the same
+# tables to build its per-kind terminal predicate. Sourced from the
+# lifecycle policy registry, the same pattern VALID_STATUSES_BY_ENTITY_TYPE
+# below uses, so this facade's terminal map can never drift from the
+# registry's own terminal_statuses.
+TERMINAL_STATUSES_BY_ENTITY_TYPE: dict[str, frozenset[str]] = {
+    entity_type: _lifecycle_policy.DEFAULT_REGISTRY.get(entity_type).terminal_statuses
+    for entity_type in ("session", "invocation", "schedule_run", "show", "play", "team")
+}
+SESSION_TERMINAL_STATUSES = TERMINAL_STATUSES_BY_ENTITY_TYPE["session"]
 
-def can_transition(current: str | None, target: str) -> bool:
-    """Return True iff a session may move from *current* to *target*."""
-    if current != "running":
-        return False
-    return target in SESSION_TERMINAL_STATUSES
+# Terminal branches.status values. branches has no lifecycle-policy entry of
+# its own (it never goes through update_status()'s ADR-0035 machinery) — but
+# every status finalize_branch() ever receives is a session final_status
+# passed straight through by cli/_runs.py teardown_persist(), so this IS
+# SESSION_TERMINAL_STATUSES, not a second hand-maintained list that could
+# drift from it.
+_BRANCH_TERMINAL_STATUSES = SESSION_TERMINAL_STATUSES
+
+INVOCATION_TERMINAL_STATUSES = TERMINAL_STATUSES_BY_ENTITY_TYPE[
+    "invocation"
+]  # invocations share the session terminal-status vocabulary
+SCHEDULE_RUN_TERMINAL_STATUSES = TERMINAL_STATUSES_BY_ENTITY_TYPE["schedule_run"]
+SHOW_TERMINAL_STATUSES = TERMINAL_STATUSES_BY_ENTITY_TYPE["show"]
+# Still-in-flight play statuses — the schema layer owns this vocabulary
+# (kill.py imports it rather than defining its own copy); everything else
+# in PLAY_TERMINAL_STATUSES below is terminal.
+PLAY_ACTIVE_STATUSES = frozenset(
+    {"pending", "prepared", "running", "running_complete", "gated", "redoing"}
+)
+PLAY_TERMINAL_STATUSES = TERMINAL_STATUSES_BY_ENTITY_TYPE["play"]
+TEAM_TERMINAL_STATUSES = TERMINAL_STATUSES_BY_ENTITY_TYPE["team"]
+
+# Same-row columns update_status() may set alongside a status write, in the
+# same transaction as the status/status_transitions write — keeps a caller
+# from splitting a status change and a dependent column (e.g. ended_at) into
+# two transactions that a crash between them could leave inconsistent.
+# node_metadata is here for the same reason: it carries the process markers
+# the sweeps use to answer "is this still alive", a question they only ask of
+# rows their status filter already selected.
+EXTRA_STATUS_WRITE_FIELDS_BY_ENTITY_TYPE: dict[str, frozenset[str]] = {
+    "session": frozenset({"ended_at", "node_metadata"}),
+    "invocation": frozenset({"ended_at"}),
+    "schedule_run": frozenset({"ended_at", "error_detail", "exit_code"}),
+}
+
+# ── ADR-0035 status vocabulary (valid, not just terminal) ──────────────
+# update_status() rejects any new_status outside its entity_type's set here —
+# the terminal-overwrite floor above stops a terminal record from moving;
+# this stops ANY record (terminal or not) from being written to a status
+# that was never declared for its entity type. Sourced from the lifecycle
+# policy registry so the facade's vocabulary can never drift from
+# the statuses the unified policy (and the schema CHECK constraints) declare.
+VALID_STATUSES_BY_ENTITY_TYPE: dict[str, frozenset[str]] = {
+    entity_type: _lifecycle_policy.DEFAULT_REGISTRY.get(entity_type).statuses
+    for entity_type in ("session", "invocation", "schedule_run", "show", "play", "team")
+}
+
+
+# Re-exported (not redefined) so `from lionagi.state.db import
+# TransitionRejectedError` is unchanged for existing callers — the lifecycle
+# adapter module raises this same class object; see
+# lionagi/state/lifecycle/adapters.py.
+TransitionRejectedError = _lifecycle_adapters.TransitionRejectedError
 
 
 _INVOCATION_KINDS = frozenset({"agent", "play", "flow", "fanout", "show-play"})
-_SOURCE_KINDS = frozenset({"live", "imported_fs"})
+_SOURCE_KINDS = frozenset({"live", "imported_fs", "imported_codex"})
 
 _SHOW_STATUSES = frozenset({"active", "completed", "aborted", "imported"})
 _PLAY_STATUSES = frozenset(
@@ -246,10 +447,46 @@ def _validate_columns(fields: dict[str, Any], allowed: frozenset[str]) -> None:
 
 
 def _to_json_column(value: Any) -> Any:
-    """Serialize value to JSON string for round-trippable storage."""
+    """Serialize value to a JSON string for a TEXT column holding JSON.
+
+    Columns bound as ``type_=JSON`` are serialized by the engine instead; this
+    is for the writes that hand the driver a finished string. Both reject inf,
+    -inf and nan rather than storing them, because neither the `null` orjson
+    writes nor the bare `NaN` the stdlib writes can be read back as the value
+    that was handed in.
+    """
     if value is None or isinstance(value, bytes | bytearray | memoryview):
         return value
-    return _json_dumps(value)
+    return _json_dumps(value, check_non_finite=True)
+
+
+def _unpack_embedding(value: Any) -> list[float] | None:
+    """Decode the messages.embedding little-endian float32 storage format."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        values = [float(item) for item in value]
+    elif isinstance(value, bytes | bytearray | memoryview):
+        raw = bytes(value)
+        if len(raw) % 4:
+            raise ValueError("messages.embedding BLOB length must be a multiple of 4 bytes")
+        values = list(struct.unpack(f"<{len(raw) // 4}f", raw))
+    else:
+        raise ValueError("messages.embedding must be a float list or packed float32 bytes")
+    if not all(math.isfinite(item) for item in values):
+        raise ValueError("messages.embedding values must be finite")
+    return values
+
+
+def _pack_embedding(value: Any) -> bytes | None:
+    """Encode an embedding as packed little-endian float32 bytes."""
+    if value is None:
+        return None
+    values = _unpack_embedding(value)
+    try:
+        return struct.pack(f"<{len(values)}f", *values)
+    except (OverflowError, struct.error) as exc:
+        raise ValueError("messages.embedding values must fit finite float32") from exc
 
 
 def _validate_session_status(status: Any) -> None:
@@ -258,7 +495,7 @@ def _validate_session_status(status: Any) -> None:
     if status not in VALID_SESSION_STATUSES:
         raise ValueError(
             f"Invalid session status {status!r}; "
-            f"ADR-0025 vocabulary is {sorted(VALID_SESSION_STATUSES)}"
+            f"ADR-0057 vocabulary is {sorted(VALID_SESSION_STATUSES)}"
         )
 
 
@@ -288,10 +525,65 @@ def _install_begin_immediate(sync_engine) -> None:
         conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 
+async def _restore_foreign_keys(conn, driver) -> None:
+    """Turn foreign-key enforcement back on after a legacy table rebuild.
+
+    Every rebuild calls this from its ``finally``, so it runs on the failure
+    paths too, and those are the ones that need the care. Two things can leave a
+    pooled connection with enforcement silently off:
+
+    ``PRAGMA foreign_keys`` is a no-op while a transaction is open, so a rollback
+    that itself failed leaves its transaction alive and the pragma inert. Any
+    surviving transaction is therefore closed first.
+
+    And a write is not a result. The setting is read back rather than assumed,
+    and a connection whose enforcement cannot be confirmed is invalidated so it
+    is never handed out again.
+
+    Cancellation gets its own handling rather than falling through. It arrives as
+    a BaseException, so catching ``Exception`` would let it skip the read-back and
+    the invalidation both, which is the one outcome this function exists to
+    prevent. The invalidation is shielded so it completes, and the cancellation is
+    then re-raised untouched.
+    """
+    cancelled_exc = get_cancelled_exc_class()
+
+    try:
+        # No-op when the caller already ended its own transaction.
+        await driver.rollback()
+    except cancelled_exc:
+        await shield(conn.invalidate)
+        raise
+    except Exception:  # noqa: S110 -- not fatal on its own; the read-back below is
+        # what decides whether this connection is safe to hand out again.
+        pass
+
+    confirmed = False
+    try:
+        await driver.execute("PRAGMA foreign_keys = ON")
+        await driver.commit()
+        row = await (await driver.execute("PRAGMA foreign_keys")).fetchone()
+        confirmed = bool(row) and row[0] == 1
+    except cancelled_exc:
+        await shield(conn.invalidate)
+        raise
+    except Exception:
+        confirmed = False
+
+    if not confirmed:
+        await shield(conn.invalidate)
+
+
 class StateDB:
     """Async SQLAlchemy state layer for sessions, branches, messages, and progressions."""
 
-    def __init__(self, path: str | Path | None = None, *, url: str | None = None):
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        *,
+        url: str | None = None,
+        readonly: bool = False,
+    ):
         raw = url if url is not None else path
         if raw is None:
             raw = settings.LIONAGI_STATE_DB_URL  # may be None
@@ -299,6 +591,11 @@ class StateDB:
             raw = DEFAULT_DB_PATH  # module-level; tests can monkeypatch db_mod.DEFAULT_DB_PATH
         self.url = normalize_state_db_url(raw)
         self.dialect = dialect_of(self.url)  # "sqlite" | "postgresql"
+        # Read-only mode: open() skips schema application, the BEGIN IMMEDIATE
+        # write-lock event, and every mutating PRAGMA, and opens the file via
+        # SQLite's own read-only URI mode instead — see make_readonly_engine().
+        # A missing file is a loud error, never a silent create.
+        self.readonly = readonly
         self._engine = None
         # Per-(kind, name) lock to serialize version increment for save_definition.
         self._definition_locks: dict[tuple[str, str], Lock] = {}
@@ -311,6 +608,56 @@ class StateDB:
         # natively, so the lock is a no-op for PG paths (they skip it via dialect
         # check in _tx()), but it still serializes Python-side CAS in update_status.
         self._write_lock: Lock = Lock()
+        # Lazily constructed: the unified lifecycle service that
+        # StateDB.update_status() delegates its guarded read/CAS/history
+        # algorithm to. Cheap to build; deferred only so StateDB.__init__
+        # never depends on import order inside lionagi.state.lifecycle.
+        self.__lifecycle_service: _LifecycleService | None = None
+
+    def _lifecycle_service(self) -> _LifecycleService:
+        if self.__lifecycle_service is None:
+            self.__lifecycle_service = _LifecycleService(self)
+        return self.__lifecycle_service
+
+    async def _initialize_managed_entity_in_tx(
+        self,
+        conn,
+        *,
+        entity_type: str,
+        entity_id: str,
+        status: str,
+        actor_id: str,
+    ) -> None:
+        reason_code = _INITIAL_REASON_CODES.get((entity_type, status))
+        if reason_code is None:
+            # Compatibility repositories may insert historical terminal rows
+            # directly. Those are not declared lifecycle initial states and
+            # must not receive a fabricated creation event.
+            return
+        policy = _lifecycle_policy.DEFAULT_REGISTRY.get(entity_type)
+        await conn.execute(
+            text(
+                f"UPDATE {policy.table} SET status_reason_code = :reason_code, "  # noqa: S608
+                "status_reason_summary = :reason_summary, "
+                "status_evidence_refs = :evidence_refs WHERE id = :entity_id"
+            ).bindparams(bindparam("evidence_refs", type_=JSON)),
+            {
+                "reason_code": reason_code,
+                "reason_summary": "",
+                "evidence_refs": [],
+                "entity_id": entity_id,
+            },
+        )
+        await self._lifecycle_service().initialize_in_transaction(
+            conn,
+            _InitialStateCommand(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                status=status,
+                reason=_ReasonRecord(code=reason_code),
+                actor=_ActorRecord(type="system", id=actor_id),
+            ),
+        )
 
     # ── backward-compat path property ─────────────────────────────────
 
@@ -332,7 +679,20 @@ class StateDB:
         if self.dialect == "sqlite":
             p = self.path
             if p is not None and str(p) != ":memory:":
-                p.parent.mkdir(parents=True, exist_ok=True)
+                if self.readonly:
+                    if not p.exists():
+                        raise FileNotFoundError(
+                            f"state.db not found at {p} — read-only open requires an "
+                            "existing database file (it will never be created)"
+                        )
+                else:
+                    ensure_lionagi_dir(p.parent)
+        if self.readonly:
+            # No make_engine(), no _install_begin_immediate(), no _apply_schema():
+            # every one of those mutates the file (PRAGMAs persisted into the
+            # header, schema/seed writes, a reserved BEGIN IMMEDIATE write lock).
+            self._engine = make_readonly_engine(self.url)
+            return
         self._engine = make_engine(self.url)
         if self.dialect == "sqlite":
             _install_begin_immediate(self._engine.sync_engine)
@@ -344,7 +704,16 @@ class StateDB:
             self._engine = None
 
     async def __aenter__(self) -> StateDB:
-        await self.open()
+        try:
+            await self.open()
+        except BaseException:
+            # __aexit__ is not entered when __aenter__ fails. Dispose the
+            # partially opened engine here so its driver worker cannot outlive
+            # a lock-contention or migration failure. Direct open() retains its
+            # established inspect-and-retry behavior on schema failures.
+            with CancelScope(shield=True):
+                await self.close()
+            raise
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
@@ -465,22 +834,106 @@ class StateDB:
 
     # ── Schema management ──────────────────────────────────────────────
 
+    def _raise_if_schema_too_new(self, recorded: str | None) -> None:
+        if recorded is None:
+            return
+        try:
+            recorded_n = int(recorded)
+        except (TypeError, ValueError):
+            # Not a version this code can order against its own, so there is no
+            # downgrade to detect. Leave it to the stamp below.
+            return
+        if recorded_n <= int(SCHEMA_VERSION):
+            return
+        where = self.path if self.dialect == "sqlite" and self.path is not None else self.url
+        raise SchemaTooNewError(
+            f"{where} records schema version {recorded} but this version of lionagi "
+            f"applies schema version {SCHEMA_VERSION}. It was written by a later "
+            "release whose shape this code cannot verify, and opening it for writing "
+            "would migrate it against that shape and record the lower version. "
+            "Upgrade lionagi to open it, or open it read-only to inspect it."
+        )
+
+    async def _refuse_newer_schema(self, conn) -> None:
+        """Refuse to open a database stamped with a version above SCHEMA_VERSION.
+
+        Everything ``_apply_schema`` does afterwards -- adding columns,
+        rebuilding tables to widen CHECK constraints, then recording
+        SCHEMA_VERSION as the shape that resulted -- is written against the
+        schema this release knows. Against a newer one it would rewrite tables
+        on assumptions it cannot check and replace a truthful version stamp
+        with a lower one, leaving a database that reads as understood.
+        """
+        if self.dialect == "postgresql":
+            # The version table or row may not exist yet, so a row lock cannot
+            # serialize first-time schema creation. This transaction-scoped
+            # database-local lock is available before any schema object exists.
+            await conn.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": _SCHEMA_MIGRATION_LOCK_KEY},
+            )
+        if not await conn.run_sync(lambda c: inspect(c).has_table("schema_meta")):
+            return
+        query = "SELECT value FROM schema_meta WHERE key = 'version'"
+        if self.dialect == "postgresql":
+            query += " FOR UPDATE"
+        row = (await conn.execute(text(query))).mappings().first()
+        self._raise_if_schema_too_new(row["value"] if row else None)
+
+    async def _refuse_newer_sqlite_schema(self, driver) -> None:
+        """Check the version through a raw driver holding BEGIN IMMEDIATE."""
+        table = await (
+            await driver.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'"
+            )
+        ).fetchone()
+        if table is None:
+            return
+        row = await (
+            await driver.execute("SELECT value FROM schema_meta WHERE key = 'version'")
+        ).fetchone()
+        self._raise_if_schema_too_new(row[0] if row else None)
+
     async def _apply_schema(self) -> None:
         await self._reconcile_columns()
         if self.dialect == "sqlite":
-            await self._drop_legacy_session_status_check()
+            await self._rebuild_legacy_sessions_table()
             # existing DBs created before flow_yaml was added carry a
             # 4-value CHECK on schedules.action_kind that omits 'flow_yaml'.
             await self._drop_legacy_action_kind_check()
+            # Existing DBs (including ones already rebuilt to
+            # admit 'flow_yaml') carry a CHECK on schedules.action_kind that
+            # omits 'command'.
+            await self._drop_legacy_schedules_command_check()
+            # Existing DBs carry a CHECK on schedules.trigger_type that
+            # omits 'at' (the declarative ScheduleSet absolute-time trigger).
+            await self._drop_legacy_schedules_trigger_type_check()
+            # existing DBs created before the completion-trust gate carry a
+            # 6-value CHECK on invocations.status that omits 'completed_empty'.
+            await self._drop_legacy_invocations_status_check()
+            # ADR-0071 D2: existing DBs carry a 5-value CHECK on
+            # schedule_runs.status and a NOT NULL schedule_id, from before
+            # schedule_runs was generalized into the task-application entity.
+            await self._drop_legacy_schedule_runs_check()
         async with self._engine.begin() as conn:
+            await self._refuse_newer_schema(conn)
             await conn.run_sync(metadata.create_all)
+            await self._reconcile_indexes(conn)
+            await self._backfill_dispatched_at_once(conn)
             # Seed immutable reference rows; ON CONFLICT DO NOTHING is safe to
             # re-run on every open() because the rows are identity-stable.
+            # The version row is the exception: the migrations above rewrite an
+            # older database into the current shape, so the stamp has to move
+            # with them. DO UPDATE, not DO NOTHING, or a migrated database keeps
+            # reporting the version it was created at. The update only ever
+            # raises the recorded version: a database stamped higher than
+            # SCHEMA_VERSION never reaches here, it is refused at open.
             await conn.execute(
                 text(
-                    "INSERT INTO schema_meta (key, value) VALUES ('version', '1') "
-                    "ON CONFLICT (key) DO NOTHING"
-                )
+                    "INSERT INTO schema_meta (key, value) VALUES ('version', :version) "
+                    "ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+                ),
+                {"version": SCHEMA_VERSION},
             )
             await conn.execute(
                 text(
@@ -503,6 +956,7 @@ class StateDB:
             )
 
     _MIGRATION_COLUMNS: dict[str, list[tuple[str, str]]] = _MIGRATION_COLUMNS
+    _MIGRATION_INDEXES: dict[str, tuple[str, ...]] = _MIGRATION_INDEXES
 
     async def _reconcile_columns(self) -> None:
         for table, columns in self._MIGRATION_COLUMNS.items():
@@ -518,13 +972,150 @@ class StateDB:
                 continue
             for name, defn in columns:
                 if name not in existing:
-                    async with self._engine.begin() as conn:
-                        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {defn}"))
+                    add_column = f"ALTER TABLE {table} ADD COLUMN {name} {defn}"
+                    if self.dialect == "postgresql":
+                        add_column = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {defn}"
+                    try:
+                        async with self._engine.begin() as conn:
+                            await self._refuse_newer_schema(conn)
+                            await conn.execute(text(add_column))
+                    except OperationalError:
+                        # SQLite has no ADD COLUMN IF NOT EXISTS. Another process
+                        # may commit the same migration after our inspection but
+                        # before our ALTER obtains the WAL write lock. Only
+                        # suppress the error when a fresh inspection proves that
+                        # the requested column now exists.
+                        if self.dialect != "sqlite":
+                            raise
+                        async with self._engine.connect() as conn:
+                            reconciled = await conn.run_sync(
+                                lambda c, t=table, n=name: (
+                                    n in {col["name"] for col in inspect(c).get_columns(t)}
+                                )
+                            )
+                        if not reconciled:
+                            raise
+
+    async def _reconcile_indexes(self, conn) -> None:
+        """Create indexes that ``metadata.create_all`` cannot add to existing tables."""
+        for statement in self._MIGRATION_INDEXES.get(self.dialect, ()):
+            await conn.execute(text(statement))
+
+    async def _backfill_dispatched_at_once(self, conn) -> None:
+        """Backfill legacy rows exactly once, even if the column predates this release."""
+        claimed = await conn.execute(
+            text(
+                "INSERT INTO schema_meta (key, value) VALUES (:key, '1') "
+                "ON CONFLICT (key) DO NOTHING"
+            ),
+            {"key": _DISPATCHED_AT_BACKFILL_KEY},
+        )
+        if claimed.rowcount:
+            await self._backfill_dispatched_at(conn)
+
+    async def _backfill_dispatched_at(self, conn) -> None:
+        """Set the dispatch marker on running rows that predate its backfill.
+
+        ``dispatched_at`` is only stamped going forward, by
+        ``SchedulerEngine._mark_dispatched()``. Without a backfill, every row
+        left at ``status = 'running'`` from before this column existed would
+        have ``dispatched_at IS NULL`` -- indistinguishable from a row whose
+        launch genuinely never got confirmed. ``list_undispatched_schedule_
+        runs()`` (consumed by ``SchedulerEngine._recover_undispatched_
+        fires()`` on the next daemon startup) would then treat every such row
+        as crashed-before-dispatch and re-fire it, even one that is still
+        genuinely executing across the upgrade restart.
+
+        Stamping ``dispatched_at`` to the row's own ``fired_at`` (NOT NULL by
+        schema) excludes these pre-existing rows from that scan -- the same
+        "no signal to distinguish, so don't auto-retry" resolution
+        ``_backfill_action_cwd()`` applies to ``action_cwd``. A still-running
+        row is left alone (nothing re-fires it); a row that actually crashed
+        pre-migration falls through to ``reap_stale_schedule_runs()``'s
+        wall-clock deadline instead of being auto-retried on ambiguous
+        evidence. Scoped to ``schedule_id IS NOT NULL`` to match
+        ``list_undispatched_schedule_runs()`` and leave the leased ad-hoc
+        task queue (its own dispatch/lease model) untouched. A durable
+        ``schema_meta`` marker makes this a one-time migration even when an
+        earlier release already added the column without running the update.
+        """
+        await conn.execute(
+            text(
+                "UPDATE schedule_runs SET dispatched_at = fired_at "
+                "WHERE status = 'running' AND dispatched_at IS NULL "
+                "AND schedule_id IS NOT NULL"
+            )
+        )
+
+    async def _rebuild_check_constraint(self, table: str, already_rebuilt, rebuild) -> None:
+        """Run a legacy CHECK-constraint table rebuild, tolerant of a concurrent winner.
+
+        Two processes cold-opening the same legacy DB can both observe the
+        same stale CHECK and enter the identical DROP/CREATE/INSERT/RENAME
+        rebuild. SQLite's write lock serializes the two attempts, but the
+        loser can still surface an OperationalError (busy-timeout exceeded
+        waiting for the write lock). Mirrors the catch-and-reinspect guard
+        in ``_reconcile_columns``: only suppress the error when a fresh read
+        of ``sqlite_master`` proves the rebuild already landed — via this
+        process or a racing one — otherwise re-raise.
+
+        ``already_rebuilt`` takes the table's current ``sqlite_master.sql``
+        (or ``None`` if the table is now missing) and returns whether the
+        table is in its post-rebuild shape.
+        """
+        try:
+            await rebuild()
+        # Five of the six rebuilds execute through the raw aiosqlite driver,
+        # which raises sqlite3.OperationalError directly — NOT SQLAlchemy's
+        # wrapper — so both types must be caught here.
+        except (OperationalError, sqlite3.OperationalError) as original_error:
+            if self.dialect != "sqlite":
+                raise
+            # The reinspection read is itself a fresh connection contending
+            # for the same schema lock as every other queued racer, so under
+            # deep enough contention it can raise OperationalError too. That
+            # must not surface as a *different*, less informative crash than
+            # the write failure we were already handling.
+            try:
+                async with self._engine.connect() as conn:
+                    row = (
+                        (
+                            await conn.execute(
+                                text(
+                                    "SELECT sql FROM sqlite_master WHERE type='table' AND name=:t"
+                                ),
+                                {"t": table},
+                            )
+                        )
+                        .mappings()
+                        .first()
+                    )
+            except (OperationalError, sqlite3.OperationalError):
+                raise original_error from None
+            if not already_rebuilt(row["sql"] if row is not None else None):
+                raise
 
     _LEGACY_SESSION_STATUS_CHECK_MARKER = "'running', 'completed', 'failed', 'aborted'"
+    # Present only in a sessions CREATE SQL written before transcript imports had
+    # their own provenance value; its absence beside a source_kind CHECK is what
+    # marks a DB that would reject 'imported_codex'.
+    _NARROW_SOURCE_KIND_MARKER = "'live', 'imported_fs')"
 
-    async def _drop_legacy_session_status_check(self) -> None:
-        """Rebuild sessions table if it carries the legacy 4-value CHECK constraint."""
+    @classmethod
+    def _sessions_rebuild_needed(cls, create_sql: str) -> bool:
+        """Whether a sessions CREATE SQL still carries either legacy CHECK.
+
+        A DB with no source_kind CHECK at all (the column was added by column
+        reconciliation, which cannot attach one) accepts every value already, so
+        only a CHECK that names the narrow set needs widening.
+        """
+        if cls._LEGACY_SESSION_STATUS_CHECK_MARKER in create_sql:
+            return True
+        return cls._NARROW_SOURCE_KIND_MARKER in create_sql
+
+    async def _rebuild_legacy_sessions_table(self) -> None:
+        """Rebuild sessions if it carries either legacy CHECK: the 4-value status
+        vocabulary, or a source_kind that predates the codex-import provenance value."""
         if self.dialect != "sqlite":
             return
         async with self._engine.connect() as conn:
@@ -540,7 +1131,7 @@ class StateDB:
         if row is None or row["sql"] is None:
             return
         create_sql: str = row["sql"]
-        if self._LEGACY_SESSION_STATUS_CHECK_MARKER not in create_sql:
+        if not self._sessions_rebuild_needed(create_sql):
             return
 
         async with self._engine.connect() as conn:
@@ -562,87 +1153,118 @@ class StateDB:
             cols = [r["name"] for r in cols_rows]
         col_list = ", ".join(cols)
 
-        async with self._engine.begin() as conn:
-            await conn.execute(text("PRAGMA foreign_keys = OFF"))
-            try:
-                # Create without FK references: the referenced tables (messages,
-                # invocations) may not exist yet in a minimal legacy DB.
-                # metadata.create_all() runs AFTER this rebuild and will not
-                # re-create sessions (table already exists after rename).
-                # FK enforcement relies on the PRAGMA which is already set up
-                # by make_engine and applies to all DML after schema init.
-                await conn.execute(
-                    text(
-                        """
-                        CREATE TABLE sessions_new (
-                          id              TEXT    PRIMARY KEY,
-                          created_at      REAL    NOT NULL,
-                          node_metadata   JSON,
-                          name            TEXT,
-                          user            TEXT,
-                          progression_id  TEXT    NOT NULL,
-                          first_msg_id    TEXT,
-                          last_msg_id     TEXT,
-                          updated_at      REAL    NOT NULL,
-                          playbook_name   TEXT,
-                          agent_name      TEXT,
-                          invocation_kind TEXT CHECK(
-                                            invocation_kind IS NULL
-                                            OR invocation_kind IN
-                                              ('agent', 'play', 'flow', 'fanout', 'show-play')
-                                          ),
-                          show_topic      TEXT,
-                          show_play_name  TEXT,
-                          artifacts_path  TEXT,
-                          source_kind     TEXT    DEFAULT 'live' CHECK(
-                                            source_kind IS NULL
-                                            OR source_kind IN ('live', 'imported_fs')
-                                          ),
-                          status          TEXT,
-                          started_at      REAL,
-                          ended_at        REAL,
-                          last_message_at REAL,
-                          current_phase   TEXT,
-                          invocation_id   TEXT,
-                          model           TEXT,
-                          provider        TEXT,
-                          effort          TEXT,
-                          agent_hash      TEXT,
-                          project         TEXT,
-                          project_source  TEXT,
-                          status_reason_code     TEXT,
-                          status_reason_summary  TEXT,
-                          status_evidence_refs   JSON,
-                          artifact_contract_json      JSON,
-                          artifact_verification_json  JSON,
-                          input_tokens    INTEGER,
-                          output_tokens   INTEGER,
-                          total_cost_usd  REAL,
-                          num_turns       INTEGER,
-                          duration_ms     REAL
+        async def _rebuild() -> None:
+            async with self._engine.connect() as conn:
+                driver = (await conn.get_raw_connection()).driver_connection
+                try:
+                    # The OFF pragma is inside this try, not above it, because it
+                    # takes effect at its own await with no flush required. That is
+                    # measured, not inferred from the commit that follows. Anything
+                    # interrupting after it -- cancellation included -- must still
+                    # reach the finally, or a pooled connection keeps foreign keys
+                    # disabled for every caller that borrows it next.
+                    await driver.execute("PRAGMA foreign_keys = OFF")
+                    # The commit does not make the pragma effective; it closes any
+                    # open transaction so BEGIN IMMEDIATE starts cleanly. The pragma
+                    # must run on the raw driver: open() installs BEGIN IMMEDIATE on
+                    # every sqlite engine, so setting it through an engine-level
+                    # begin() block leaves it a no-op and enforcement stays on for
+                    # the whole rebuild.
+                    await driver.commit()
+                    await driver.execute("BEGIN IMMEDIATE")
+                    try:
+                        await self._refuse_newer_sqlite_schema(driver)
+                        # The foreign keys below are the ones the declared schema
+                        # carries, so a rebuilt table ends up with the same
+                        # constraints a freshly created one gets. They are what
+                        # makes the OFF pragma above load-bearing: sqlite accepts
+                        # a forward reference to a table that does not exist yet,
+                        # but with enforcement on, every statement against the
+                        # child fails while the parent is absent -- including the
+                        # copy below, and including rows whose FK column is NULL.
+                        # A minimal legacy DB has no messages or invocations table
+                        # until create_all() runs after this rebuild.
+                        await driver.execute(
+                            """
+                            CREATE TABLE sessions_new (
+                              id              TEXT    PRIMARY KEY,
+                              cc_session_id   TEXT,
+                              run_id          TEXT,
+                              created_at      REAL    NOT NULL,
+                              node_metadata   JSON,
+                              name            TEXT,
+                              user            TEXT,
+                              progression_id  TEXT    NOT NULL REFERENCES progressions(id),
+                              first_msg_id    TEXT    REFERENCES messages(id),
+                              last_msg_id     TEXT    REFERENCES messages(id),
+                              updated_at      REAL    NOT NULL,
+                              playbook_name   TEXT,
+                              agent_name      TEXT,
+                              invocation_kind TEXT CHECK(
+                                                invocation_kind IS NULL
+                                                OR invocation_kind IN
+                                                  ('agent', 'play', 'flow', 'fanout', 'show-play')
+                                              ),
+                              show_topic      TEXT,
+                              show_play_name  TEXT,
+                              artifacts_path  TEXT,
+                              source_kind     TEXT    DEFAULT 'live' CHECK(
+                                                source_kind IS NULL
+                                                OR source_kind IN
+                                                  ('live', 'imported_fs', 'imported_codex')
+                                              ),
+                              status          TEXT,
+                              started_at      REAL,
+                              ended_at        REAL,
+                              last_message_at REAL,
+                              current_phase   TEXT,
+                              invocation_id   TEXT    REFERENCES invocations(id),
+                              model           TEXT,
+                              provider        TEXT,
+                              effort          TEXT,
+                              agent_hash      TEXT,
+                              project         TEXT,
+                              project_source  TEXT,
+                              status_reason_code     TEXT,
+                              status_reason_summary  TEXT,
+                              status_evidence_refs   JSON,
+                              artifact_contract_json      JSON,
+                              artifact_verification_json  JSON,
+                              input_tokens    INTEGER,
+                              output_tokens   INTEGER,
+                              total_cost_usd  REAL,
+                              num_turns       INTEGER,
+                              duration_ms     REAL
+                            )
+                            """
                         )
-                        """
-                    )
-                )
-                select_cols = []
-                for c in cols:
-                    if c == "updated_at":
-                        select_cols.append(
-                            "COALESCE(updated_at, created_at, strftime('%s','now')) AS updated_at"
-                        )
-                    else:
-                        select_cols.append(c)
-                select_list = ", ".join(select_cols)
-                insert_sql = (
-                    f"INSERT INTO sessions_new ({col_list}) SELECT {select_list} FROM sessions"  # noqa: S608
-                )
-                await conn.execute(text(insert_sql))
-                await conn.execute(text("DROP TABLE sessions"))
-                await conn.execute(text("ALTER TABLE sessions_new RENAME TO sessions"))
-                for idx_sql in index_sqls:
-                    await conn.execute(text(idx_sql))
-            finally:
-                await conn.execute(text("PRAGMA foreign_keys = ON"))
+                        select_cols = []
+                        for c in cols:
+                            if c == "updated_at":
+                                select_cols.append(
+                                    "COALESCE(updated_at, created_at, strftime('%s','now')) AS updated_at"
+                                )
+                            else:
+                                select_cols.append(c)
+                        select_list = ", ".join(select_cols)
+                        insert_sql = f"INSERT INTO sessions_new ({col_list}) SELECT {select_list} FROM sessions"  # noqa: S608
+                        await driver.execute(insert_sql)
+                        await driver.execute("DROP TABLE sessions")
+                        await driver.execute("ALTER TABLE sessions_new RENAME TO sessions")
+                        for idx_sql in index_sqls:
+                            await driver.execute(idx_sql)
+                        await driver.commit()
+                    except BaseException:
+                        await driver.rollback()
+                        raise
+                finally:
+                    await _restore_foreign_keys(conn, driver)
+
+        await self._rebuild_check_constraint(
+            "sessions",
+            lambda sql: sql is None or not self._sessions_rebuild_needed(sql),
+            _rebuild,
+        )
 
     # Substring present only in the post-#1174 schedules CREATE SQL;
     # its absence indicates a legacy DB whose action_kind CHECK needs rebuilding.
@@ -653,7 +1275,7 @@ class StateDB:
 
         The old CHECK omits ``'flow_yaml'``; SQLite cannot drop a constraint via
         ALTER TABLE, so we use the rename → CREATE new → INSERT SELECT → DROP
-        old pattern (same as ``_drop_legacy_session_status_check``).
+        old pattern (same as ``_rebuild_legacy_sessions_table``).
         """
         if self.dialect != "sqlite":
             return
@@ -695,60 +1317,603 @@ class StateDB:
             cols = [r["name"] for r in cols_rows]
         col_list = ", ".join(cols)
 
-        async with self._engine.begin() as conn:
-            await conn.execute(text("PRAGMA foreign_keys = OFF"))
-            try:
-                await conn.execute(
-                    text(
+        # Derive the rebuild DDL from the canonical schema_meta Table rather than
+        # a hand-kept literal, so this migration path can never drift from the
+        # live schema (schema.sql / schema_meta.py parity is test-enforced).
+        rebuild_table = _schedules_table.to_metadata(MetaData(), name="schedules_new")
+        create_stmt = str(CreateTable(rebuild_table).compile(dialect=self._engine.dialect))
+
+        # ``schedules`` is an FK target (schedule_runs.schedule_id ON DELETE
+        # CASCADE): dropping it while `PRAGMA foreign_keys` is enforced
+        # cascades away every schedule_runs row that referenced it, even
+        # with the rows already safely copied into the new table first.
+        # `engine.begin()` opens its transaction before our first statement
+        # runs, and SQLite treats `PRAGMA foreign_keys` as a no-op inside a
+        # pending transaction -- so toggling it through a normal SQLAlchemy
+        # connection never actually takes effect (verified: it silently
+        # cascade-deleted schedule_runs rows in this exact rebuild before
+        # this fix). Go through the raw driver connection instead (same
+        # technique as ``_drop_legacy_invocations_status_check``) so the
+        # pragma flip is real autocommit, not swallowed by an open txn.
+        #
+        # The pragma flip itself must stay OUTSIDE any transaction (SQLite
+        # only honors it between transactions), but the CREATE/copy/DROP/
+        # RENAME/index sequence that follows needs its own explicit
+        # transaction: running those as independent autocommit statements
+        # left a failure between DROP and RENAME (cancellation, I/O error,
+        # a bad index statement) with only `schedules_new` on disk --
+        # `metadata.create_all` would then create a fresh *empty*
+        # `schedules` on the next open, stranding every original row.
+        # `BEGIN IMMEDIATE` reclaims the atomicity the old `engine.begin()`
+        # path had, without reintroducing the pragma-inside-transaction bug.
+        async def _rebuild() -> None:
+            async with self._engine.connect() as conn:
+                driver = (await conn.get_raw_connection()).driver_connection
+                try:
+                    # Inside the try, not above it: the pragma takes effect at its
+                    # own await with no flush required, so anything interrupting
+                    # after it -- cancellation included -- must still reach the
+                    # finally or a pooled connection keeps foreign keys disabled.
+                    # The commit closes any open transaction rather than making the
+                    # pragma effective.
+                    await driver.execute("PRAGMA foreign_keys = OFF")
+                    await driver.commit()
+                    await driver.execute("BEGIN IMMEDIATE")
+                    try:
+                        await self._refuse_newer_sqlite_schema(driver)
+                        await driver.execute(create_stmt)
+                        insert_sql = f"INSERT INTO schedules_new ({col_list}) SELECT {col_list} FROM schedules"  # noqa: S608
+                        await driver.execute(insert_sql)
+                        await driver.execute("DROP TABLE schedules")
+                        await driver.execute("ALTER TABLE schedules_new RENAME TO schedules")
+                        for idx_sql in index_sqls:
+                            await driver.execute(idx_sql)
+                        await driver.commit()
+                    except BaseException:
+                        await driver.rollback()
+                        raise
+                finally:
+                    await _restore_foreign_keys(conn, driver)
+
+        await self._rebuild_check_constraint(
+            "schedules",
+            lambda sql: sql is not None and self._LEGACY_SCHEDULES_FLOW_YAML_MARKER in sql,
+            _rebuild,
+        )
+
+    # Substring present only in the widened schedules CREATE SQL;
+    # its absence indicates a legacy DB whose action_kind CHECK still omits
+    # 'command'. Distinct from ``_LEGACY_SCHEDULES_FLOW_YAML_MARKER`` above:
+    # a DB already rebuilt to admit 'flow_yaml' carries that marker and
+    # would otherwise never re-run to pick up 'command' too.
+    _LEGACY_SCHEDULES_COMMAND_MARKER = "'command'"
+
+    async def _drop_legacy_schedules_command_check(self) -> None:
+        """Rebuild ``schedules`` if its action_kind CHECK still omits 'command'.
+
+        SQLite cannot widen a CHECK constraint via ALTER TABLE, so this uses
+        the same rename -> CREATE new -> INSERT SELECT -> DROP old pattern as
+        ``_drop_legacy_action_kind_check``. Runs after ``_reconcile_columns``
+        (via ``_apply_schema``), so the ADD COLUMN for action_command /
+        action_command_args has already landed on the pre-rebuild table.
+        """
+        if self.dialect != "sqlite":
+            return
+        async with self._engine.connect() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master WHERE type='table' AND name='schedules'"
+                        )
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None or row["sql"] is None:
+            return
+        create_sql: str = row["sql"]
+        if self._LEGACY_SCHEDULES_COMMAND_MARKER in create_sql:
+            # Table was already created / rebuilt with 'command' in the CHECK.
+            return
+
+        async with self._engine.connect() as conn:
+            index_rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='index' AND tbl_name='schedules' AND sql IS NOT NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            index_sqls = [r["sql"] for r in index_rows]
+
+            cols_rows = (await conn.execute(text("PRAGMA table_info(schedules)"))).mappings().all()
+            cols = [r["name"] for r in cols_rows]
+        col_list = ", ".join(cols)
+
+        # Derive the rebuild DDL from the canonical schema_meta Table rather than
+        # a hand-kept literal, so this migration path can never drift from the
+        # live schema (schema.sql / schema_meta.py parity is test-enforced).
+        rebuild_table = _schedules_table.to_metadata(MetaData(), name="schedules_new")
+        create_stmt = str(CreateTable(rebuild_table).compile(dialect=self._engine.dialect))
+
+        # ``schedules`` is an FK target (schedule_runs.schedule_id ON DELETE
+        # CASCADE): dropping it while `PRAGMA foreign_keys` is enforced
+        # cascades away every schedule_runs row that referenced it, even
+        # with the rows already safely copied into the new table first.
+        # `engine.begin()` opens its transaction before our first statement
+        # runs, and SQLite treats `PRAGMA foreign_keys` as a no-op inside a
+        # pending transaction -- so toggling it through a normal SQLAlchemy
+        # connection never actually takes effect (verified: it silently
+        # cascade-deleted schedule_runs rows in this exact rebuild before
+        # this fix). Go through the raw driver connection instead (same
+        # technique as ``_drop_legacy_invocations_status_check``) so the
+        # pragma flip is real autocommit, not swallowed by an open txn.
+        #
+        # The pragma flip itself must stay OUTSIDE any transaction (SQLite
+        # only honors it between transactions), but the CREATE/copy/DROP/
+        # RENAME/index sequence that follows needs its own explicit
+        # transaction: running those as independent autocommit statements
+        # left a failure between DROP and RENAME (cancellation, I/O error,
+        # a bad index statement) with only `schedules_new` on disk --
+        # `metadata.create_all` would then create a fresh *empty*
+        # `schedules` on the next open, stranding every original row.
+        # `BEGIN IMMEDIATE` reclaims the atomicity the old `engine.begin()`
+        # path had, without reintroducing the pragma-inside-transaction bug.
+        async def _rebuild() -> None:
+            async with self._engine.connect() as conn:
+                driver = (await conn.get_raw_connection()).driver_connection
+                try:
+                    # Inside the try, not above it: the pragma takes effect at its
+                    # own await with no flush required, so anything interrupting
+                    # after it -- cancellation included -- must still reach the
+                    # finally or a pooled connection keeps foreign keys disabled.
+                    # The commit closes any open transaction rather than making the
+                    # pragma effective.
+                    await driver.execute("PRAGMA foreign_keys = OFF")
+                    await driver.commit()
+                    await driver.execute("BEGIN IMMEDIATE")
+                    try:
+                        await self._refuse_newer_sqlite_schema(driver)
+                        await driver.execute(create_stmt)
+                        insert_sql = f"INSERT INTO schedules_new ({col_list}) SELECT {col_list} FROM schedules"  # noqa: S608
+                        await driver.execute(insert_sql)
+                        await driver.execute("DROP TABLE schedules")
+                        await driver.execute("ALTER TABLE schedules_new RENAME TO schedules")
+                        for idx_sql in index_sqls:
+                            await driver.execute(idx_sql)
+                        await driver.commit()
+                    except BaseException:
+                        await driver.rollback()
+                        raise
+                finally:
+                    await _restore_foreign_keys(conn, driver)
+
+        await self._rebuild_check_constraint(
+            "schedules",
+            lambda sql: sql is not None and self._LEGACY_SCHEDULES_COMMAND_MARKER in sql,
+            _rebuild,
+        )
+
+    # Substring present only in the widened schedules CREATE SQL; its
+    # absence indicates a legacy DB whose trigger_type CHECK still omits
+    # 'at' (the declarative ScheduleSet layer's absolute-time trigger).
+    _LEGACY_SCHEDULES_TRIGGER_TYPE_MARKER = "'at'"
+
+    async def _drop_legacy_schedules_trigger_type_check(self) -> None:
+        """Rebuild ``schedules`` if its trigger_type CHECK still omits 'at'.
+
+        Same rename -> CREATE new -> INSERT SELECT -> DROP old pattern as
+        ``_drop_legacy_schedules_command_check``.
+        """
+        if self.dialect != "sqlite":
+            return
+        async with self._engine.connect() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master WHERE type='table' AND name='schedules'"
+                        )
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None or row["sql"] is None:
+            return
+        create_sql: str = row["sql"]
+        if self._LEGACY_SCHEDULES_TRIGGER_TYPE_MARKER in create_sql:
+            return
+
+        async with self._engine.connect() as conn:
+            index_rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='index' AND tbl_name='schedules' AND sql IS NOT NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            index_sqls = [r["sql"] for r in index_rows]
+
+            cols_rows = (await conn.execute(text("PRAGMA table_info(schedules)"))).mappings().all()
+            cols = [r["name"] for r in cols_rows]
+        col_list = ", ".join(cols)
+
+        rebuild_table = _schedules_table.to_metadata(MetaData(), name="schedules_new")
+        create_stmt = str(CreateTable(rebuild_table).compile(dialect=self._engine.dialect))
+
+        async def _rebuild() -> None:
+            async with self._engine.connect() as conn:
+                driver = (await conn.get_raw_connection()).driver_connection
+                try:
+                    # Inside the try, not above it: the pragma takes effect at its
+                    # own await with no flush required, so anything interrupting
+                    # after it -- cancellation included -- must still reach the
+                    # finally or a pooled connection keeps foreign keys disabled.
+                    # The commit closes any open transaction rather than making the
+                    # pragma effective.
+                    await driver.execute("PRAGMA foreign_keys = OFF")
+                    await driver.commit()
+                    await driver.execute("BEGIN IMMEDIATE")
+                    try:
+                        await self._refuse_newer_sqlite_schema(driver)
+                        await driver.execute(create_stmt)
+                        insert_sql = f"INSERT INTO schedules_new ({col_list}) SELECT {col_list} FROM schedules"  # noqa: S608
+                        await driver.execute(insert_sql)
+                        await driver.execute("DROP TABLE schedules")
+                        await driver.execute("ALTER TABLE schedules_new RENAME TO schedules")
+                        for idx_sql in index_sqls:
+                            await driver.execute(idx_sql)
+                        await driver.commit()
+                    except BaseException:
+                        await driver.rollback()
+                        raise
+                finally:
+                    await _restore_foreign_keys(conn, driver)
+
+        await self._rebuild_check_constraint(
+            "schedules",
+            lambda sql: sql is not None and self._LEGACY_SCHEDULES_TRIGGER_TYPE_MARKER in sql,
+            _rebuild,
+        )
+
+    # Substring present only in the post-completion-trust-gate invocations
+    # CREATE SQL; its absence indicates a legacy DB whose status CHECK needs
+    # rebuilding to admit 'completed_empty'.
+    _LEGACY_INVOCATIONS_STATUS_MARKER = "'completed_empty'"
+
+    async def _drop_legacy_invocations_status_check(self) -> None:
+        """Rebuild ``invocations`` if its status CHECK still omits 'completed_empty'.
+
+        SQLite cannot drop a constraint via ALTER TABLE, so we use the same
+        rename → CREATE new → INSERT SELECT → DROP old pattern as
+        ``_rebuild_legacy_sessions_table`` / ``_drop_legacy_action_kind_check``.
+        """
+        if self.dialect != "sqlite":
+            return
+        async with self._engine.connect() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master WHERE type='table' AND name='invocations'"
+                        )
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None or row["sql"] is None:
+            return
+        create_sql: str = row["sql"]
+        if self._LEGACY_INVOCATIONS_STATUS_MARKER in create_sql:
+            return
+
+        async with self._engine.connect() as conn:
+            index_rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='index' AND tbl_name='invocations' AND sql IS NOT NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            index_sqls = [r["sql"] for r in index_rows]
+
+            cols_rows = (
+                (await conn.execute(text("PRAGMA table_info(invocations)"))).mappings().all()
+            )
+            cols = [r["name"] for r in cols_rows]
+        col_list = ", ".join(cols)
+
+        # `invocations` is an FK target (sessions.invocation_id,
+        # schedule_runs.invocation_id, artifacts.invocation_id): dropping it
+        # while `PRAGMA foreign_keys` is enforced raises a FOREIGN KEY
+        # constraint failure even with real rows safely copied into the new
+        # table first. `engine.begin()` opens its transaction before our first
+        # statement runs, and SQLite treats `PRAGMA foreign_keys` as a no-op
+        # inside a pending transaction — so toggling it through a normal
+        # SQLAlchemy connection never actually takes effect. Go through the
+        # raw driver connection instead (same technique as `_raw_sqlite_exec`)
+        # so the pragma flip is real autocommit, not swallowed by an open txn.
+        async def _rebuild() -> None:
+            async with self._engine.connect() as conn:
+                driver = (await conn.get_raw_connection()).driver_connection
+                try:
+                    # Inside the try, not above it: the pragma takes effect at its
+                    # own await with no flush required, so anything interrupting
+                    # after it -- cancellation included -- must still reach the
+                    # finally or a pooled connection keeps foreign keys disabled.
+                    await driver.execute("PRAGMA foreign_keys = OFF")
+                    # The commit closes any open transaction rather than making the
+                    # pragma effective, then BEGIN IMMEDIATE makes the whole rebuild
+                    # one atomic transaction — DDL autocommits per-statement
+                    # otherwise, so a crash between DROP and RENAME would strand the
+                    # data in invocations_new.
+                    await driver.commit()
+                    await driver.execute("BEGIN IMMEDIATE")
+                    await self._refuse_newer_sqlite_schema(driver)
+                    await driver.execute(
                         """
-                        CREATE TABLE schedules_new (
-                          id                  TEXT    PRIMARY KEY,
-                          name                TEXT    NOT NULL UNIQUE,
-                          description         TEXT,
-                          enabled             INTEGER NOT NULL DEFAULT 1
-                                              CHECK(enabled IN (0, 1)),
-                          trigger_type        TEXT    NOT NULL
-                                              CHECK(trigger_type IN ('cron', 'interval', 'github_poll')),
-                          cron_expr           TEXT,
-                          interval_sec        INTEGER,
-                          github_repo         TEXT,
-                          github_filter       JSON,
-                          github_cursor       TEXT,
-                          poll_interval_sec   INTEGER,
-                          action_kind         TEXT    NOT NULL
-                                              CHECK(action_kind IN ('agent', 'flow', 'fanout', 'play', 'flow_yaml')),
-                          action_model        TEXT,
-                          action_prompt       TEXT,
-                          action_agent        TEXT,
-                          action_playbook     TEXT,
-                          action_flow_yaml    TEXT,
-                          action_project      TEXT,
-                          action_extra_args   JSON    DEFAULT '[]',
-                          on_success          JSON,
-                          on_fail             JSON,
-                          last_fired_at       REAL,
-                          next_fire_at        REAL,
-                          missed_fire_policy  TEXT    NOT NULL DEFAULT 'skip'
-                                              CHECK(missed_fire_policy IN ('skip', 'run_once')),
-                          overlap_policy      TEXT    NOT NULL DEFAULT 'skip'
-                                              CHECK(overlap_policy IN ('skip', 'allow')),
-                          project             TEXT,
-                          created_at          REAL    NOT NULL,
-                          updated_at          REAL    NOT NULL
+                        CREATE TABLE invocations_new (
+                          id              TEXT    PRIMARY KEY,
+                          skill           TEXT    NOT NULL,
+                          plugin          TEXT,
+                          prompt          TEXT,
+                          started_at      REAL    NOT NULL,
+                          ended_at        REAL,
+                          status          TEXT    NOT NULL DEFAULT 'running'
+                                          CHECK(status IN ('running', 'completed',
+                                                'completed_empty', 'failed',
+                                                'timed_out', 'aborted', 'cancelled')),
+                          session_count   INTEGER NOT NULL DEFAULT 0,
+                          created_at      REAL    NOT NULL,
+                          updated_at      REAL    NOT NULL,
+                          node_metadata   JSON,
+                          status_reason_code     TEXT,
+                          status_reason_summary  TEXT,
+                          status_evidence_refs   JSON
                         )
                         """
                     )
+                    insert_sql = (
+                        f"INSERT INTO invocations_new ({col_list}) "  # noqa: S608
+                        f"SELECT {col_list} FROM invocations"
+                    )
+                    await driver.execute(insert_sql)
+                    await driver.execute("DROP TABLE invocations")
+                    await driver.execute("ALTER TABLE invocations_new RENAME TO invocations")
+                    for idx_sql in index_sqls:
+                        await driver.execute(idx_sql)
+                    await driver.commit()
+                except BaseException:
+                    await driver.rollback()
+                    raise
+                finally:
+                    await _restore_foreign_keys(conn, driver)
+
+        await self._rebuild_check_constraint(
+            "invocations",
+            lambda sql: sql is not None and self._LEGACY_INVOCATIONS_STATUS_MARKER in sql,
+            _rebuild,
+        )
+
+    async def _backup_before_rebuild(self, label: str) -> None:
+        """Copy the on-disk state.db aside before an in-place table rebuild (ADR-0071 D2).
+
+        No-op for in-memory databases and non-sqlite dialects, where there is no
+        single database file to copy. Rollback path: stop the daemon, restore
+        the backup file over the live state.db, and reinstall the schema
+        version that shipped before this migration by checking out the prior
+        lionagi release before reopening.
+        """
+        if self.dialect != "sqlite":
+            return
+        p = self.path
+        if p is None or str(p) == ":memory:" or not p.exists():
+            return
+        # In WAL mode, recently committed transactions can live only in the
+        # `-wal` sidecar file until a checkpoint occurs. A raw file copy taken
+        # without checkpointing first can silently omit that data, defeating
+        # the rollback guarantee this backup exists to provide. TRUNCATE forces
+        # a full checkpoint and truncates the WAL file back to zero length.
+        await self.checkpoint("TRUNCATE")
+        backup_path = p.with_name(f"{p.name}.pre-{label}.{int(time.time())}.bak")
+        shutil.copy2(p, backup_path)
+
+    # Substring present only in the post-ADR-0071 schedule_runs CREATE SQL
+    # (the widened status CHECK); its absence indicates a legacy DB whose
+    # schedule_runs still carries the 5-value CHECK and a NOT NULL schedule_id.
+    _LEGACY_SCHEDULE_RUNS_QUEUE_MARKER = "'waiting_dependency'"
+
+    async def _drop_legacy_schedule_runs_check(self) -> None:
+        """Rebuild ``schedule_runs`` if it still carries the pre-ADR-0071 status CHECK.
+
+        SQLite cannot widen a CHECK constraint nor drop a NOT NULL via ALTER
+        TABLE, so this uses the same rename → CREATE new → INSERT SELECT →
+        DROP old pattern as ``_drop_legacy_action_kind_check`` /
+        ``_drop_legacy_invocations_status_check``. Takes a pre-rebuild backup
+        of the database file first (``_backup_before_rebuild``); see its
+        docstring for the rollback path.
+        """
+        if self.dialect != "sqlite":
+            return
+        async with self._engine.connect() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='table' AND name='schedule_runs'"
+                        )
+                    )
                 )
-                insert_sql = (
-                    f"INSERT INTO schedules_new ({col_list}) SELECT {col_list} FROM schedules"  # noqa: S608
+                .mappings()
+                .first()
+            )
+        if row is None or row["sql"] is None:
+            return
+        create_sql: str = row["sql"]
+        if self._LEGACY_SCHEDULE_RUNS_QUEUE_MARKER in create_sql:
+            # Table was already created / rebuilt with the widened CHECK.
+            return
+
+        await self._backup_before_rebuild("schedule_runs")
+
+        async with self._engine.connect() as conn:
+            index_rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='index' AND tbl_name='schedule_runs' AND sql IS NOT NULL"
+                        )
+                    )
                 )
-                await conn.execute(text(insert_sql))
-                await conn.execute(text("DROP TABLE schedules"))
-                await conn.execute(text("ALTER TABLE schedules_new RENAME TO schedules"))
-                for idx_sql in index_sqls:
-                    await conn.execute(text(idx_sql))
-            finally:
-                await conn.execute(text("PRAGMA foreign_keys = ON"))
+                .mappings()
+                .all()
+            )
+            index_sqls = [r["sql"] for r in index_rows]
+
+            # DROP TABLE also drops the table's triggers; capture them for
+            # replay alongside the indexes.
+            trigger_rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT sql FROM sqlite_master "
+                            "WHERE type='trigger' AND tbl_name='schedule_runs' AND sql IS NOT NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            trigger_sqls = [r["sql"] for r in trigger_rows]
+
+            cols_rows = (
+                (await conn.execute(text("PRAGMA table_info(schedule_runs)"))).mappings().all()
+            )
+            cols = [r["name"] for r in cols_rows]
+        col_list = ", ".join(cols)
+
+        # ``schedule_runs`` is both an FK source (schedules, invocations) and
+        # an FK target (its own chain_parent_id, and dispatch_outbox's
+        # schedule_run_id) — the same complication documented at
+        # ``_drop_legacy_invocations_status_check``, so this rebuild uses the
+        # same hand-kept-literal + raw-driver-autocommit-pragma technique
+        # rather than ``to_metadata()`` (which cannot resolve those
+        # cross-table foreign keys from an isolated, single-table MetaData).
+        # The literal mirrors the CREATE TABLE in schema.sql; parity between
+        # the two is test-enforced.
+        async def _rebuild() -> None:
+            async with self._engine.connect() as conn:
+                driver = (await conn.get_raw_connection()).driver_connection
+                try:
+                    # Same shape as the invocations rebuild above. The pragma is
+                    # inside the try because it takes effect at its own await, so
+                    # anything interrupting after it -- cancellation included --
+                    # must still reach the finally.
+                    await driver.execute("PRAGMA foreign_keys = OFF")
+                    # The commit closes any open transaction rather than making the
+                    # pragma effective, then one BEGIN IMMEDIATE transaction wraps
+                    # the whole rebuild so a crash mid-sequence cannot strand the
+                    # data in schedule_runs_new.
+                    await driver.commit()
+                    await driver.execute("BEGIN IMMEDIATE")
+                    await self._refuse_newer_sqlite_schema(driver)
+                    await driver.execute(
+                        """
+                        CREATE TABLE schedule_runs_new (
+                          id                  TEXT    PRIMARY KEY,
+                          schedule_id         TEXT    REFERENCES schedules(id) ON DELETE CASCADE,
+                          invocation_id       TEXT    REFERENCES invocations(id),
+                          trigger_context     JSON    NOT NULL,
+                          action_kind         TEXT    NOT NULL,
+                          action_args         JSON    NOT NULL,
+                          status              TEXT    NOT NULL DEFAULT 'running'
+                                              CHECK(status IN ('queued', 'waiting_dependency',
+                                                    'running', 'retry_wait', 'completed',
+                                                    'failed', 'timed_out', 'skipped',
+                                                    'cancelled')),
+                          exit_code           INTEGER,
+                          chain_parent_id     TEXT    REFERENCES schedule_runs(id),
+                          chain_depth         INTEGER NOT NULL DEFAULT 0,
+                          fired_at            REAL    NOT NULL,
+                          ended_at            REAL,
+                          error_detail        TEXT,
+                          created_at          REAL    NOT NULL,
+                          updated_at          REAL,
+                          status_reason_code     TEXT,
+                          status_reason_summary  TEXT,
+                          status_evidence_refs   JSON,
+                          queued_at           REAL,
+                          leased_by           TEXT,
+                          lease_expires_at    REAL,
+                          concurrency_key     TEXT,
+                          lease_attempts      INTEGER NOT NULL DEFAULT 0,
+                          required_capabilities  JSON,
+                          execution_target       TEXT,
+                          library_ref             TEXT,
+                          library_content_hash    TEXT,
+                          dispatched_at           REAL,
+                          resume_packet           JSON
+                        )
+                        """
+                    )
+                    insert_sql = (
+                        f"INSERT INTO schedule_runs_new ({col_list}) "  # noqa: S608
+                        f"SELECT {col_list} FROM schedule_runs"
+                    )
+                    await driver.execute(insert_sql)
+                    await driver.execute("DROP TABLE schedule_runs")
+                    await driver.execute("ALTER TABLE schedule_runs_new RENAME TO schedule_runs")
+                    for idx_sql in index_sqls:
+                        await driver.execute(idx_sql)
+                    for trig_sql in trigger_sqls:
+                        await driver.execute(trig_sql)
+                    # New ADR-0071 queue indexes: not part of the pre-rebuild
+                    # index set, so replaying index_sqls above never creates
+                    # them. Create explicitly (idempotent) so a migrated DB ends
+                    # up with the same indexes as a freshly-created one.
+                    await driver.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_schedule_runs_queue "
+                        "ON schedule_runs(status, queued_at) "
+                        "WHERE status IN ('queued', 'retry_wait')"
+                    )
+                    await driver.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_schedule_runs_concurrency "
+                        "ON schedule_runs(concurrency_key, status) "
+                        "WHERE status IN ('queued', 'running', 'retry_wait')"
+                    )
+                    await driver.commit()
+                except BaseException:
+                    await driver.rollback()
+                    raise
+                finally:
+                    await _restore_foreign_keys(conn, driver)
+
+        await self._rebuild_check_constraint(
+            "schedule_runs",
+            lambda sql: sql is not None and self._LEGACY_SCHEDULE_RUNS_QUEUE_MARKER in sql,
+            _rebuild,
+        )
 
     # ── Schema version ─────────────────────────────────────────────────
 
@@ -765,54 +1930,60 @@ class StateDB:
 
     _UNKNOWN_TYPE_ID = 0
 
-    async def insert_message(self, msg: dict[str, Any]) -> None:
+    @staticmethod
+    def _validate_message(msg: dict[str, Any]) -> None:
         if msg.get("content") is None:
-            raise ValueError("messages.content is NOT NULL (ADR-0009)")
+            raise ValueError("messages.content is NOT NULL")
         role = msg.get("role")
         if not isinstance(role, str) or not role.strip():
             raise ValueError(f"messages.role must be a non-empty string; got {role!r}")
 
+    async def _insert_message_in_tx(self, conn, msg: dict[str, Any]) -> None:
         lion_class_str = (msg.get("node_metadata") or {}).get("lion_class", "")
+        type_id = await self._resolve_lion_class_in_tx(conn, lion_class_str)
+
+        # ON CONFLICT(id) DO UPDATE so re-emitted hooks overwrite stale content.
+        await conn.execute(
+            text(
+                """INSERT INTO messages (id, created_at, node_metadata, content,
+                   embedding, sender, recipient, channel, role, lion_class)
+                   VALUES (:id, :created_at, :node_metadata, :content,
+                           :embedding, :sender, :recipient, :channel, :role, :lion_class)
+                   ON CONFLICT(id) DO UPDATE SET
+                     node_metadata = excluded.node_metadata,
+                     content       = excluded.content,
+                     embedding     = excluded.embedding,
+                     sender        = excluded.sender,
+                     recipient     = excluded.recipient,
+                     channel       = excluded.channel,
+                     role          = excluded.role,
+                     lion_class    = excluded.lion_class"""
+            ).bindparams(
+                bindparam("node_metadata", type_=JSON),
+                bindparam("content", type_=JSON),
+            ),
+            {
+                "id": msg["id"],
+                "created_at": msg["created_at"],
+                "node_metadata": msg.get("node_metadata"),
+                "content": msg["content"],
+                "embedding": _pack_embedding(msg.get("embedding")),
+                "sender": msg.get("sender"),
+                "recipient": msg.get("recipient"),
+                "channel": msg.get("channel"),
+                "role": msg["role"],
+                "lion_class": type_id,
+            },
+        )
+
+    async def insert_message(self, msg: dict[str, Any]) -> None:
+        self._validate_message(msg)
 
         # Serialise the full message write (including the message_types upsert
         # in _resolve_lion_class) behind _write_lock so this path cannot
         # interleave with insert_session_signal's or update_status's _tx() on SQLite.
         async with self._tx() as conn:
-            type_id = await self._resolve_lion_class_in_tx(conn, lion_class_str)
-
-            # ON CONFLICT(id) DO UPDATE so re-emitted hooks overwrite stale content.
-            await conn.execute(
-                text(
-                    """INSERT INTO messages (id, created_at, node_metadata, content,
-                       embedding, sender, recipient, channel, role, lion_class)
-                       VALUES (:id, :created_at, :node_metadata, :content,
-                               :embedding, :sender, :recipient, :channel, :role, :lion_class)
-                       ON CONFLICT(id) DO UPDATE SET
-                         node_metadata = excluded.node_metadata,
-                         content       = excluded.content,
-                         embedding     = excluded.embedding,
-                         sender        = excluded.sender,
-                         recipient     = excluded.recipient,
-                         channel       = excluded.channel,
-                         role          = excluded.role,
-                         lion_class    = excluded.lion_class"""
-                ).bindparams(
-                    bindparam("node_metadata", type_=JSON),
-                    bindparam("content", type_=JSON),
-                ),
-                {
-                    "id": msg["id"],
-                    "created_at": msg["created_at"],
-                    "node_metadata": msg.get("node_metadata"),
-                    "content": msg["content"],
-                    "embedding": msg.get("embedding"),
-                    "sender": msg.get("sender"),
-                    "recipient": msg.get("recipient"),
-                    "channel": msg.get("channel"),
-                    "role": msg["role"],
-                    "lion_class": type_id,
-                },
-            )
+            await self._insert_message_in_tx(conn, msg)
 
     async def get_message(self, message_id: str) -> dict[str, Any] | None:
         async with self._read() as conn:
@@ -874,7 +2045,25 @@ class StateDB:
                     "INSERT INTO progressions (id, created_at, collection) VALUES (:id, :ca, :col) "
                     "ON CONFLICT (id) DO NOTHING"
                 ),
-                {"id": progression_id, "ca": time.time(), "col": json.dumps(collection or [])},
+                {
+                    "id": progression_id,
+                    "ca": time.time(),
+                    "col": _to_json_column(collection or []),
+                },
+            )
+
+    async def set_progression(self, progression_id: str, collection: list[str]) -> None:
+        """Replace a progression's collection wholesale.
+
+        Exists so callers outside this module never have to hand the driver a
+        finished JSON string of their own: ``collection`` is a TEXT column, so a
+        pre-serialized value would bypass both the engine's JSON serializer and
+        the checked helper used here.
+        """
+        async with self._tx() as conn:
+            await conn.execute(
+                text("UPDATE progressions SET collection = :col WHERE id = :id"),
+                {"col": _to_json_column(collection or []), "id": progression_id},
             )
 
     async def get_progression(self, progression_id: str) -> list[str]:
@@ -920,10 +2109,15 @@ class StateDB:
     async def append_to_progression(self, progression_id: str, message_id: str) -> None:
         """Idempotent append of message_id to the progression JSON array."""
         async with self._tx() as conn:
-            await conn.execute(
-                text(self._progression_append_sql(self.dialect)),
-                {"v": message_id, "id": progression_id},
-            )
+            await self._append_to_progression_in_tx(conn, progression_id, message_id)
+
+    async def _append_to_progression_in_tx(
+        self, conn, progression_id: str, message_id: str
+    ) -> None:
+        await conn.execute(
+            text(self._progression_append_sql(self.dialect)),
+            {"v": message_id, "id": progression_id},
+        )
 
     # ── Sessions ───────────────────────────────────────────────────────
 
@@ -945,7 +2139,7 @@ class StateDB:
         async with self._tx() as conn:
             result = await conn.execute(
                 text(
-                    """INSERT INTO sessions (id, created_at, node_metadata, name, "user",
+                    """INSERT INTO sessions (id, cc_session_id, run_id, created_at, node_metadata, name, "user",
                        progression_id, first_msg_id, last_msg_id, updated_at,
                        playbook_name, agent_name, invocation_kind, show_topic,
                        show_play_name, artifacts_path, artifact_contract_json,
@@ -953,7 +2147,7 @@ class StateDB:
                        status, started_at, ended_at, last_message_at, invocation_id,
                        model, provider, effort, agent_hash,
                        project, project_source)
-                       VALUES (:id, :created_at, :node_metadata, :name, :user,
+                       VALUES (:id, :cc_session_id, :run_id, :created_at, :node_metadata, :name, :user,
                                :progression_id, :first_msg_id, :last_msg_id, :updated_at,
                                :playbook_name, :agent_name, :invocation_kind, :show_topic,
                                :show_play_name, :artifacts_path, :artifact_contract_json,
@@ -969,6 +2163,8 @@ class StateDB:
                 ),
                 {
                     "id": session["id"],
+                    "cc_session_id": session.get("cc_session_id"),
+                    "run_id": session.get("run_id"),
                     "created_at": session.get("created_at", now),
                     "node_metadata": session.get("node_metadata"),
                     "name": session.get("name"),
@@ -1002,6 +2198,14 @@ class StateDB:
                 },
             )
             # Only increment session_count when INSERT actually created a row.
+            if result.rowcount and session.get("status") is not None:
+                await self._initialize_managed_entity_in_tx(
+                    conn,
+                    entity_type="session",
+                    entity_id=session["id"],
+                    status=session["status"],
+                    actor_id="create_session",
+                )
             if session.get("invocation_id") and result.rowcount:
                 await conn.execute(
                     text(
@@ -1032,6 +2236,155 @@ class StateDB:
             )
         return self._row_to_dict(row) if row else None
 
+    async def get_sessions_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        """Every session recorded against CLI run *run_id*, oldest first.
+
+        A list rather than one row: one run can persist more than one session,
+        and a caller deciding whether the run is over has to see all of them.
+        An empty list means no session was ever recorded under this run id.
+        """
+        async with self._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT * FROM sessions WHERE run_id = :run_id "
+                            "ORDER BY created_at ASC, id ASC"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [self._row_to_dict(row) for row in rows]
+
+    async def get_session_by_cc_id(self, cc_session_id: str) -> dict[str, Any] | None:
+        async with self._read() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text("SELECT * FROM sessions WHERE cc_session_id = :cc_session_id LIMIT 1"),
+                        {"cc_session_id": cc_session_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        return self._row_to_dict(row) if row else None
+
+    async def sessions_by_source_kind(self, source_kind: str) -> list[dict[str, Any]]:
+        """Minimal rows (id, node_metadata) for every session of one source_kind.
+
+        Deliberately thin — this exists for importer reconciliation sweeps, which
+        need provenance and identity but none of the joined message/branch cost.
+        """
+        async with self._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT id, node_metadata FROM sessions "
+                            "WHERE source_kind = :source_kind"
+                        ),
+                        {"source_kind": source_kind},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [self._row_to_dict(row) for row in rows]
+
+    async def delete_imported_session(self, session_id: str) -> bool:
+        """Delete a mirror-imported session and everything the mirror wrote for it:
+        the session row, its branches, their progressions, and the messages those
+        progressions hold. Returns True only when a row was actually deleted.
+
+        Fails closed on ownership: rows whose ``source_kind`` does not start with
+        ``imported_`` are refused, so a live run's session can never be deleted by
+        an importer reconciling its own output. Mirror-written message ids are
+        derived per-rollout (uuid5 under the mirror's namespace), so the messages
+        deleted here cannot be shared with any other session.
+        """
+        async with self._tx() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text("SELECT source_kind, progression_id FROM sessions WHERE id = :id"),
+                        {"id": session_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                return False
+            if not str(row["source_kind"] or "").startswith("imported_"):
+                return False
+
+            prog_ids: list[str] = [row["progression_id"]] if row["progression_id"] else []
+            branch_rows = (
+                (
+                    await conn.execute(
+                        text("SELECT progression_id FROM branches WHERE session_id = :id"),
+                        {"id": session_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            prog_ids.extend(b["progression_id"] for b in branch_rows if b["progression_id"])
+
+            msg_ids: set[str] = set()
+            for pid in prog_ids:
+                prow = (
+                    (
+                        await conn.execute(
+                            text("SELECT collection FROM progressions WHERE id = :id"),
+                            {"id": pid},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if prow is None:
+                    continue
+                collection = prow["collection"]
+                if isinstance(collection, str):
+                    try:
+                        collection = json.loads(collection)
+                    except (TypeError, ValueError):
+                        collection = []
+                if isinstance(collection, list):
+                    msg_ids.update(str(m) for m in collection)
+
+            # Chunked IN-lists keep each statement under SQLite's bound-variable cap.
+            def _chunks(values: list[str], size: int = 400):
+                for i in range(0, len(values), size):
+                    yield values[i : i + size]
+
+            for chunk in _chunks(sorted(msg_ids)):
+                params = {f"m{i}": mid for i, mid in enumerate(chunk)}
+                placeholders = ", ".join(f":{k}" for k in params)
+                await conn.execute(
+                    text(f"DELETE FROM messages WHERE id IN ({placeholders})"),  # noqa: S608
+                    params,
+                )
+            # Rows that reference the progressions go first (branches, then the
+            # session), else the progression deletes trip their FKs.
+            await conn.execute(
+                text("DELETE FROM branches WHERE session_id = :id"), {"id": session_id}
+            )
+            await conn.execute(text("DELETE FROM sessions WHERE id = :id"), {"id": session_id})
+            for chunk in _chunks(prog_ids):
+                params = {f"p{i}": pid for i, pid in enumerate(chunk)}
+                placeholders = ", ".join(f":{k}" for k in params)
+                await conn.execute(
+                    text(f"DELETE FROM progressions WHERE id IN ({placeholders})"),  # noqa: S608
+                    params,
+                )
+        return True
+
     @staticmethod
     def _touch_activity_sql(dialect: str) -> str:
         # SQLite MAX(a,b) is a scalar greatest; Postgres MAX() is an aggregate,
@@ -1052,12 +2405,54 @@ class StateDB:
 
     async def touch_session_activity(self, session_id: str, *, at: float | None = None) -> None:
         """Bump last_message_at and updated_at for staleness detection."""
-        ts = at if at is not None else time.time()
         async with self._tx() as conn:
-            await conn.execute(
-                text(self._touch_activity_sql(self.dialect)),
-                {"ts": ts, "id": session_id},
-            )
+            await self._touch_session_activity_in_tx(conn, session_id, at=at)
+
+    async def _touch_session_activity_in_tx(
+        self,
+        conn,
+        session_id: str,
+        *,
+        at: float | None = None,
+    ) -> None:
+        ts = at if at is not None else time.time()
+        await conn.execute(
+            text(self._touch_activity_sql(self.dialect)),
+            {"ts": ts, "id": session_id},
+        )
+
+    async def _persist_live_message(
+        self,
+        msg: dict[str, Any],
+        *,
+        session_id: str,
+        branch_progression_id: str | None = None,
+        session_progression_id: str | None = None,
+        system_branch_id: str | None = None,
+        system_branch_update_before_activity: bool = False,
+        activity_at: float | None = None,
+    ) -> None:
+        """Atomically persist one live message and its immediate bookkeeping."""
+        self._validate_message(msg)
+        async with self._tx() as conn:
+            await self._insert_message_in_tx(conn, msg)
+            if branch_progression_id is not None:
+                await self._append_to_progression_in_tx(conn, branch_progression_id, msg["id"])
+            if session_progression_id is not None:
+                await self._append_to_progression_in_tx(conn, session_progression_id, msg["id"])
+            if system_branch_id is not None and system_branch_update_before_activity:
+                await self._update_branch_in_tx(
+                    conn,
+                    system_branch_id,
+                    system_msg_id=msg["id"],
+                )
+            await self._touch_session_activity_in_tx(conn, session_id, at=activity_at)
+            if system_branch_id is not None and not system_branch_update_before_activity:
+                await self._update_branch_in_tx(
+                    conn,
+                    system_branch_id,
+                    system_msg_id=msg["id"],
+                )
 
     async def update_session(
         self,
@@ -1068,9 +2463,21 @@ class StateDB:
         evidence_refs: list[dict[str, Any]] | None = None,
         reason_source: str = "executor",
         reason_actor: str | None = None,
+        override: bool = False,
+        override_actor: str | None = None,
+        override_justification: str | None = None,
+        set_if_null: frozenset[str] = frozenset(),
         **fields: Any,
     ) -> None:
-        """Update session fields; route status changes through update_status()."""
+        """Update session fields; route status changes through update_status().
+
+        Fields named in *set_if_null* are written as ``COALESCE(col, :col)``
+        instead of a plain assignment: the write only takes effect while the
+        column is still NULL, so a concurrent duplicate call converges onto
+        whichever value landed first instead of overwriting it. This is a
+        single atomic UPDATE, not a read-then-write, so it stays correct
+        under concurrent callers.
+        """
         _validate_columns(fields, _SESSION_COLUMNS)
         if "invocation_kind" in fields:
             _validate_enum(
@@ -1099,11 +2506,17 @@ class StateDB:
             evidence_refs=evidence_refs,
             reason_source=reason_source,
             reason_actor=reason_actor,
+            override=override,
+            override_actor=override_actor,
+            override_justification=override_justification,
         )
 
         if fields:
             fields["updated_at"] = time.time()
-            sets = ", ".join(f'"{k}" = :{k}' for k in fields)
+            sets = ", ".join(
+                f'"{k}" = COALESCE("{k}", :{k})' if k in set_if_null else f'"{k}" = :{k}'
+                for k in fields
+            )
             params = dict(fields)
             params["_id"] = session_id
             async with self._tx() as conn:
@@ -1135,6 +2548,7 @@ class StateDB:
         node_metadata: dict[str, Any] | None = None,
         project: str | None = None,
         project_source: str | None = None,
+        cc_session_id: str | None = None,
     ) -> None:
         """Write attribution/provenance fields without touching updated_at.
 
@@ -1155,6 +2569,9 @@ class StateDB:
             params["project"] = project
             sets.append("project_source = :project_source")
             params["project_source"] = project_source
+        if cc_session_id is not None:
+            sets.append("cc_session_id = :cc_session_id")
+            params["cc_session_id"] = cc_session_id
         if not sets:
             return
         params["_id"] = session_id
@@ -1185,10 +2602,15 @@ class StateDB:
         evidence_refs: list[dict[str, Any]] | None,
         reason_source: str,
         reason_actor: str | None,
+        override: bool = False,
+        override_actor: str | None = None,
+        override_justification: str | None = None,
     ) -> None:
         status_value = fields.pop("status", None)
         if status_value is None:
             return
+        allowed_extra = EXTRA_STATUS_WRITE_FIELDS_BY_ENTITY_TYPE.get(entity_type, frozenset())
+        extra_fields = {name: fields.pop(name) for name in allowed_extra if name in fields}
         if reason_code is None:
             from warnings import warn
 
@@ -1205,7 +2627,7 @@ class StateDB:
                 f"{caller_name}({entity_id!r}, status={status_value!r}) "
                 "called without reason_code; defaulting to "
                 f"{reason_code!r}. Pass reason_code explicitly "
-                "(ADR-0028 Phase 2 deprecation).",
+                "(this fallback is deprecated).",
                 DeprecationWarning,
                 stacklevel=3,
             )
@@ -1218,6 +2640,10 @@ class StateDB:
             evidence_refs=evidence_refs,
             source=reason_source,
             actor=reason_actor,
+            extra_fields=extra_fields or None,
+            override=override,
+            override_actor=override_actor,
+            override_justification=override_justification,
         )
 
     async def update_status(
@@ -1233,6 +2659,11 @@ class StateDB:
         actor: str | None = None,
         metadata: dict[str, Any] | None = None,
         expected_statuses: set[str | None] | frozenset[str | None] | None = None,
+        expected_updated_at: float | None = None,
+        extra_fields: dict[str, Any] | None = None,
+        override: bool = False,
+        override_actor: str | None = None,
+        override_justification: str | None = None,
     ) -> bool:
         """Atomically transition an entity's status and record the reason.
 
@@ -1241,83 +2672,90 @@ class StateDB:
         the set to match a SQL NULL status (e.g. ``{None}`` for null-status
         sessions, ``{"running", None}`` to accept either).
 
+        When *expected_updated_at* is provided, the guarded write additionally
+        requires the row's ``updated_at`` to still equal that value — an
+        optimistic-lock version check enforced by storage (the same mechanism
+        as the ``previous_status`` compare-and-set). A concurrent writer that
+        touched the row (any status write bumps ``updated_at``) loses the race
+        and the transition is skipped. This lets a caller that decided to act
+        on a stale snapshot (status membership alone cannot distinguish "still
+        stale" from "just re-touched", e.g. a reaper vs. a fresh claim on the
+        same reapable status) refuse to act once the row has moved.
+
         Returns ``True`` when the transition was applied, ``False`` when it was
-        skipped because the current status was not in *expected_statuses*.  All
+        skipped because the current status was not in *expected_statuses* or
+        the row's ``updated_at`` no longer matches *expected_updated_at*.  All
         existing callers that ignore the return value are unaffected.
+
+        ADR-0035 integrity floor: once an entity's status is terminal (per
+        TERMINAL_STATUSES_BY_ENTITY_TYPE), any write that would CHANGE it is
+        rejected and recorded in admin_events — a terminal record must not
+        silently move back to running or oscillate to a different terminal
+        value. A same-status write (new_status == previous_status) is not a
+        transition — it is allowed through untouched, since callers already
+        rely on it to attach/refresh a reason code on an already-terminal row
+        without that counting as leaving terminal. Pass override=True with
+        override_actor and override_justification for a deliberate
+        operational repair that does change the value; the repair is itself
+        recorded in admin_events, distinctly from an ordinary transition.
         """
         if source not in _VALID_STATUS_SOURCES:
             raise ValueError(
                 f"update_status() called with source={source!r}; "
                 f"must be one of {sorted(_VALID_STATUS_SOURCES)}."
             )
+        if override and (not override_actor or not override_justification):
+            raise ValueError(
+                "override=True requires both override_actor and "
+                "override_justification (ADR-0035 D5 operational-repair trail)."
+            )
         canonical_type = _validate_entity_type_for_reason(entity_type)
         _validate_reason_code(reason_code)
+        valid_statuses = VALID_STATUSES_BY_ENTITY_TYPE.get(canonical_type)
+        if valid_statuses is not None and new_status not in valid_statuses:
+            raise ValueError(
+                f"update_status() called with new_status={new_status!r} for "
+                f"entity_type={canonical_type!r}; vocabulary is {sorted(valid_statuses)}."
+            )
+        # `table` kept for message-format parity with the earlier error text;
+        # the lifecycle policy for `canonical_type` resolves to the same table.
         table = _reason_entity_table(canonical_type)
-        now = time.time()
-
-        async with self._tx() as conn:
-            # FOR UPDATE on PG to prevent read-modify-write races under MVCC.
-            sel = f"SELECT status FROM {table} WHERE id = :id"  # noqa: S608
-            if self.dialect != "sqlite":
-                sel += " FOR UPDATE"
-            row = (await conn.execute(text(sel), {"id": entity_id})).mappings().first()
-            if row is None:
-                raise LookupError(f"{canonical_type} {entity_id!r} not found (table={table})")
-            previous_status = row["status"]
-
-            if expected_statuses is not None and previous_status not in expected_statuses:
-                # CAS guard: current status is not in the expected set — skip.
-                return False
-
-            await conn.execute(
-                text(
-                    f"UPDATE {table} SET "  # noqa: S608
-                    "  status = :status, "
-                    "  status_reason_code = :reason_code, "
-                    "  status_reason_summary = :reason_summary, "
-                    "  status_evidence_refs = :evidence_refs, "
-                    "  updated_at = :now "
-                    "WHERE id = :id"
-                ).bindparams(bindparam("evidence_refs", type_=JSON)),
-                {
-                    "status": new_status,
-                    "reason_code": reason_code,
-                    "reason_summary": reason_summary,
-                    "evidence_refs": evidence_refs or [],
-                    "now": now,
-                    "id": entity_id,
-                },
+        if extra_fields:
+            allowed_extra = EXTRA_STATUS_WRITE_FIELDS_BY_ENTITY_TYPE.get(
+                canonical_type, frozenset()
             )
+            unknown = set(extra_fields) - allowed_extra
+            if unknown:
+                raise ValueError(
+                    f"update_status() called with extra_fields keys {sorted(unknown)} for "
+                    f"entity_type={canonical_type!r}; allowed keys are {sorted(allowed_extra)}."
+                )
 
-            await conn.execute(
-                text(
-                    "INSERT INTO status_transitions "
-                    "(id, entity_type, entity_id, previous_status, status, "
-                    " reason_code, reason_summary, evidence_refs, "
-                    " source, actor, created_at, metadata) "
-                    "VALUES (:id, :entity_type, :entity_id, :previous_status, :status, "
-                    " :reason_code, :reason_summary, :evidence_refs, "
-                    " :source, :actor, :created_at, :metadata)"
-                ).bindparams(
-                    bindparam("evidence_refs", type_=JSON),
-                    bindparam("metadata", type_=JSON),
-                ),
-                {
-                    "id": uuid.uuid4().hex,
-                    "entity_type": canonical_type,
-                    "entity_id": entity_id,
-                    "previous_status": previous_status,
-                    "status": new_status,
-                    "reason_code": reason_code,
-                    "reason_summary": reason_summary,
-                    "evidence_refs": evidence_refs or [],
-                    "source": source,
-                    "actor": actor,
-                    "created_at": now,
-                    "metadata": metadata,
-                },
+        # The guarded read/CAS/edge-validation/history-append algorithm now
+        # lives in LifecycleService; this method only keeps its own
+        # legacy-specific validation above and the outcome-to-bool/raise
+        # mapping below.
+        try:
+            return await _lifecycle_adapters.run_update_status(
+                self._lifecycle_service(),
+                entity_type=canonical_type,
+                entity_id=entity_id,
+                new_status=new_status,
+                reason_code=reason_code,
+                reason_summary=reason_summary,
+                evidence_refs=evidence_refs,
+                source=source,
+                actor=actor,
+                metadata=metadata,
+                expected_statuses=expected_statuses,
+                expected_updated_at=expected_updated_at,
+                extra_fields=extra_fields,
+                override=override,
+                override_actor=override_actor,
+                override_justification=override_justification,
             )
-        return True
+        except _LifecycleNotFoundError as exc:
+            raise LookupError(f"{canonical_type} {entity_id!r} not found (table={table})") from exc
 
     async def list_sessions(
         self,
@@ -1362,6 +2800,43 @@ class StateDB:
                     .first()
                 )
         return row["n"]
+
+    async def activity_stats(
+        self, *, window_start: float, bucket_seconds: int
+    ) -> list[dict[str, Any]]:
+        """Per-bucket (bucket_start, status, count) rows for the activity window.
+
+        Bucketed by the raw epoch-seconds anchor timestamp (ended_at for
+        terminal sessions, started_at/created_at while running) with a single
+        GROUP BY — no per-bucket queries and no row-by-row counting in Python.
+        ``window_start`` is expected to already be bucket-aligned (the caller
+        owns bucket-boundary math) so every returned row lands in a bucket the
+        caller asked for.
+        """
+        query = """
+            SELECT
+                CAST(
+                    COALESCE(ended_at, started_at, created_at) / :bucket_seconds
+                    AS INTEGER
+                ) * :bucket_seconds AS bucket_start,
+                status,
+                COUNT(*) AS n
+            FROM sessions
+            WHERE COALESCE(ended_at, started_at, created_at) >= :window_start
+            GROUP BY bucket_start, status
+        """  # noqa: S608
+        async with self._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(query),
+                        {"bucket_seconds": bucket_seconds, "window_start": window_start},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(r) for r in rows]
 
     # ── Projects ──────────────────────────────────────────────────────
 
@@ -1514,67 +2989,115 @@ class StateDB:
             )
         return result.rowcount > 0
 
-    # ── Schedules (ADR-0027) ──────────────────────────────────────────
+    # ── Schedules (ADR-0070) ──────────────────────────────────────────
 
     async def create_schedule(self, schedule: dict[str, Any]) -> None:
-        now = time.time()
+        stmt, params = self._build_schedule_insert_stmt(schedule)
         async with self._tx() as conn:
-            await conn.execute(
-                text(
-                    """INSERT INTO schedules
-                       (id, name, description, enabled, trigger_type,
-                        cron_expr, interval_sec, github_repo, github_filter,
-                        github_cursor, poll_interval_sec,
-                        action_kind, action_model, action_prompt, action_agent,
-                        action_playbook, action_flow_yaml, action_project, action_extra_args,
-                        on_success, on_fail, last_fired_at, next_fire_at,
-                        missed_fire_policy, overlap_policy, project,
-                        created_at, updated_at)
-                       VALUES (:id, :name, :description, :enabled, :trigger_type,
-                               :cron_expr, :interval_sec, :github_repo, :github_filter,
-                               :github_cursor, :poll_interval_sec,
-                               :action_kind, :action_model, :action_prompt, :action_agent,
-                               :action_playbook, :action_flow_yaml, :action_project, :action_extra_args,
-                               :on_success, :on_fail, :last_fired_at, :next_fire_at,
-                               :missed_fire_policy, :overlap_policy, :project,
-                               :created_at, :updated_at)"""
-                ).bindparams(
-                    bindparam("github_filter", type_=JSON),
-                    bindparam("action_extra_args", type_=JSON),
-                    bindparam("on_success", type_=JSON),
-                    bindparam("on_fail", type_=JSON),
-                ),
-                {
-                    "id": schedule["id"],
-                    "name": schedule["name"],
-                    "description": schedule.get("description"),
-                    "enabled": schedule.get("enabled", 1),
-                    "trigger_type": schedule["trigger_type"],
-                    "cron_expr": schedule.get("cron_expr"),
-                    "interval_sec": schedule.get("interval_sec"),
-                    "github_repo": schedule.get("github_repo"),
-                    "github_filter": schedule.get("github_filter"),
-                    "github_cursor": schedule.get("github_cursor"),
-                    "poll_interval_sec": schedule.get("poll_interval_sec"),
-                    "action_kind": schedule["action_kind"],
-                    "action_model": schedule.get("action_model"),
-                    "action_prompt": schedule.get("action_prompt"),
-                    "action_agent": schedule.get("action_agent"),
-                    "action_playbook": schedule.get("action_playbook"),
-                    "action_flow_yaml": schedule.get("action_flow_yaml"),
-                    "action_project": schedule.get("action_project"),
-                    "action_extra_args": schedule.get("action_extra_args", []),
-                    "on_success": schedule.get("on_success"),
-                    "on_fail": schedule.get("on_fail"),
-                    "last_fired_at": schedule.get("last_fired_at"),
-                    "next_fire_at": schedule.get("next_fire_at"),
-                    "missed_fire_policy": schedule.get("missed_fire_policy", "skip"),
-                    "overlap_policy": schedule.get("overlap_policy", "skip"),
-                    "project": schedule.get("project"),
-                    "created_at": schedule.get("created_at", now),
-                    "updated_at": schedule.get("updated_at", now),
-                },
-            )
+            await conn.execute(stmt, params)
+
+    @staticmethod
+    def _build_schedule_insert_stmt(schedule: dict[str, Any]):
+        """Build the ``INSERT INTO schedules`` statement + bound params for
+        *schedule* without opening a transaction -- shared by
+        ``create_schedule`` and ``apply_schedule_set`` (atomic multi-row
+        ScheduleSet apply)."""
+        now = time.time()
+        stmt = text(
+            """INSERT INTO schedules
+               (id, name, description, enabled, trigger_type,
+                cron_expr, interval_sec, github_repo, github_filter,
+                github_cursor, poll_interval_sec,
+                action_kind, action_model, action_prompt, action_agent,
+                action_playbook, action_flow_yaml, action_project, action_cwd,
+                action_extra_args, action_command, action_command_args,
+                on_success, on_fail, last_fired_at, next_fire_at,
+                missed_fire_policy, overlap_policy, max_runs, budget_usd, budget_tokens,
+                rate_limit,
+                project, threshold_config, last_alert_at,
+                spec_version, managed_by, owner_key, authored_spec,
+                resolved_target, resolved_digest, resolved_timezone,
+                effective_timezone, effective_timezone_source,
+                notify_on, notify_command,
+                created_at, updated_at)
+               VALUES (:id, :name, :description, :enabled, :trigger_type,
+                       :cron_expr, :interval_sec, :github_repo, :github_filter,
+                       :github_cursor, :poll_interval_sec,
+                       :action_kind, :action_model, :action_prompt, :action_agent,
+                       :action_playbook, :action_flow_yaml, :action_project, :action_cwd,
+                       :action_extra_args, :action_command, :action_command_args,
+                       :on_success, :on_fail, :last_fired_at, :next_fire_at,
+                       :missed_fire_policy, :overlap_policy, :max_runs, :budget_usd, :budget_tokens,
+                       :rate_limit,
+                       :project, :threshold_config, :last_alert_at,
+                       :spec_version, :managed_by, :owner_key, :authored_spec,
+                       :resolved_target, :resolved_digest, :resolved_timezone,
+                       :effective_timezone, :effective_timezone_source,
+                       :notify_on, :notify_command,
+                       :created_at, :updated_at)"""
+        ).bindparams(
+            bindparam("github_filter", type_=JSON),
+            bindparam("action_extra_args", type_=JSON),
+            bindparam("action_command_args", type_=JSON),
+            bindparam("on_success", type_=JSON),
+            bindparam("on_fail", type_=JSON),
+            bindparam("rate_limit", type_=JSON),
+            bindparam("threshold_config", type_=JSON),
+            bindparam("authored_spec", type_=JSON),
+            bindparam("resolved_target", type_=JSON),
+            bindparam("notify_on", type_=JSON),
+        )
+        params = {
+            "id": schedule["id"],
+            "name": schedule["name"],
+            "description": schedule.get("description"),
+            "enabled": schedule.get("enabled", 1),
+            "trigger_type": schedule["trigger_type"],
+            "cron_expr": schedule.get("cron_expr"),
+            "interval_sec": schedule.get("interval_sec"),
+            "github_repo": schedule.get("github_repo"),
+            "github_filter": schedule.get("github_filter"),
+            "github_cursor": schedule.get("github_cursor"),
+            "poll_interval_sec": schedule.get("poll_interval_sec"),
+            "action_kind": schedule["action_kind"],
+            "action_model": schedule.get("action_model"),
+            "action_prompt": schedule.get("action_prompt"),
+            "action_agent": schedule.get("action_agent"),
+            "action_playbook": schedule.get("action_playbook"),
+            "action_flow_yaml": schedule.get("action_flow_yaml"),
+            "action_project": schedule.get("action_project"),
+            "action_cwd": schedule.get("action_cwd"),
+            "action_extra_args": schedule.get("action_extra_args", []),
+            "action_command": schedule.get("action_command"),
+            "action_command_args": schedule.get("action_command_args", []),
+            "on_success": schedule.get("on_success"),
+            "on_fail": schedule.get("on_fail"),
+            "last_fired_at": schedule.get("last_fired_at"),
+            "next_fire_at": schedule.get("next_fire_at"),
+            "missed_fire_policy": schedule.get("missed_fire_policy", "skip"),
+            "overlap_policy": schedule.get("overlap_policy", "skip"),
+            "max_runs": schedule.get("max_runs"),
+            "budget_usd": schedule.get("budget_usd"),
+            "budget_tokens": schedule.get("budget_tokens"),
+            "rate_limit": schedule.get("rate_limit"),
+            "project": schedule.get("project"),
+            "threshold_config": schedule.get("threshold_config"),
+            "last_alert_at": schedule.get("last_alert_at"),
+            "spec_version": schedule.get("spec_version"),
+            "managed_by": schedule.get("managed_by"),
+            "owner_key": schedule.get("owner_key"),
+            "authored_spec": schedule.get("authored_spec"),
+            "resolved_target": schedule.get("resolved_target"),
+            "resolved_digest": schedule.get("resolved_digest"),
+            "resolved_timezone": schedule.get("resolved_timezone"),
+            "effective_timezone": schedule.get("effective_timezone"),
+            "effective_timezone_source": schedule.get("effective_timezone_source"),
+            "notify_on": schedule.get("notify_on"),
+            "notify_command": schedule.get("notify_command"),
+            "created_at": schedule.get("created_at", now),
+            "updated_at": schedule.get("updated_at", now),
+        }
+        return stmt, params
 
     async def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
         async with self._read() as conn:
@@ -1603,6 +3126,42 @@ class StateDB:
                 .first()
             )
         return self._row_to_dict(row) if row else None
+
+    async def list_schedules_by_owner_key(self, owner_key: str) -> list[dict[str, Any]]:
+        async with self._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text("SELECT * FROM schedules WHERE owner_key = :owner_key"),
+                        {"owner_key": owner_key},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [self._row_to_dict(r) for r in rows]
+
+    async def apply_schedule_set(
+        self,
+        *,
+        creates: list[dict[str, Any]],
+        updates: list[tuple[str, dict[str, Any]]],
+        disables: list[str],
+    ) -> None:
+        """Atomically commit a ScheduleSet reconciliation plan: every CREATE,
+        UPDATE, and DISABLE lands in one transaction -- callers must have
+        already validated every member (a partially-invalid set must never
+        reach this method, since every write here commits together)."""
+        async with self._tx() as conn:
+            for schedule in creates:
+                stmt, params = self._build_schedule_insert_stmt(schedule)
+                await conn.execute(stmt, params)
+            for schedule_id, fields in updates:
+                stmt, params = self._build_update_schedule_stmt(schedule_id, fields)
+                await conn.execute(stmt, params)
+            for schedule_id in disables:
+                stmt, params = self._build_update_schedule_stmt(schedule_id, {"enabled": 0})
+                await conn.execute(stmt, params)
 
     async def list_schedules(
         self,
@@ -1634,8 +3193,11 @@ class StateDB:
             rows = (await conn.execute(text(query), params)).mappings().all()
         return [self._row_to_dict(r) for r in rows]
 
-    async def update_schedule(self, schedule_id: str, **fields: Any) -> None:
-        allowed = {
+    # Fields update_schedule() (and create_schedule_run_and_advance()'s
+    # folded-in schedule update) may write. A single choke point so the two
+    # write paths can never drift on what's allowed.
+    _SCHEDULE_UPDATE_ALLOWED_FIELDS = frozenset(
+        {
             "name",
             "description",
             "enabled",
@@ -1653,23 +3215,114 @@ class StateDB:
             "action_playbook",
             "action_flow_yaml",
             "action_project",
+            "action_cwd",
             "action_extra_args",
+            "action_command",
+            "action_command_args",
             "on_success",
             "on_fail",
             "last_fired_at",
             "next_fire_at",
             "missed_fire_policy",
             "overlap_policy",
+            "max_runs",
+            "budget_usd",
+            "budget_tokens",
+            "rate_limit",
             "project",
+            "threshold_config",
+            "last_alert_at",
+            "last_healthy_poll_at",
+            "poller_consecutive_401",
+            "predispatch_refusal_event",
+            "predispatch_refusal_count",
+            "spec_version",
+            "managed_by",
+            "owner_key",
+            "authored_spec",
+            "resolved_target",
+            "resolved_digest",
+            "resolved_timezone",
+            "effective_timezone",
+            "effective_timezone_source",
+            "notify_on",
+            "notify_command",
         }
-        bad = set(fields) - allowed
+    )
+
+    async def update_schedule(
+        self, schedule_id: str, *, guard_cursor_forward: bool = False, **fields: Any
+    ) -> None:
+        stmt, params = self._build_update_schedule_stmt(
+            schedule_id, fields, guard_cursor_forward=guard_cursor_forward
+        )
+        async with self._tx() as conn:
+            await conn.execute(stmt, params)
+
+    @classmethod
+    def _build_update_schedule_stmt(
+        cls,
+        schedule_id: str,
+        fields: dict[str, Any],
+        *,
+        guard_cursor_forward: bool = False,
+    ):
+        """Validate + build the ``UPDATE schedules`` statement + bound
+        params for *fields* without opening a transaction.
+
+        Shared by ``update_schedule`` (its own standalone commit) and
+        ``create_schedule_run_and_advance`` (folded into the same
+        transaction as the occurrence insert) -- the single choke point for
+        both the field allowlist and the SQL shape, so the two write paths
+        can never drift apart.
+
+        ``guard_cursor_forward`` makes the ``github_cursor`` assignment
+        monotonic: the column moves only if the new value sorts above the
+        stored one. The scheduler passes it, because a poll reads the cursor
+        at tick start and writes it back much later, so its value is a
+        snapshot that an operator's deliberate cursor move can outrun. Without
+        the guard the stale write silently undoes that move, and a backlog the
+        operator had declined becomes eligible again.
+
+        It is a per-COLUMN condition rather than a row predicate on purpose:
+        the same statement carries ``last_fired_at``/``next_fire_at``, and
+        those must land whether or not the cursor is allowed to advance.
+        """
+        bad = set(fields) - cls._SCHEDULE_UPDATE_ALLOWED_FIELDS
         if bad:
             raise ValueError(f"Invalid schedule field(s): {bad}")
-        json_fields = {"github_filter", "action_extra_args", "on_success", "on_fail"}
+        json_fields = {
+            "github_filter",
+            "action_extra_args",
+            "action_command_args",
+            "on_success",
+            "on_fail",
+            "rate_limit",
+            "threshold_config",
+            "authored_spec",
+            "resolved_target",
+            "notify_on",
+        }
+        fields = dict(fields)
         fields["updated_at"] = time.time()
+        guarded_cursor = (
+            guard_cursor_forward
+            and "github_cursor" in fields
+            and fields["github_cursor"] is not None
+        )
         sets_parts = []
         bind_params = []
         for k in fields:
+            if k == "github_cursor" and guarded_cursor:
+                # Cursors are compared as strings everywhere (the poller
+                # compares them against GitHub's own timestamps), so plain
+                # lexical order IS the ordering.
+                sets_parts.append(
+                    '"github_cursor" = CASE WHEN github_cursor IS NULL '
+                    "OR github_cursor < :github_cursor "
+                    "THEN :github_cursor ELSE github_cursor END"
+                )
+                continue
             sets_parts.append(f'"{k}" = :{k}')
             if k in json_fields:
                 bind_params.append(bindparam(k, type_=JSON))
@@ -1678,8 +3331,7 @@ class StateDB:
         stmt = text(f"UPDATE schedules SET {', '.join(sets_parts)} WHERE id = :_id")  # noqa: S608
         if bind_params:
             stmt = stmt.bindparams(*bind_params)
-        async with self._tx() as conn:
-            await conn.execute(stmt, params)
+        return stmt, params
 
     async def delete_schedule(self, schedule_id: str) -> bool:
         async with self._tx() as conn:
@@ -1689,43 +3341,132 @@ class StateDB:
             )
         return result.rowcount > 0
 
-    # ── Schedule Runs (ADR-0027) ──────────────────────────────────────
+    # ── Schedule Runs (ADR-0070) ──────────────────────────────────────
 
     async def create_schedule_run(self, run: dict[str, Any]) -> None:
+        stmt, params = self._build_schedule_run_insert_stmt(run)
+        async with self._tx() as conn:
+            await conn.execute(stmt, params)
+            await self._initialize_managed_entity_in_tx(
+                conn,
+                entity_type="schedule_run",
+                entity_id=params["id"],
+                status=params["status"],
+                actor_id="create_schedule_run",
+            )
+
+    @staticmethod
+    def _build_schedule_run_insert_stmt(run: dict[str, Any]):
+        """Build the ``INSERT INTO schedule_runs`` statement + bound params
+        for *run* without opening a transaction -- shared by
+        ``create_schedule_run`` and ``create_schedule_run_and_advance``."""
+        now = time.time()
+        stmt = text(
+            """INSERT INTO schedule_runs
+               (id, schedule_id, invocation_id, trigger_context,
+                action_kind, action_args, status, exit_code,
+                chain_parent_id, chain_depth, fired_at, ended_at,
+                error_detail, created_at)
+               VALUES (:id, :schedule_id, :invocation_id, :trigger_context,
+                       :action_kind, :action_args, :status, :exit_code,
+                       :chain_parent_id, :chain_depth, :fired_at, :ended_at,
+                       :error_detail, :created_at)"""
+        ).bindparams(
+            bindparam("trigger_context", type_=JSON),
+            bindparam("action_args", type_=JSON),
+        )
+        params = {
+            "id": run["id"],
+            "schedule_id": run["schedule_id"],
+            "invocation_id": run.get("invocation_id"),
+            "trigger_context": run["trigger_context"],
+            "action_kind": run["action_kind"],
+            "action_args": run["action_args"],
+            "status": run.get("status", "running"),
+            "exit_code": run.get("exit_code"),
+            "chain_parent_id": run.get("chain_parent_id"),
+            "chain_depth": run.get("chain_depth", 0),
+            "fired_at": run["fired_at"],
+            "ended_at": run.get("ended_at"),
+            "error_detail": run.get("error_detail"),
+            "created_at": run.get("created_at", now),
+        }
+        return stmt, params
+
+    async def create_schedule_run_and_advance(
+        self,
+        run: dict[str, Any],
+        *,
+        schedule_id: str,
+        schedule_fields: dict[str, Any],
+    ) -> None:
+        """Insert one schedule_runs occurrence row and advance the owning
+        schedule's cursor fields in a single transaction, so a crash can
+        only ever discard an occurrence that was never durably recorded --
+        never leave the cursor pointing before one that was, which would
+        make a restart re-fire it. *schedule_fields* goes through the same
+        allowlist as ``update_schedule``.
+        """
+        run_stmt, run_params = self._build_schedule_run_insert_stmt(run)
+        # Engine-only path, so the monotonic cursor guard always applies: the
+        # value being written came from a poll snapshot taken before this
+        # transaction and must never walk an operator's cursor move backwards.
+        sched_stmt, sched_params = self._build_update_schedule_stmt(
+            schedule_id, schedule_fields, guard_cursor_forward=True
+        )
+        async with self._tx() as conn:
+            await conn.execute(run_stmt, run_params)
+            await self._initialize_managed_entity_in_tx(
+                conn,
+                entity_type="schedule_run",
+                entity_id=run_params["id"],
+                status=run_params["status"],
+                actor_id="create_schedule_run_and_advance",
+            )
+            await conn.execute(sched_stmt, sched_params)
+
+    async def tombstone_and_replace_schedule_run(
+        self,
+        orphan_id: str,
+        replacement_run: dict[str, Any],
+        *,
+        expected_orphan_status: str = "running",
+    ) -> bool:
+        """Flip an undispatched orphan to a terminal status and insert its
+        replacement occurrence row in one transaction, so a crash leaves
+        either both writes durable or neither. The CAS also requires
+        ``dispatched_at IS NULL``: if a launch confirmation lands between
+        the recovery scan and this write, the row no longer qualifies as
+        undispatched and the call is a no-op (returns ``False``, nothing
+        inserted) rather than tombstoning a run that actually launched.
+
+        Returns ``False`` if the orphan's status no longer matches
+        *expected_orphan_status* or is no longer undispatched -- something
+        else already resolved it between the scan and this write, so there
+        is nothing to recover and no replacement should be created.
+        """
+        run_stmt, run_params = self._build_schedule_run_insert_stmt(replacement_run)
         now = time.time()
         async with self._tx() as conn:
-            await conn.execute(
+            result = await conn.execute(
                 text(
-                    """INSERT INTO schedule_runs
-                       (id, schedule_id, invocation_id, trigger_context,
-                        action_kind, action_args, status, exit_code,
-                        chain_parent_id, chain_depth, fired_at, ended_at,
-                        error_detail, created_at)
-                       VALUES (:id, :schedule_id, :invocation_id, :trigger_context,
-                               :action_kind, :action_args, :status, :exit_code,
-                               :chain_parent_id, :chain_depth, :fired_at, :ended_at,
-                               :error_detail, :created_at)"""
-                ).bindparams(
-                    bindparam("trigger_context", type_=JSON),
-                    bindparam("action_args", type_=JSON),
+                    "UPDATE schedule_runs SET status = 'failed', updated_at = :now "
+                    "WHERE id = :orphan_id AND status = :expected_status "
+                    "AND dispatched_at IS NULL"
                 ),
-                {
-                    "id": run["id"],
-                    "schedule_id": run["schedule_id"],
-                    "invocation_id": run.get("invocation_id"),
-                    "trigger_context": run["trigger_context"],
-                    "action_kind": run["action_kind"],
-                    "action_args": run["action_args"],
-                    "status": run.get("status", "running"),
-                    "exit_code": run.get("exit_code"),
-                    "chain_parent_id": run.get("chain_parent_id"),
-                    "chain_depth": run.get("chain_depth", 0),
-                    "fired_at": run["fired_at"],
-                    "ended_at": run.get("ended_at"),
-                    "error_detail": run.get("error_detail"),
-                    "created_at": run.get("created_at", now),
-                },
+                {"now": now, "orphan_id": orphan_id, "expected_status": expected_orphan_status},
             )
+            if result.rowcount == 0:
+                return False
+            await conn.execute(run_stmt, run_params)
+            await self._initialize_managed_entity_in_tx(
+                conn,
+                entity_type="schedule_run",
+                entity_id=run_params["id"],
+                status=run_params["status"],
+                actor_id="tombstone_and_replace_schedule_run",
+            )
+        return True
 
     async def update_schedule_run(
         self,
@@ -1739,7 +3480,15 @@ class StateDB:
         **fields: Any,
     ) -> None:
         """Update schedule_run fields; route status through update_status()."""
-        allowed = {"status", "exit_code", "ended_at", "error_detail", "invocation_id"}
+        allowed = {
+            "status",
+            "exit_code",
+            "ended_at",
+            "error_detail",
+            "invocation_id",
+            "dispatched_at",
+            "resume_packet",
+        }
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"Invalid schedule_run field(s): {bad}")
@@ -1757,34 +3506,328 @@ class StateDB:
         )
 
         if fields:
+            # updated_at must move on every write to this row, not only on a
+            # status transition -- update_status() already bumps it as part
+            # of the status UPDATE above, but a plain field-only call (e.g.
+            # the exit_code/ended_at write that lands *before* the terminal
+            # status transition, while the row is still "running") would
+            # otherwise leave it stale. A stale updated_at is exactly the
+            # snapshot value reap_stale_schedule_runs()'s expected_updated_at
+            # guard would still match on a scan landing in that window,
+            # letting the reaper race a legitimately-finishing run to
+            # "timed_out" ahead of its own terminal write.
+            fields = dict(fields)
+            fields["updated_at"] = time.time()
             sets = ", ".join(f'"{k}" = :{k}' for k in fields)
             params = dict(fields)
             params["_id"] = run_id
+            stmt = text(f"UPDATE schedule_runs SET {sets} WHERE id = :_id")  # noqa: S608
+            if "resume_packet" in fields:
+                stmt = stmt.bindparams(bindparam("resume_packet", type_=JSON(none_as_null=True)))
             async with self._tx() as conn:
-                await conn.execute(
-                    text(f"UPDATE schedule_runs SET {sets} WHERE id = :_id"),  # noqa: S608
-                    params,
-                )
+                await conn.execute(stmt, params)
 
     async def list_schedule_runs(
         self,
         schedule_id: str,
         *,
-        status: str | None = None,
+        status: str | list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         conds: list[str] = ["schedule_id = :schedule_id"]
         params: dict[str, Any] = {"schedule_id": schedule_id}
-        if status:
-            conds.append("status = :status")
-            params["status"] = status
+        statuses = [status] if isinstance(status, str) else (status or [])
+        if statuses:
+            placeholders = ", ".join(f":status{i}" for i in range(len(statuses)))
+            conds.append(f"status IN ({placeholders})")
+            params.update({f"status{i}": s for i, s in enumerate(statuses)})
         query = "SELECT * FROM schedule_runs WHERE " + " AND ".join(conds)  # noqa: S608
         query += " ORDER BY fired_at DESC LIMIT :limit OFFSET :offset"
         params["limit"] = limit
         params["offset"] = offset
         async with self._read() as conn:
             rows = (await conn.execute(text(query), params)).mappings().all()
+        return [self._row_to_dict(r) for r in rows]
+
+    async def count_schedule_runs(
+        self,
+        schedule_id: str,
+        *,
+        chain_depth: int = 0,
+        statuses: tuple[str, ...] = TERMINAL_RUN_STATUSES,
+        fired_after: float | None = None,
+    ) -> int:
+        """Count runs that actually fired and reached a terminal status.
+
+        Used for max_runs bookkeeping: chain_depth=0 excludes on_success/
+        on_fail chain children (they don't consume the parent's budget), and
+        the default status set excludes 'skipped' (missed-fire/overlap skips
+        never ran) and 'running' (not yet terminal). 'timed_out' counts: a
+        reaped run fired and consumed real work — a bounded (max_runs) or
+        one-shot schedule must not silently re-fire because its only run
+        timed out instead of completing.
+        """
+        placeholders = ", ".join(f":status{i}" for i in range(len(statuses)))
+        params: dict[str, Any] = {"schedule_id": schedule_id, "chain_depth": chain_depth}
+        params.update({f"status{i}": s for i, s in enumerate(statuses)})
+        query = f"SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = :schedule_id AND chain_depth = :chain_depth AND status IN ({placeholders})"  # noqa: S608
+        if fired_after is not None:
+            query += " AND fired_at >= :fired_after"
+            params["fired_after"] = fired_after
+        async with self._read() as conn:
+            row = (await conn.execute(text(query), params)).mappings().first()
+        return int(row["n"]) if row else 0
+
+    async def count_schedule_runs_batch(
+        self,
+        schedule_ids: list[str],
+        *,
+        chain_depth: int = 0,
+        statuses: tuple[str, ...] = TERMINAL_RUN_STATUSES,
+    ) -> dict[str, int]:
+        """Batched form of count_schedule_runs — one query for many schedule_ids."""
+        if not schedule_ids:
+            return {}
+        id_placeholders = ", ".join(f":id{i}" for i in range(len(schedule_ids)))
+        status_placeholders = ", ".join(f":status{i}" for i in range(len(statuses)))
+        params: dict[str, Any] = {f"id{i}": sid for i, sid in enumerate(schedule_ids)}
+        params["chain_depth"] = chain_depth
+        params.update({f"status{i}": s for i, s in enumerate(statuses)})
+        query = (
+            f"SELECT schedule_id, COUNT(*) AS n FROM schedule_runs "  # noqa: S608
+            f"WHERE schedule_id IN ({id_placeholders}) AND chain_depth = :chain_depth "
+            f"AND status IN ({status_placeholders}) GROUP BY schedule_id"
+        )
+        async with self._read() as conn:
+            rows = (await conn.execute(text(query), params)).mappings().all()
+        counts = {r["schedule_id"]: int(r["n"]) for r in rows}
+        return {sid: counts.get(sid, 0) for sid in schedule_ids}
+
+    async def schedule_run_streaks(
+        self, schedule_ids: list[str]
+    ) -> dict[str, tuple[int, str | None]]:
+        """Batched form of schedule_run_streak — one query for many schedule_ids."""
+        if not schedule_ids:
+            return {}
+        id_placeholders = ", ".join(f":id{i}" for i in range(len(schedule_ids)))
+        params = {f"id{i}": sid for i, sid in enumerate(schedule_ids)}
+        query = (
+            "SELECT schedule_id, status FROM ("  # noqa: S608
+            "  SELECT schedule_id, status, fired_at,"
+            "         ROW_NUMBER() OVER ("
+            "           PARTITION BY schedule_id ORDER BY fired_at DESC, id DESC"
+            "         ) AS rn"
+            f"  FROM schedule_runs WHERE schedule_id IN ({id_placeholders}) AND chain_depth = 0"
+            ") ranked WHERE rn <= 50 ORDER BY schedule_id, rn"
+        )
+        async with self._read() as conn:
+            rows = (await conn.execute(text(query), params)).mappings().all()
+        grouped: dict[str, list[str]] = {}
+        for row in rows:
+            grouped.setdefault(row["schedule_id"], []).append(row["status"])
+        result: dict[str, tuple[int, str | None]] = {}
+        for sid in schedule_ids:
+            statuses = grouped.get(sid)
+            if not statuses:
+                result[sid] = (0, None)
+                continue
+            last_status = statuses[0]
+            streak = 0
+            for status in statuses:
+                if status in ("completed", "cancelled"):
+                    break
+                if status == "failed":
+                    streak += 1
+            result[sid] = (streak, last_status)
+        return result
+
+    async def sum_schedule_spend(self, schedule_id: str) -> dict[str, Any]:
+        """Sum cost/token usage across every session a schedule has spawned.
+
+        Joins schedule_runs to sessions through invocation_id and totals
+        total_cost_usd / (input_tokens + output_tokens). Used for the
+        budget_usd / budget_tokens pre-fire gate: mirrors count_schedule_runs
+        but sums a spend column instead of counting rows.
+        """
+        query = (
+            "SELECT COALESCE(SUM(s.total_cost_usd), 0) AS cost_usd, "
+            "COALESCE(SUM(s.input_tokens), 0) AS input_tokens, "
+            "COALESCE(SUM(s.output_tokens), 0) AS output_tokens "
+            "FROM schedule_runs sr JOIN sessions s ON s.invocation_id = sr.invocation_id "
+            "WHERE sr.schedule_id = :schedule_id"
+        )
+        async with self._read() as conn:
+            row = (await conn.execute(text(query), {"schedule_id": schedule_id})).mappings().first()
+        if not row:
+            return {"cost_usd": 0.0, "tokens": 0}
+        return {
+            "cost_usd": float(row["cost_usd"] or 0),
+            "tokens": int(row["input_tokens"] or 0) + int(row["output_tokens"] or 0),
+        }
+
+    # Threshold-alert metrics (studio-wide, not scoped to a single schedule's
+    # own runs -- unlike sum_schedule_spend above, which sums a single
+    # schedule's spawned sessions). Keys must match
+    # lionagi.studio.scheduler.threshold.VALID_METRICS.
+    _THRESHOLD_METRIC_QUERIES: dict[str, str] = {
+        "failed_sessions": (
+            "SELECT COUNT(*) AS n FROM sessions "
+            "WHERE status IN ('failed', 'timed_out') "
+            "AND COALESCE(ended_at, started_at, created_at) >= :window_start"
+        ),
+        "total_cost_usd": (
+            "SELECT COALESCE(SUM(total_cost_usd), 0) AS n FROM sessions "
+            "WHERE COALESCE(ended_at, started_at, created_at) >= :window_start"
+        ),
+        # Attribution metric, not an alarm on its own (github_poll_healthy_age_minutes
+        # is) -- counts consecutive 401s across enabled github_poll schedules so an
+        # alert payload can tell "token problem" apart from "network blip". Point-in-
+        # time like the age gauge below; :window_start is unused (query doesn't
+        # reference it) but the dict lookup + single-aggregate shape are still the
+        # cleanest fit here.
+        "github_poll_consecutive_401": (
+            "SELECT COALESCE(MAX(poller_consecutive_401), 0) AS n FROM schedules "
+            "WHERE trigger_type = 'github_poll' AND enabled = 1"
+        ),
+    }
+
+    async def metric_value(self, metric: str, window_start: float) -> float:
+        """Aggregate a threshold-alert metric over [window_start, now).
+
+        ``failed_sessions``, ``total_cost_usd``, and ``github_poll_consecutive_401``
+        are single-aggregate SQL queries; ``p95_latency_ms`` needs a sorted sample
+        (SQLite has no built-in percentile function), so it fetches raw invocation
+        durations and computes the 95th percentile in Python.
+        ``github_poll_healthy_age_minutes`` is also handled specially: unlike every
+        other metric here, it is a point-in-time gauge (minutes since the last
+        healthy github_poll() read) rather than a [window_start, now) aggregate, so
+        ``window_start`` is accepted for signature parity but ignored -- "now" is
+        read fresh via ``time.time()`` inside this method instead of being threaded
+        through from the caller, since recovering it from ``window_start`` would
+        also require ``window_minutes`` (not available here).
+        """
+        if metric == "github_poll_healthy_age_minutes":
+            async with self._read() as conn:
+                row = (
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT MAX(last_healthy_poll_at) AS n FROM schedules "
+                                "WHERE trigger_type = 'github_poll' AND enabled = 1"
+                            )
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+            last_healthy = row["n"] if row else None
+            if last_healthy is None:
+                # No enabled github_poll schedule has ever recorded a healthy
+                # poll -- including the case where no github_poll schedule
+                # exists at all. There is nothing to be blind about, so
+                # report a fresh (zero) age rather than a stale one that
+                # would falsely alarm a threshold-alert schedule watching
+                # this metric on a DB with no observed repo yet.
+                return 0.0
+            return (time.time() - float(last_healthy)) / 60.0
+
+        if metric == "p95_latency_ms":
+            async with self._read() as conn:
+                rows = (
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT (ended_at - started_at) AS latency_sec FROM invocations "
+                                "WHERE started_at >= :window_start AND ended_at IS NOT NULL "
+                                "AND ended_at >= started_at"
+                            ),
+                            {"window_start": window_start},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            if not rows:
+                return 0.0
+            latencies = sorted(float(r["latency_sec"]) * 1000.0 for r in rows)
+            idx = min(len(latencies) - 1, max(0, -(-95 * len(latencies) // 100) - 1))
+            return latencies[idx]
+
+        query = self._THRESHOLD_METRIC_QUERIES.get(metric)
+        if query is None:
+            raise ValueError(f"Unknown threshold metric: {metric!r}")
+        async with self._read() as conn:
+            row = (
+                (await conn.execute(text(query), {"window_start": window_start})).mappings().first()
+            )
+        return float(row["n"]) if row and row["n"] is not None else 0.0
+
+    async def schedule_run_streak(self, schedule_id: str) -> tuple[int, str | None]:
+        """Consecutive terminal 'failed' streak and most recent status, newest-first, capped at 50 rows."""
+        query = """SELECT status FROM schedule_runs
+                   WHERE schedule_id = :schedule_id AND chain_depth = 0
+                   ORDER BY fired_at DESC, id DESC LIMIT 50"""  # noqa: S608
+        async with self._read() as conn:
+            rows = (await conn.execute(text(query), {"schedule_id": schedule_id})).mappings().all()
+        if not rows:
+            return 0, None
+        last_status = rows[0]["status"]
+        streak = 0
+        for row in rows:
+            status = row["status"]
+            if status in ("completed", "cancelled"):
+                break
+            if status == "failed":
+                streak += 1
+        return streak, last_status
+
+    async def schedule_run_exists_since(self, schedule_id: str, since: float) -> bool:
+        """True if *schedule_id* has a genuinely-fired top-level schedule_runs
+        row at or after *since* -- used by missed-fire recovery to tell "never
+        fired" from "fired but crashed before follow-up bookkeeping".
+        Excludes ``status = 'skipped'`` rows so a capacity-deferred skip
+        (whose next_fire_at is deliberately left untouched) still counts as
+        due and retries, rather than being treated as already handled.
+        Excludes ``chain_depth != 0`` rows (on_success/on_fail chain children,
+        which share the parent's schedule_id) so a chain-child fire cannot
+        mask a due top-level occurrence.
+        """
+        async with self._read() as conn:
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT 1 FROM schedule_runs "
+                        "WHERE schedule_id = :schedule_id AND fired_at >= :since "
+                        "AND status != 'skipped' AND chain_depth = 0 LIMIT 1"
+                    ),
+                    {"schedule_id": schedule_id, "since": since},
+                )
+            ).first()
+        return row is not None
+
+    async def list_undispatched_schedule_runs(self) -> list[dict[str, Any]]:
+        """Scheduler-fired occurrence rows whose transaction committed but
+        whose external process launch was never confirmed (cursor already
+        moved, so ordinary missed-fire recovery will never reconsider them).
+        ``SchedulerEngine._recover_undispatched_fires()`` runs this once at
+        startup and re-fires each row. Scoped to ``schedule_id IS NOT NULL``
+        to exclude the leased ad-hoc task queue, which has its own
+        dispatch/lease model and never sets dispatched_at.
+        """
+        async with self._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT * FROM schedule_runs WHERE status = 'running' "
+                            "AND dispatched_at IS NULL AND schedule_id IS NOT NULL"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
         return [self._row_to_dict(r) for r in rows]
 
     async def get_schedule_run(self, run_id: str) -> dict[str, Any] | None:
@@ -1794,6 +3837,29 @@ class StateDB:
                     await conn.execute(
                         text("SELECT * FROM schedule_runs WHERE id = :id"),
                         {"id": run_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        return self._row_to_dict(row) if row else None
+
+    async def get_schedule_run_by_invocation(self, invocation_id: str) -> dict[str, Any] | None:
+        """Look up the schedule_run that fired a given invocation (ADR-0070).
+
+        invocation_id is 1:1 with schedule_runs in practice (each fire mints a
+        fresh invocation), but the ORDER BY + LIMIT keeps this defensively
+        correct if that ever isn't true.
+        """
+        async with self._read() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT * FROM schedule_runs WHERE invocation_id = :invocation_id "
+                            "ORDER BY COALESCE(created_at, 0) DESC, id DESC LIMIT 1"
+                        ),
+                        {"invocation_id": invocation_id},
                     )
                 )
                 .mappings()
@@ -1817,7 +3883,7 @@ class StateDB:
             )
         return [self._row_to_dict(r) for r in rows]
 
-    # ── Invocations (ADR-0020) ──────────────────────────────────────────
+    # ── Invocations (ADR-0077) ──────────────────────────────────────────
 
     async def create_invocation(self, invocation: dict[str, Any]) -> None:
         status = invocation.get("status", "running")
@@ -1825,12 +3891,12 @@ class StateDB:
             "status",
             status,
             _INVOCATION_STATUSES,
-            adr="ADR-0020",
+            adr="ADR-0057",
             nullable=False,
         )
         now = time.time()
         async with self._tx() as conn:
-            await conn.execute(
+            result = await conn.execute(
                 text(
                     """INSERT INTO invocations
                        (id, skill, plugin, prompt, started_at, ended_at, status,
@@ -1853,6 +3919,14 @@ class StateDB:
                     "node_metadata": invocation.get("node_metadata"),
                 },
             )
+            if result.rowcount:
+                await self._initialize_managed_entity_in_tx(
+                    conn,
+                    entity_type="invocation",
+                    entity_id=invocation["id"],
+                    status=status,
+                    actor_id="create_invocation",
+                )
 
     async def update_invocation(
         self,
@@ -1872,7 +3946,7 @@ class StateDB:
                 "status",
                 fields["status"],
                 _INVOCATION_STATUSES,
-                adr="ADR-0020",
+                adr="ADR-0057",
                 nullable=False,
             )
 
@@ -1930,10 +4004,34 @@ class StateDB:
         # Per invocation, take project/project_source from its latest-updated
         # session. ROW_NUMBER() is portable; the old SQLite idiom (bare columns
         # under HAVING MAX(updated_at)) is rejected by PostgreSQL.
+        #
+        # Also surface the schedule_run that fired this invocation (exit_code,
+        # error_detail) so the UI can show why a scheduled run failed without
+        # a second round-trip. action_kind comes from the same subquery: it is
+        # a property of the fired occurrence, not a column on invocations, and
+        # the lifecycle reaper's policy is per-kind. Unlike the sessions join above, this uses
+        # correlated scalar subqueries rather than a ranked derived table:
+        # ORDER BY + LIMIT/OFFSET on inv.updated_at narrows to the emitted
+        # page first (sorting only invocations, not schedule_runs), and each
+        # subquery then runs once per emitted row against the partial index
+        # on schedule_runs(invocation_id) — instead of ROW_NUMBER()ing the
+        # entire schedule_runs table before pagination even applies.
         query = (
             "SELECT inv.*, "
             "  sq.project        AS project, "
-            "  sq.project_source AS project_source "
+            "  sq.project_source AS project_source, "
+            "  ( SELECT sr.exit_code FROM schedule_runs sr "
+            "    WHERE sr.invocation_id = inv.id "
+            "    ORDER BY COALESCE(sr.created_at, 0) DESC, sr.id DESC LIMIT 1 "
+            "  ) AS schedule_run_exit_code, "
+            "  ( SELECT sr.error_detail FROM schedule_runs sr "
+            "    WHERE sr.invocation_id = inv.id "
+            "    ORDER BY COALESCE(sr.created_at, 0) DESC, sr.id DESC LIMIT 1 "
+            "  ) AS schedule_run_error_detail, "
+            "  ( SELECT sr.action_kind FROM schedule_runs sr "
+            "    WHERE sr.invocation_id = inv.id "
+            "    ORDER BY COALESCE(sr.created_at, 0) DESC, sr.id DESC LIMIT 1 "
+            "  ) AS action_kind "
             "FROM invocations inv "
             "LEFT JOIN ( "
             "  SELECT invocation_id, project, project_source FROM ( "
@@ -1982,7 +4080,7 @@ class StateDB:
             )
         return [self._row_to_dict(r) for r in rows]
 
-    # ── Artifacts (ADR-0021) ─────────────────────────────────────────────
+    # ── Artifacts (ADR-0077) ─────────────────────────────────────────────
 
     async def _find_artifact_id(
         self,
@@ -2036,6 +4134,12 @@ class StateDB:
             raise ValueError("artifact kind is required")
         if not name:
             raise ValueError("artifact name is required")
+        if file_path is not None:
+            # Studio artifact file references (ADR-0077 delta 5) must stay
+            # relative and non-traversing before they can ever be served for
+            # preview/download — reject absolute paths and `..` at write time
+            # rather than trusting whatever recorded the reference.
+            _check_path_safe(file_path, "file_path")
         now = time.time()
         existing_id = await self._find_artifact_id(
             kind=kind, name=name, invocation_id=invocation_id, session_id=session_id
@@ -2117,7 +4221,7 @@ class StateDB:
             )
         return self._row_to_dict(row) if row else None
 
-    # ── Admin events (ADR-0024) ─────────────────────────────────────────
+    # ── Admin events (ADR-0057) ─────────────────────────────────────────
 
     async def insert_admin_event(
         self,
@@ -2215,6 +4319,13 @@ class StateDB:
         _validate_columns(fields, _BRANCH_COLUMNS)
         if not fields:
             return
+        async with self._tx() as conn:
+            await self._update_branch_in_tx(conn, branch_id, **fields)
+
+    async def _update_branch_in_tx(self, conn, branch_id: str, **fields: Any) -> None:
+        _validate_columns(fields, _BRANCH_COLUMNS)
+        if not fields:
+            return
         json_fields = {"node_metadata"}
         sets_parts = []
         bind_params = []
@@ -2227,8 +4338,55 @@ class StateDB:
         stmt = text(f"UPDATE branches SET {', '.join(sets_parts)} WHERE id = :_id")  # noqa: S608
         if bind_params:
             stmt = stmt.bindparams(*bind_params)
+        await conn.execute(stmt, params)
+
+    async def finalize_branch(
+        self, branch_id: str, *, status: str, ended_at: float | None = None
+    ) -> bool:
+        """Guarded terminal-status write for one branch row (BRANCH_END).
+
+        Two-sided guard; both conditions must hold for the write to land:
+
+        - *status* itself must be a genuine terminal outcome
+          (``_BRANCH_TERMINAL_STATUSES`` == ``SESSION_TERMINAL_STATUSES`` —
+          every value BRANCH_END ever carries is a session final_status
+          passed straight through by cli/_runs.py teardown_persist()). A
+          non-terminal payload — e.g. the "running" the linked-engine
+          reconciliation path can produce when it suppresses a phantom
+          "failed" back to "running" — is rejected outright: this method
+          never stamps a branch "ended" with a non-terminal status. Returns
+          False without touching the row.
+        - the EXISTING row must still be in a legitimate pre-terminal state:
+          NULL (never touched) or "running" (the only two values flow.py's
+          own per-op writer -- or anything else -- ever leaves a branch in
+          before its real terminal outcome lands; this method itself never
+          writes "running", it only ever writes a terminal status). Any
+          other existing value — whichever terminal status it already
+          holds — is immutable: a run-level finalize must never flap a
+          branch that already reached its outcome, regardless of which
+          terminal status that was (completed, failed, cancelled,
+          timed_out, aborted, completed_empty) or what this call's own
+          *status* argument is.
+
+        A branch row that was never created (a DAG leg that never emitted a
+        first message) matches zero rows and is a harmless no-op.
+        Returns True when a row was actually updated.
+        """
+        if status not in _BRANCH_TERMINAL_STATUSES:
+            return False
         async with self._tx() as conn:
-            await conn.execute(stmt, params)
+            result = await conn.execute(
+                text(
+                    "UPDATE branches SET status = :status, ended_at = :ended_at "
+                    "WHERE id = :id AND (status IS NULL OR status = 'running')"
+                ),
+                {
+                    "status": status,
+                    "ended_at": ended_at if ended_at is not None else time.time(),
+                    "id": branch_id,
+                },
+            )
+        return result.rowcount > 0
 
     async def repair_branch_progression(
         self,
@@ -2331,7 +4489,7 @@ class StateDB:
         )
         now = time.time()
         async with self._tx() as conn:
-            await conn.execute(
+            result = await conn.execute(
                 text(
                     """INSERT INTO shows (id, topic, goal, repo, base_branch,
                        integration_branch, status, show_dir, status_source,
@@ -2355,6 +4513,14 @@ class StateDB:
                     "updated_at": now,
                 },
             )
+            if result.rowcount:
+                await self._initialize_managed_entity_in_tx(
+                    conn,
+                    entity_type="show",
+                    entity_id=show["id"],
+                    status=show.get("status", "active"),
+                    actor_id="create_show",
+                )
 
     async def get_show(self, show_id: str) -> dict[str, Any] | None:
         async with self._read() as conn:
@@ -2465,7 +4631,7 @@ class StateDB:
         )
         now = time.time()
         async with self._tx() as conn:
-            await conn.execute(
+            result = await conn.execute(
                 text(
                     """INSERT INTO plays (id, show_id, name, playbook, effort,
                        status, attempt, session_id, started_at, ended_at, exit_code,
@@ -2501,6 +4667,14 @@ class StateDB:
                     "updated_at": now,
                 },
             )
+            if result.rowcount:
+                await self._initialize_managed_entity_in_tx(
+                    conn,
+                    entity_type="play",
+                    entity_id=play["id"],
+                    status=play.get("status", "pending"),
+                    actor_id="create_play",
+                )
 
     async def get_play(self, play_id: str) -> dict[str, Any] | None:
         async with self._read() as conn:
@@ -3057,10 +5231,120 @@ class StateDB:
             )
         return result.rowcount > 0
 
-    # ── Session controls (ADR-0085 part 1: run control plane transport) ────
+    # ── Workflow definitions ───────────────────────────────────────────
+
+    @staticmethod
+    def _decode_workflow_def(row: Any) -> dict[str, Any]:
+        d = dict(row)
+        if isinstance(d.get("spec_json"), str):
+            try:
+                d["spec_json"] = json.loads(d["spec_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return d
+
+    async def create_workflow_def(self, defn: dict[str, Any]) -> None:
+        now = time.time()
+        async with self._tx() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO workflow_defs "
+                    "(id, name, description, spec_json, created_at, updated_at) "
+                    "VALUES (:id, :name, :description, :spec_json, :created_at, :updated_at)"
+                ).bindparams(bindparam("spec_json", type_=JSON)),
+                {
+                    "id": defn["id"],
+                    "name": defn["name"],
+                    "description": defn.get("description"),
+                    "spec_json": defn.get("spec_json"),
+                    "created_at": defn.get("created_at", now),
+                    "updated_at": defn.get("updated_at", now),
+                },
+            )
+
+    async def get_workflow_def(self, def_id: str) -> dict[str, Any] | None:
+        async with self._read() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text("SELECT * FROM workflow_defs WHERE id = :id"),
+                        {"id": def_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        return None if row is None else self._decode_workflow_def(row)
+
+    async def get_workflow_def_by_name(self, name: str) -> dict[str, Any] | None:
+        async with self._read() as conn:
+            row = (
+                (
+                    await conn.execute(
+                        text("SELECT * FROM workflow_defs WHERE name = :name"),
+                        {"name": name},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        return None if row is None else self._decode_workflow_def(row)
+
+    async def list_workflow_defs(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        async with self._read() as conn:
+            rows = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT * FROM workflow_defs "
+                            "ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
+                        ),
+                        {"limit": limit, "offset": offset},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [self._decode_workflow_def(r) for r in rows]
+
+    async def update_workflow_def(self, def_id: str, **fields: Any) -> None:
+        allowed = {"name", "description", "spec_json"}
+        bad = set(fields) - allowed
+        if bad:
+            raise ValueError(f"Invalid workflow_def field(s): {bad}")
+        json_fields = {"spec_json"}
+        fields["updated_at"] = time.time()
+        sets_parts = []
+        bind_params = []
+        for k in fields:
+            sets_parts.append(f'"{k}" = :{k}')
+            if k in json_fields:
+                bind_params.append(bindparam(k, type_=JSON))
+        params = dict(fields)
+        params["_id"] = def_id
+        stmt = text(f"UPDATE workflow_defs SET {', '.join(sets_parts)} WHERE id = :_id")  # noqa: S608
+        if bind_params:
+            stmt = stmt.bindparams(*bind_params)
+        async with self._tx() as conn:
+            await conn.execute(stmt, params)
+
+    async def delete_workflow_def(self, def_id: str) -> bool:
+        async with self._tx() as conn:
+            result = await conn.execute(
+                text("DELETE FROM workflow_defs WHERE id = :id"),
+                {"id": def_id},
+            )
+        return result.rowcount > 0
+
+    # ── Session controls (ADR-0069 D1–D3: live-control transport) ──────────
     # session_controls rows are written by `li o ctl pause|resume|msg` and
     # consumed by the control poller task in cli/orchestrate/flow.py's
-    # _execute_dag (same lifecycle as the heartbeat loop). Apply/stamp
+    # _execute_dag. Apply/stamp
     # ordering is verb-classed by the poller, not by these methods: pause/
     # resume call insert_session_control() then, once applied against the
     # executor, finalize_session_control() directly (idempotent — safe to
@@ -3185,6 +5469,8 @@ class StateDB:
     @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:
         d = dict(row)
+        if "embedding" in d:
+            d["embedding"] = _unpack_embedding(d["embedding"])
         for key in (
             "node_metadata",
             "content",
@@ -3193,12 +5479,19 @@ class StateDB:
             "on_fail",
             "github_filter",
             "action_extra_args",
+            "action_command_args",
             "trigger_context",
             "action_args",
+            "threshold_config",
+            "rate_limit",
+            "notify_on",
+            "authored_spec",
+            "resolved_target",
             "artifact_contract_json",
             "artifact_verification_json",
             "status_evidence_refs",
             "payload",
+            "resume_packet",
         ):
             if key in d and isinstance(d[key], str):
                 try:

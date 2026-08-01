@@ -40,13 +40,23 @@ export interface ArtifactContract {
   expected: ExpectedArtifact[];
 }
 
-export interface ArtifactVerification {
+export interface ArtifactVerificationResult {
   status: "passed" | "failed" | "warning" | "skipped";
   checked_at: number;
   missing_required: ExpectedArtifact[];
   missing_optional: ExpectedArtifact[];
   produced: ProducedArtifact[];
+  /** A reading taken while the run is still going, rather than the recorded
+   *  verdict it was judged on. Artifacts may still appear. */
+  provisional?: boolean;
 }
+
+export interface ArtifactVerificationNotRecorded {
+  /** The run is terminal, but no verifier verdict was persisted. */
+  status: "not_recorded";
+}
+
+export type ArtifactVerification = ArtifactVerificationResult | ArtifactVerificationNotRecorded;
 
 // ─── Run types ───────────────────────────────────────────────────────────────
 
@@ -91,6 +101,9 @@ export interface RunSummary {
   // ADR-0026: project detection for session organization.
   project?: string | null;
   project_source?: string | null;
+  // ADR-0028: denormalized status reason (machine code + one-line summary).
+  status_reason_code?: string | null;
+  status_reason_summary?: string | null;
   // ADR-0029: artifact contract and verification result.
   artifact_contract_json?: ArtifactContract | null;
   artifact_verification_json?: ArtifactVerification | null;
@@ -143,6 +156,18 @@ export interface RunDetail {
   // ADR-0029: artifact contract and verification result.
   artifact_contract_json?: ArtifactContract | null;
   artifact_verification_json?: ArtifactVerification | null;
+}
+
+export interface RunResumeRequest {
+  instruction: string;
+  branch_id?: string;
+  model?: string;
+}
+
+export interface RunResumeResponse {
+  run_id: string;
+  branch_id: string;
+  invocation_id: string;
 }
 
 // ─── Worker / Playbook types ──────────────────────────────────────────────────
@@ -351,6 +376,9 @@ export interface ScheduleSummary {
   missed_fire_policy: string;
   overlap_policy: string;
   project: string | null;
+  github_filter?: { event?: string; base?: string; state?: string } | null;
+  consecutive_failures?: number;
+  last_status?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -371,4 +399,207 @@ export interface ScheduleRunSummary {
 
 export interface ScheduleDetail extends ScheduleSummary {
   recent_runs: ScheduleRunSummary[];
+}
+
+// ─── Operator conversation protocol (ADR-0083 v1) ──────────────────────────
+
+export type OperatorConversationStatus = "active" | "archived" | "deleted";
+
+export interface OperatorConversation {
+  id: string;
+  project?: string | null;
+  title?: string | null;
+  status: OperatorConversationStatus;
+  nextSequence?: number;
+  activeRequestId?: string | null;
+  providerModel?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export type OperatorErrorCode =
+  | "auth_required"
+  | "validation"
+  | "not_found"
+  | "denied"
+  | "conflict"
+  | "stale_context"
+  | "rate_limited"
+  | "model_failure"
+  | "provider_unavailable"
+  | "service_failure"
+  | "service_restarted"
+  | "audit_unavailable"
+  | "replay_gap"
+  | "cancelled"
+  | "protocol_version";
+
+export interface OperatorProtocolError {
+  code: OperatorErrorCode;
+  message: string;
+  retryable: boolean;
+  retryAfterMs?: number;
+  details?: Record<string, unknown>;
+}
+
+export type OperatorSpace = "mission" | "designer" | "library" | "history" | "schedules" | "system";
+
+export type OperatorJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | OperatorJsonValue[]
+  | { [key: string]: OperatorJsonValue };
+
+export interface OperatorContextSnapshot {
+  project?: string | null;
+  space: OperatorSpace;
+  route: string;
+  selection?: Record<string, string> | null;
+  filters: Record<string, OperatorJsonValue>;
+}
+
+export interface OperatorTextPayload {
+  content: string;
+  format: "plain" | "markdown";
+  /** Additive backend field used to distinguish the persisted instruction. */
+  role?: "user" | "assistant";
+}
+
+export interface OperatorToolCallPayload {
+  callId: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  mode: "read" | "draft";
+}
+
+export interface OperatorToolResultPayload {
+  callId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: OperatorProtocolError;
+}
+
+export type OperatorUiEffect =
+  | {
+      id?: string;
+      kind: "navigate";
+      space: OperatorSpace;
+      params: Record<string, OperatorJsonValue>;
+    }
+  | {
+      id?: string;
+      kind: "select";
+      space: Exclude<OperatorSpace, "system">;
+      selection: Record<string, string>;
+    }
+  | {
+      id?: string;
+      kind: "prefill";
+      form: "schedule" | "workflow" | "playbook";
+      values: Record<string, OperatorJsonValue>;
+    }
+  | {
+      id?: string;
+      kind: "theme";
+      theme: "light" | "dark";
+    };
+
+export interface OperatorUiCommandPayload {
+  effect: OperatorUiEffect;
+}
+
+export interface OperatorResourceVersion {
+  kind: string;
+  id: string;
+  version: string;
+}
+
+export interface OperatorCommandProposal {
+  id: string;
+  command: Record<string, unknown>;
+  commandHash: string;
+  risk: "mutate" | "execute" | "admin";
+  summary: string;
+  target?: OperatorResourceVersion | null;
+  idempotencyKey: string;
+  expiresAt: number;
+}
+
+export interface OperatorProposalPayload {
+  proposal: OperatorCommandProposal;
+}
+
+export interface OperatorConfirmationPayload {
+  proposalId: string;
+  state: "required" | "confirmed" | "denied" | "cancelled" | "expired" | "executed";
+}
+
+export interface OperatorErrorPayload {
+  error: OperatorProtocolError;
+}
+
+export interface OperatorDonePayload {
+  outcome: "completed" | "failed" | "cancelled";
+  lastSequence: number;
+}
+
+export type OperatorFrameType =
+  | "text"
+  | "tool_call"
+  | "tool_result"
+  | "ui_command"
+  | "proposal"
+  | "confirmation"
+  | "error"
+  | "done";
+
+export type OperatorPayload =
+  | OperatorTextPayload
+  | OperatorToolCallPayload
+  | OperatorToolResultPayload
+  | OperatorUiCommandPayload
+  | OperatorProposalPayload
+  | OperatorConfirmationPayload
+  | OperatorErrorPayload
+  | OperatorDonePayload;
+
+export interface OperatorFrame<T extends OperatorPayload = OperatorPayload> {
+  version: 1;
+  conversationId: string;
+  requestId: string;
+  sequence: number;
+  type: OperatorFrameType;
+  payload: T;
+  createdAt: number;
+}
+
+export interface OperatorConversationSnapshot {
+  conversation: OperatorConversation;
+  frames: OperatorFrame[];
+}
+
+/** Closed set: the value reaches a CLI argument on the daemon. */
+export const OPERATOR_MODELS = ["sonnet", "opus", "haiku"] as const;
+export type OperatorModel = (typeof OPERATOR_MODELS)[number];
+
+export interface OperatorTurnRequest {
+  instruction: string;
+  context: OperatorContextSnapshot;
+  expectedLastSequence: number;
+  model?: OperatorModel;
+}
+
+export interface OperatorTurnAccepted {
+  conversationId: string;
+  requestId: string;
+  acceptedSequence: number;
+}
+
+export interface OperatorProposalResult {
+  proposalId: string;
+  status: "succeeded" | "failed" | "conflict" | "expired" | "executing";
+  result?: Record<string, OperatorJsonValue> | null;
+  error?: OperatorProtocolError | null;
 }

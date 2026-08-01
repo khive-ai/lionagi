@@ -1,17 +1,45 @@
 name: Continuous Integration
 
 on:
+  # No paths-ignore on push: a notebook-only push previously skipped the whole
+  # workflow (GitHub Actions skips a run when every changed path matches
+  # paths-ignore), including the publication-hygiene lint job, which itself
+  # scans notebooks. A leak introduced only in a notebook must still be gated.
   push:
     branches: [ main, develop ]
-    paths-ignore:
-      - '**/*.ipynb'
+  # No paths-ignore on pull_request either: ci-gate is a required status check,
+  # so the workflow must report on every PR — a filtered-out PR would block on
+  # a check that never runs.
+  #
+  # types is spelled out for the same reason, one event class further out. The
+  # default is [opened, synchronize, reopened], which does not include
+  # ready_for_review, so marking a draft PR ready raises no event and starts no
+  # run. Whatever ci-gate last reported then stands as the required check on a
+  # PR that has since changed state, and if a job is ever made conditional on
+  # draft it will not have run at all. Listing the defaults back is mandatory:
+  # naming types replaces them rather than adding to them.
   pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
     branches: [ main, develop ]
-    paths-ignore:
-      - '**/*.ipynb'
+  workflow_dispatch:
+    inputs:
+      python-matrix:
+        description: Python versions for a manual diagnostic run
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - endpoints
 
 permissions:
   contents: read
+
+concurrency:
+  # A new push to a PR supersedes its own earlier run; pushes to a branch and
+  # manual runs are never cancelled, because those results are a record.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -28,14 +56,92 @@ jobs:
         uv sync --all-extras
     - name: Lint Python
       run: scripts/ci.sh lint-python
+    - name: Enforce pytest quarantine cap
+      run: scripts/ci.sh lint-quarantine
+    - name: Install ripgrep
+      run: sudo apt-get install -y ripgrep
+    - name: Lint publication hygiene
+      run: scripts/ci.sh lint-hygiene
 
-  docs:
+  core-install:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    # The other Python jobs all install extras, most with --all-extras and the
+    # studio job with --extra studio. Under any of them a module which is
+    # imported on a core path, but only ever supplied by some extra's
+    # transitive tree, is indistinguishable from a properly declared
+    # dependency: it is always present, so nothing ever fails. Installing the
+    # base dependency set by itself is the only configuration in which that
+    # distinction is observable, which is why this job exists separately
+    # rather than as another step somewhere green.
+    - name: Install with no extras
+      run: |
+        uv venv
+        uv pip install .
+    # Starting the CLI traverses the real import chain rather than a subset a
+    # test happens to reach, so an undeclared import on a startup path fails
+    # here instead of in a seat's environment.
+    - name: Core surface starts without extras
+      run: |
+        .venv/bin/li --version
+        .venv/bin/python - <<'PY'
+        import importlib
+
+        for module in (
+            "lionagi",
+            "lionagi.cli.main",
+            "lionagi.operations.flow",
+            "lionagi.session.branch",
+            "lionagi.session.session",
+            "lionagi.service.imodel",
+        ):
+            importlib.import_module(module)
+        print("core surface imported with base dependencies only")
+        PY
+
+  docs:
+    needs: changes
+    # The `needs: changes` edge exists only so the ADR steps below can read
+    # needs.changes.outputs.adr; the rest of this job (docs contracts, strict
+    # build, markdownlint, link check) does not depend on that output. Gating
+    # the whole job on the changes job succeeding would skip all of it when
+    # changes fails or is skipped, which is how those checks silently stopped
+    # running. The ADR steps stay output-gated and simply skip when the output
+    # is absent.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.10"
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install docs dependencies
+      run: uv sync --frozen --all-extras
+
+    - name: Test documentation contracts
+      run: uv run pytest -n0 tests/docs
+
+    - name: Build documentation strictly
+      run: uv run mkdocs build --strict --site-dir /tmp/lionagi-docs-site
 
     - name: Lint markdown (formatting)
-      uses: DavidAnson/markdownlint-cli2-action@v23
+      uses: DavidAnson/markdownlint-cli2-action@v24
       with:
         globs: "docs/**/*.md,README.md,AGENT.md,CLAUDE.md,CONTRIBUTING.md,CHANGELOG.md"
         config: ".markdownlint.json"
@@ -43,24 +149,38 @@ jobs:
     - name: Check internal links
       uses: lycheeverse/lychee-action@v2
       with:
-        args: "--no-progress --offline docs/ README.md AGENT.md CLAUDE.md CONTRIBUTING.md"
+        # --fallback-extensions md: pages use mkdocs directory URLs (href="api/operations/")
+        #   which map to source api/operations.md; let lychee resolve the .md source offline.
+        # --exclude-path docs/overrides: theme template partials contain Jinja ({{ ... }}),
+        #   not documentation links.
+        args: "--no-progress --offline --fallback-extensions md --exclude-path docs/overrides docs/ README.md AGENT.md CLAUDE.md CONTRIBUTING.md"
         fail: true
+
+    # Only when docs/adr/ or the lifecycle policy registry itself changed —
+    # this check compares the two against each other, so an unrelated docs
+    # PR has nothing new to verify.
+    - name: Check ADR status sets against the lifecycle policy registry
+      if: needs.changes.outputs.adr == 'true'
+      run: uv run python scripts/check_adr_status_sets.py
 
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # PRs: oldest + newest only (60% faster). Full matrix on main/develop pushes.
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10","3.14"]' || '["3.10","3.11","3.12","3.13","3.14"]') }}
+        # PRs: oldest + newest only. Full matrix on main/develop pushes. This
+        # saves runner minutes rather than wall-clock time, because the legs run
+        # in parallel and the ones dropped were not the slowest.
+        python-version: ${{ fromJSON((github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.python-matrix == 'endpoints')) && '["3.10","3.14"]' || '["3.10","3.11","3.12","3.13","3.14"]') }}
     # Force every `uv` call (venv, sync, run) onto the matrix interpreter; the
     # repo's .python-version (3.10) otherwise pins all legs to 3.10.
     env:
       UV_PYTHON: ${{ matrix.python-version }}
+      PYTEST_JUNIT_XML: ${{ github.workspace }}/.pytest-results/junit.xml
     steps:
     - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
         allow-prereleases: true
@@ -83,23 +203,139 @@ jobs:
         uv venv
         uv sync --all-extras
 
-    # Coverage runs on 3.10 only (present in both the PR and the full matrix);
-    # other versions run without coverage instrumentation — 5-10x faster.
-    # Codecov is uploaded only from the coverage run.
+    # Coverage runs on 3.10, and only on pushes — never on a pull request.
+    #
+    # Running the suite under coverage instrumentation is materially slower than
+    # running it plain. The 3.10 leg is kept in the reduced pull-request matrix
+    # and ci-gate hard-gates on `test`, so before this split that extra time sat
+    # directly on the path every pull request had to clear before it could merge.
+    #
+    # Coverage is a report rather than a gate, so pushes to a long-lived branch
+    # are a sufficient place to produce it. Pull requests run the same tests on
+    # the same interpreters, uninstrumented — no test is skipped on a pull
+    # request, the 3.10 leg is switched from the instrumented command to the
+    # plain one.
     - name: Run tests with coverage
-      if: matrix.python-version == '3.10'
+      if: matrix.python-version == '3.10' && github.event_name != 'pull_request'
       run: scripts/ci.sh test-python-cov
+      env:
+        MAXFAIL: 25
+        PYTEST_RSS_LOG: ${{ github.workspace }}/.pytest-rss
 
     - name: Run tests
-      if: matrix.python-version != '3.10'
+      if: matrix.python-version != '3.10' || github.event_name == 'pull_request'
       run: scripts/ci.sh test-python
+      env:
+        MAXFAIL: 0
+        PYTEST_RSS_LOG: ${{ github.workspace }}/.pytest-rss
+
+    - name: Collect flake failure telemetry
+      if: failure()
+      run: |
+        uv run python scripts/collect_flake_failures.py \
+          --junit "$PYTEST_JUNIT_XML" \
+          --output .pytest-results/failures.jsonl \
+          --matrix-leg "${{ matrix.python-version }}" \
+          --run-id "${{ github.run_id }}" \
+          --attempt "${{ github.run_attempt }}"
+
+    - name: Upload flake failure telemetry
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: flake-failures-py${{ matrix.python-version }}-attempt-${{ github.run_attempt }}
+        path: .pytest-results/failures.jsonl
+        if-no-files-found: error
+        retention-days: 30
+
+    # Names the memory hog when a worker is OOM-killed ("node down: Not
+    # properly terminated" with no traceback): per-worker peak RSS plus the
+    # tests that raised the high-water mark most. Runs even when tests fail —
+    # that is the case it exists for.
+    - name: Worker peak-RSS report
+      if: always()
+      run: |
+        if ls .pytest-rss/rss-*.jsonl >/dev/null 2>&1; then
+          python3 scripts/rss_report.py .pytest-rss
+        else
+          echo "no RSS log produced"
+        fi
 
     - name: Upload coverage reports to Codecov
-      if: matrix.python-version == '3.10'
-      uses: codecov/codecov-action@v7
+      if: matrix.python-version == '3.10' && github.event_name != 'pull_request'
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: ohdearquant/lionagi
+
+  # Wall-clock gates run serially on one primary interpreter, outside coverage
+  # and xdist. This job is intentionally advisory (absent from ci-gate) because
+  # hosted-runner load can move timing, but failures remain visible as a red job.
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv sync --all-extras
+    - name: Run performance tests serially
+      run: uv run pytest -m "performance" -p no:randomly -n 0 -q --timeout=300 --maxfail=0
+
+  # A visible holding lane for known flakes. It is deliberately absent from
+  # ci-gate and cannot block merges; exact tests come from tests/quarantine.txt.
+  quarantine:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.12"
+      PYTEST_JUNIT_XML: ${{ github.workspace }}/.pytest-results/junit.xml
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv sync --all-extras
+    - name: Run quarantined tests only
+      run: scripts/ci.sh test-python-quarantine
+      env:
+        MAXFAIL: 0
+    - name: Collect quarantine failure telemetry
+      if: failure()
+      run: |
+        uv run python scripts/collect_flake_failures.py \
+          --junit "$PYTEST_JUNIT_XML" \
+          --output .pytest-results/failures.jsonl \
+          --matrix-leg "quarantine-3.12" \
+          --run-id "${{ github.run_id }}" \
+          --attempt "${{ github.run_attempt }}"
+    - name: Upload quarantine failure telemetry
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: flake-failures-quarantine-attempt-${{ github.run_attempt }}
+        path: .pytest-results/failures.jsonl
+        if-no-files-found: error
+        retention-days: 30
 
   frontend:
     runs-on: ubuntu-latest
@@ -108,7 +344,7 @@ jobs:
         working-directory: apps/studio/frontend
     steps:
     - uses: actions/checkout@v7
-    - uses: actions/setup-node@v6
+    - uses: actions/setup-node@v7
       with:
         node-version: '22'
         cache: 'npm'
@@ -119,8 +355,102 @@ jobs:
       run: |
         npm run lint
         npm run typecheck
+    - name: Unit tests
+      run: npm run test
     - name: Build
       run: npm run build
+
+  studio-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.10"
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    - name: Install Python dependencies
+      run: |
+        uv venv
+        uv sync --extra studio
+    - uses: actions/setup-node@v7
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: apps/studio/frontend/package-lock.json
+    - name: Install frontend dependencies
+      working-directory: apps/studio/frontend
+      run: npm ci
+    - name: Install Playwright browsers
+      working-directory: apps/studio/frontend
+      run: npx playwright install chromium --with-deps
+    # Builds the SPA, boots a seeded daemon + `vite preview` on temp/free-port
+    # infrastructure (never the real ~/.lionagi), and runs the Chromium smoke
+    # specs against it -- see apps/studio/frontend/e2e/ and tests/e2e_studio/.
+    - name: Run seeded-daemon e2e smoke tests
+      working-directory: apps/studio/frontend
+      run: npm run e2e
+    - name: Upload Playwright report
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: studio-e2e-playwright-report
+        path: |
+          apps/studio/frontend/playwright-report/
+          apps/studio/frontend/test-results/
+        retention-days: 7
+
+  # Detect whether Studio Docker image inputs changed, to gate the build below.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      studio: ${{ steps.filter.outputs.studio }}
+      adr: ${{ steps.filter.outputs.adr }}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v4
+      id: filter
+      with:
+        filters: |
+          studio:
+            - 'apps/studio/**'
+            - 'lionagi/**'
+            - 'pyproject.toml'
+            - 'README.md'
+            - 'LICENSE'
+            - 'marketplace/**'
+            - '.claude-plugin/**'
+            - '.github/workflows/ci.yml'
+          adr:
+            - 'docs/adr/**'
+            - 'lionagi/state/lifecycle/**'
+
+  # Build the Studio image (Vite SPA + FastAPI single-origin) whenever its inputs
+  # change, so a broken image is caught on the PR that breaks it instead of at
+  # release time — release.yml is the only other place the Dockerfile is built.
+  # Build only, no push; layers cached via the GitHub Actions cache. Skipped only
+  # when the path-filter job succeeded and reported no image-relevant changes;
+  # ci-gate treats any other skip/failure/cancellation of this job as a failure.
+  studio-docker:
+    needs: changes
+    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.studio == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4
+    - name: Build Studio image (no push)
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
+      with:
+        context: .
+        file: apps/studio/Dockerfile
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
   vscode:
     runs-on: ubuntu-latest
@@ -129,7 +459,7 @@ jobs:
         working-directory: apps/vscode
     steps:
     - uses: actions/checkout@v7
-    - uses: actions/setup-node@v6
+    - uses: actions/setup-node@v7
       with:
         node-version: '22'
         cache: 'npm'
@@ -152,6 +482,64 @@ jobs:
     - name: Lint marketplace
       run: scripts/ci.sh lint-marketplace
 
+  # Single aggregate context for branch protection. Required status checks must
+  # reference this job, never the matrix legs directly: matrix names shift with
+  # the event (PRs run a subset of Python versions) and a renamed leg would
+  # strand PRs on a check that never reports. Fail-closed: every hard gate must
+  # report success; a skipped, failed, or cancelled hard gate fails the aggregate.
+  # studio-docker is the sole conditional exception, and only when the changes
+  # path-filter job itself succeeded and reported no Studio image inputs changed.
+  ci-gate:
+    if: ${{ always() }}
+    needs: [lint, core-install, docs, test, frontend, studio-e2e, changes, studio-docker, vscode, marketplace]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check aggregate result
+      env:
+        NEEDS_CONTEXT: ${{ toJSON(needs) }}
+      run: |
+        python - <<'PY'
+        import json
+        import os
+        import sys
+
+        needs = json.loads(os.environ["NEEDS_CONTEXT"])
+        hard_gates = [
+            "lint",
+            "core-install",
+            "docs",
+            "test",
+            "frontend",
+            "studio-e2e",
+            "changes",
+            "vscode",
+            "marketplace",
+        ]
+
+        bad = [
+            f"{name}={needs[name]['result']}"
+            for name in hard_gates
+            if needs[name]["result"] != "success"
+        ]
+
+        studio_changed = needs["changes"].get("outputs", {}).get("studio")
+        studio_result = needs["studio-docker"]["result"]
+        if studio_changed == "true":
+            if studio_result != "success":
+                bad.append(f"studio-docker={studio_result} while studio inputs changed")
+        elif studio_changed == "false":
+            if studio_result not in ("success", "skipped"):
+                bad.append(f"studio-docker={studio_result} while studio inputs did not change")
+        else:
+            bad.append(f"changes.outputs.studio={studio_changed!r} (expected 'true' or 'false')")
+
+        if bad:
+            print("ci-gate failed:", ", ".join(bad))
+            sys.exit(1)
+
+        print("ci-gate passed: required jobs succeeded; studio-docker skip, if any, was path-filtered")
+        PY
+
   publish:
     needs: [lint, test]
     runs-on: ubuntu-latest
@@ -162,7 +550,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.12"
 

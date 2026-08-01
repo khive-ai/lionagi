@@ -11,10 +11,8 @@ from lionagi.ln.types import ModelConfig
 from .message import Message, MessageContent, MessageRole
 from .validators import validate_image_url
 
-# Pattern for a well-formed inline image data URI.  Only a bitmap MIME
-# allowlist is accepted and the payload must be non-empty base64.  This is
-# intentionally restrictive — active-content types (HTML, JS, and SVG, which
-# can carry scripts) are rejected, as are other data: schemes.
+# Bitmap MIME allowlist, non-empty base64 only. Deliberately excludes
+# active-content types (HTML/JS/SVG) and other data: schemes.
 _DATA_IMAGE_RE = re.compile(r"^data:image/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/]+=*$")
 
 _INSTRUCTION_SERIALIZE_EXCLUDE: frozenset[str] = frozenset(
@@ -56,7 +54,6 @@ class InstructionContent(MessageContent):
         structure: type | str | None = None,
     ):
         structure_cls = _resolve_structure_cls(structure)
-        structure_inst = _build_structure(response_format, structure_cls)
 
         object.__setattr__(self, "instruction", instruction)
         object.__setattr__(self, "guidance", guidance)
@@ -67,14 +64,49 @@ class InstructionContent(MessageContent):
         object.__setattr__(self, "tool_schemas", tool_schemas if tool_schemas is not None else [])
         object.__setattr__(self, "response_format", response_format)
         object.__setattr__(self, "structure", structure_cls)
-        object.__setattr__(self, "_structure_instance", structure_inst)
+        object.__setattr__(self, "_structure_instance", None)
         object.__setattr__(self, "images", images if images is not None else [])
         object.__setattr__(self, "image_detail", image_detail)
+        MessageContent.__post_init__(self)
+        # Build from the tracked copy, not the caller's dict: an alias would
+        # let external mutation change rendering without advancing the revision.
+        object.__setattr__(
+            self, "_structure_instance", _build_structure(self.response_format, structure_cls)
+        )
+
+    def __getstate__(self) -> tuple[Any, Any]:
+        # _structure_instance may cache an unserializable dynamic class;
+        # excluded here, rebuilt from public fields in __setstate__.
+        import dataclasses
+
+        slots: dict[str, Any] = {}
+        for f in dataclasses.fields(self):
+            if f.name == "_structure_instance":
+                continue
+            try:
+                slots[f.name] = getattr(self, f.name)
+            except AttributeError:
+                continue
+        return (None, slots)
+
+    def __setstate__(self, state: tuple[Any, Any]) -> None:
+        # Restore via __setattr__, then rebuild _structure_instance from
+        # response_format — a copied structure would read a detached dict.
+        dict_state, slots_state = state
+        for source in (dict_state, slots_state):
+            if not source:
+                continue
+            for name, value in source.items():
+                setattr(self, name, value)
+        object.__setattr__(
+            self,
+            "_structure_instance",
+            _build_structure(self.response_format, _resolve_structure_cls(self.structure)),
+        )
 
     def to_dict(self, exclude: set[str] | frozenset[str] | None = None) -> dict[str, Any]:
-        # Conditionally include response_format when its value is a plain dict
-        # (JSON-serializable); keep excluding it for type/BaseModel references
-        # which cannot survive a round-trip through to_dict → from_dict.
+        # Include response_format only when it's a plain (JSON-serializable)
+        # dict; type/BaseModel forms can't round-trip through from_dict.
         base_exclude = set(_INSTRUCTION_SERIALIZE_EXCLUDE)
         if isinstance(self.response_format, dict):
             base_exclude.discard("response_format")
@@ -86,14 +118,8 @@ class InstructionContent(MessageContent):
         return DataClass.to_dict(self, exclude=frozenset(base_exclude))
 
     def with_updates(self, **kwargs: Any) -> InstructionContent:
-        # to_dict excludes response_format/structure for type/BaseModel refs
-        # (they can't survive a JSON round-trip), so the generic with_updates —
-        # which goes through to_dict → constructor — silently drops the response
-        # schema (and its rendered "ResponseFormat" / action_requests section).
-        # Carry them over for in-memory copies (e.g. _prepare folding the system
-        # message into the instruction's guidance), UNLESS the caller overrides
-        # them explicitly (a None passed for response_format intentionally
-        # clears it — that path strips prior turns' schemas in chat prep).
+        # to_dict can't round-trip type/BaseModel response_format/structure, so carry
+        # them forward here unless the caller explicitly overrides (None clears them).
         if "response_format" not in kwargs and self.response_format is not None:
             kwargs["response_format"] = self.response_format
             if "structure" not in kwargs and self.structure is not None:
@@ -140,9 +166,8 @@ class InstructionContent(MessageContent):
                 inst.prompt_context.extend(ctx_list)
 
         if ts := data.get("tool_schemas"):
-            # Accept either a flat list of schemas or the {"tools": [...]} wrapper
-            # that ActionManager.get_tool_schema returns; store flat so the
-            # rendered "Tools:" section isn't nested under a spurious `- tools:`.
+            # Accept a flat list or the {"tools": [...]} wrapper from
+            # ActionManager.get_tool_schema; store flat to avoid nesting.
             if isinstance(ts, dict):
                 ts = ts.get("tools", [ts])
             inst.tool_schemas.extend(ts if isinstance(ts, list) else [ts])
@@ -164,10 +189,9 @@ class InstructionContent(MessageContent):
             )
             if valid:
                 structure_cls = _resolve_structure_cls(structure)
-                structure_inst = _build_structure(response_format, structure_cls)
-                object.__setattr__(inst, "response_format", response_format)
-                object.__setattr__(inst, "structure", structure_cls)
-                object.__setattr__(inst, "_structure_instance", structure_inst)
+                inst.response_format = response_format
+                inst.structure = structure_cls
+                inst._structure_instance = _build_structure(inst.response_format, structure_cls)
 
         return inst
 
@@ -203,16 +227,14 @@ class InstructionContent(MessageContent):
             validate_image_url(idx)
             url = idx
         elif idx.startswith("data:"):
-            # Accept only well-formed inline image data URIs.
             if not _DATA_IMAGE_RE.match(idx):
                 raise ValueError(
                     f"Rejected data: URI — only data:image/*;base64,… is allowed. Got: {idx[:80]!r}"
                 )
             url = idx
         elif "://" in idx or (idx.split(":")[0].isalpha() and ":" in idx):
-            # Looks like a URL with a non-http/https/data scheme (e.g. file://,
-            # javascript:, ftp://).  Delegate to validate_image_url which will
-            # reject all disallowed schemes with a clear error.
+            # Non-http/https/data scheme (e.g. file://, javascript:); delegate
+            # to validate_image_url, which rejects disallowed schemes.
             validate_image_url(idx)
             url = idx  # unreachable if validate_image_url raises
         else:
